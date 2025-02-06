@@ -15,6 +15,8 @@ from pyDataconverter.utils.signal_gen import (
     generate_imd_tones,
     convert_to_differential
 )
+import pyDataconverter.utils.metrics as metrics
+import pyDataconverter.utils.fft_analysis as fftan
 
 
 def plot_conversion(time, input_signal, output_codes, title, ylabel="Voltage (V)"):
@@ -36,22 +38,41 @@ def plot_conversion(time, input_signal, output_codes, title, ylabel="Voltage (V)
     plt.tight_layout()
     plt.show()
 
+def plot_frequencydomain(freqs, mags, title, xlabel='Frequency', ylabel='Power'):
+    """Helper function to plot input and output"""
+    fig, ax1 = plt.subplots(1, 1, figsize=(10, 8))
+
+    ax1.plot(freqs, mags)
+    ax1.set_title(f'Input Signal - {title}')
+    ax1.set_xlabel(xlabel)
+    ax1.set_ylabel(ylabel)
+    ax1.grid(True)
+
+    plt.tight_layout()
+
+    return fig, ax1
+
+
 
 def test_sine_wave():
     """Test ADC with sine wave input"""
+    print('--- Running sine wave input example ---')
     # Setup ADC
-    adc = SimpleADC(n_bits=12, v_ref=1.0, input_type=InputType.DIFFERENTIAL)
+    fsr = 1
+    adc = SimpleADC(n_bits=12, v_ref=fsr, input_type=InputType.DIFFERENTIAL)
 
     # Generate sine wave
     fs = 1e6  # 1 MHz sampling rate
-    f_in = 10e3  # 10 kHz input
-    duration = 1e-3  # 1 ms
+    NFIN = 11
+    NFFT = 1024
+    f_in = NFIN/NFFT*fs # Coherent input signal
+    duration = NFFT / fs # Take full sine wave cycle
 
     # Generate single-ended signal
     sine = generate_sine(
         frequency=f_in,
         sampling_rate=fs,
-        amplitude=0.4,
+        amplitude=fsr/2,
         duration=duration
     )
 
@@ -65,6 +86,19 @@ def test_sine_wave():
     # Plot results
     plot_conversion(t, v_pos - v_neg, codes, "Sine Wave")
 
+    #Now, analyze performance.  Calculate FFT and plot
+    freqs, mags = fftan.compute_fft(codes, fs, normalization=fftan.FFTNormalization.DBFS, full_scale=2**adc.n_bits/2) # use default window. Normalize to dBFS
+    fftan.plot_fft(freqs, mags)
+    plt.show()
+
+    #Calculate metrics and print
+    results = metrics.calculate_adc_dynamic_metrics(freqs=freqs, mags=mags, fs=fs, f0=f_in)
+    print('Sine wave test results:')
+    for k in results.keys():
+        print('--- {}: {}'.format(k, results[k]))
+
+
+
 
 def test_ramp():
     """Test ADC with ramp input"""
@@ -76,7 +110,7 @@ def test_ramp():
     duration = 1e-3
 
     # Generate single-ended ramp
-    ramp = generate_ramp(samples, -0.5, 0.5)  # -0.5V to +0.5V for differential
+    ramp = generate_ramp(samples, -0.6, 0.6)  # -0.6V to +0.6V for differential
 
     # Convert to differential
     v_pos, v_neg = convert_to_differential(ramp, vcm=0.5)
@@ -96,12 +130,15 @@ def test_two_tone():
 
     # Generate two-tone signal
     fs = 1e6  # 1 MHz sampling rate
-    f1 = 10e3  # 10 kHz
-    delta_f = 1e3  # 1 kHz spacing
-    duration = 1e-3
+    NFIN1 = 11
+    NFIN2 = 13
+    NFFT = 1024
+    f1 = NFIN1/NFFT * fs  # Coherent tone
+    delta_f = (NFIN2-NFIN1)/NFFT * fs # Tone spacing
+    duration = NFFT / fs
 
     # Generate signal and get IMD frequencies
-    signal, imd_freqs = generate_imd_tones(f1, delta_f, fs, amplitude=0.8, duration=duration)
+    signal, imd_freqs = generate_imd_tones(f1, delta_f, fs, amplitude=0.5, duration=duration)
 
     # Convert to differential
     v_pos, v_neg = convert_to_differential(signal, vcm=0.5)

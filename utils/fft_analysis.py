@@ -72,7 +72,7 @@ def compute_fft(time_data: np.ndarray,
         if full_scale is None:
             raise ValueError("full_scale must be provided for dBFS normalization")
         # Normalize to full scale
-        magnitudes_db = magnitudes_db - 20 * np.log10(full_scale) - 20 * np.log10(N)
+        magnitudes_db = magnitudes_db - 20 * np.log10(full_scale) - 20 * np.log10(N/2)
 
     # Return positive frequencies only
     pos_mask = freqs >= 0
@@ -186,7 +186,7 @@ def plot_fft(freqs: np.ndarray,
              mags: np.ndarray,
              title: str = "FFT",
              max_freq: float = None,
-             min_db: float = -100,
+             min_db: float = None,
              max_db: float = None,
              fig=None,
              ax=None):
