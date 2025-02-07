@@ -10,11 +10,13 @@ Classes:
 
 Version History:
 2025-01-31: First pass wrapper
+2025-02-06: Added DACBase abstract class
 """
 
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Union, Tuple
+import numpy as np
 
 
 class InputType(Enum):
@@ -66,3 +68,83 @@ class ADCBase(ABC):
 
 
 
+
+
+class OutputType(Enum):
+    """Defines single or differential output for DAC"""
+    SINGLE = 'single'
+    DIFFERENTIAL = 'diff'
+
+
+class DACBase(ABC):
+    """
+    Abstract base class for DAC implementations.
+
+    Attributes:
+        n_bits (int): DAC resolution
+        v_ref (float): Reference voltage
+        output_type (OutputType): Single-ended or differential
+        lsb (float): Least significant bit size
+    """
+
+    def __init__(self, n_bits: int, v_ref: float = 1.0, output_type: OutputType = OutputType.SINGLE):
+        # Validate n_bits
+        if not isinstance(n_bits, int):
+            raise TypeError("n_bits must be an integer")
+        if n_bits <= 0 or n_bits > 32:
+            raise ValueError("n_bits must be between 1 and 32")
+
+        # Validate v_ref
+        if not isinstance(v_ref, (int, float)):
+            raise TypeError("v_ref must be a number")
+        if v_ref <= 0:
+            raise ValueError("v_ref must be positive")
+
+        # Validate output_type
+        if not isinstance(output_type, OutputType):
+            raise TypeError("output_type must be an OutputType enum")
+
+        # Assign attributes
+        self.n_bits = n_bits
+        self.v_ref = v_ref
+        self.output_type = output_type
+        self.lsb = v_ref / (2 ** n_bits)
+
+    def convert(self, digital_input: int) -> Union[float, Tuple[float, float]]:
+        """
+        Convert digital input to analog output.
+
+        Args:
+            digital_input: Input code (must be between 0 and 2^n_bits - 1)
+
+        Returns:
+            Single voltage or tuple of (pos, neg) for differential
+
+        Raises:
+            ValueError: If input code is out of range
+        """
+        # Validate input range
+        if not isinstance(digital_input, (int, np.integer)):
+            raise TypeError("Digital input must be an integer")
+        if digital_input < 0 or digital_input >= 2 ** self.n_bits:
+            raise ValueError(f"Digital input must be between 0 and {2 ** self.n_bits - 1}")
+
+        # Call architecture-specific conversion
+        return self._convert_input(digital_input)
+
+    @abstractmethod
+    def _convert_input(self, digital_input: int) -> Union[float, Tuple[float, float]]:
+        """
+        Architecture-specific conversion implementation.
+
+        Args:
+            digital_input: Pre-validated input code
+
+        Returns:
+            Single voltage or tuple of voltages for differential
+        """
+        pass
+
+    def __repr__(self) -> str:
+        """String representation of the DAC"""
+        return f"{self.__class__.__name__}(n_bits={self.n_bits}, v_ref={self.v_ref}, output_type={self.output_type.name})"
