@@ -8,7 +8,7 @@ Demonstrates the use of SimpleADC with various input signals.
 import numpy as np
 import matplotlib.pyplot as plt
 from pyDataconverter.architectures.SimpleADC import SimpleADC
-from pyDataconverter.dataconverter import InputType
+from pyDataconverter.dataconverter import InputType, QuantizationMode
 from pyDataconverter.utils.signal_gen import (
     generate_sine,
     generate_ramp,
@@ -161,8 +161,67 @@ def test_two_tone():
             print(f"{key}: {value / 1e3:.1f} kHz")
 
 
+def test_transfer_function_3bit():
+    """
+    Compare FLOOR and SYMMETRIC quantization modes on a 3-bit ADC.
+
+    Sweeps a ramp from 0 to v_ref and overlays the transfer functions for
+    both modes, making it easy to see where the transition points differ —
+    particularly the half-LSB shift at the first and last code boundaries
+    in SYMMETRIC mode.
+    """
+    print('--- 3-bit ADC transfer function comparison (FLOOR vs SYMMETRIC) ---')
+
+    n_bits = 3
+    v_ref = 1.0
+    n_codes = 2 ** n_bits  # 8 codes: 0 to 7
+
+    adc_floor = SimpleADC(n_bits=n_bits, v_ref=v_ref, input_type=InputType.SINGLE,
+                          quant_mode=QuantizationMode.FLOOR)
+    adc_sym   = SimpleADC(n_bits=n_bits, v_ref=v_ref, input_type=InputType.SINGLE,
+                          quant_mode=QuantizationMode.SYMMETRIC)
+
+    # Dense ramp across full input range
+    vin = np.linspace(0, v_ref, 10000)
+    codes_floor = [adc_floor.convert(v) for v in vin]
+    codes_sym   = [adc_sym.convert(v) for v in vin]
+
+    # Compute expected transition points for annotation
+    lsb_floor = v_ref / n_codes                   # v_ref / 2^N
+    lsb_sym   = v_ref / (n_codes - 1)             # v_ref / (2^N - 1)
+    transitions_floor = [k * lsb_floor for k in range(1, n_codes)]
+    transitions_sym   = [(k - 0.5) * lsb_sym for k in range(1, n_codes)]
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    ax.plot(vin, codes_floor, color='steelblue', linewidth=2, label='FLOOR')
+    ax.plot(vin, codes_sym,   color='tomato',    linewidth=2, label='SYMMETRIC',
+            linestyle='--')
+
+    # Mark transition points on the x-axis
+    for t in transitions_floor:
+        ax.axvline(t, color='steelblue', linewidth=0.7, linestyle=':')
+    for t in transitions_sym:
+        ax.axvline(t, color='tomato', linewidth=0.7, linestyle=':')
+
+    ax.set_xlabel('Input Voltage (V)')
+    ax.set_ylabel('Output Code')
+    ax.set_title(f'{n_bits}-bit ADC Transfer Function: FLOOR vs SYMMETRIC\n'
+                 f'FLOOR LSB = {lsb_floor*1000:.1f} mV  |  '
+                 f'SYMMETRIC LSB = {lsb_sym*1000:.2f} mV')
+    ax.set_yticks(range(n_codes))
+    ax.set_xlim(0, v_ref)
+    ax.set_ylim(-0.5, n_codes - 0.5)
+    ax.legend()
+    ax.grid(True, axis='y', alpha=0.4)
+
+    plt.tight_layout()
+    plt.show()
+
+
 def main():
     # Run all tests
+    test_transfer_function_3bit()
     test_sine_wave()
     test_ramp()
     test_two_tone()

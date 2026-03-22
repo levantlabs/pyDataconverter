@@ -1,5 +1,5 @@
 """
-Data Converter Base Closses
+Data Converter Base Classes
 ===========================
 
 This module provides interfaces for both ADC and DAC implementations.
@@ -11,6 +11,7 @@ Classes:
 Version History:
 2025-01-31: First pass wrapper
 2025-02-06: Added DACBase abstract class
+2026-03-22: Added QuantizationMode enum
 """
 
 from abc import ABC, abstractmethod
@@ -23,6 +24,31 @@ class InputType(Enum):
     """Defines differential or single ended inputs for ADCs"""
     SINGLE = 'single'
     DIFFERENTIAL='differential'
+
+
+class QuantizationMode(Enum):
+    """
+    Defines the quantization model used by an ADC.
+
+    FLOOR:
+        Standard hardware ADC model, consistent with IEEE 1241 and industry
+        datasheets (Analog Devices, TI, etc.).
+        - LSB = v_ref / 2^N
+        - All code bins are exactly 1 LSB wide
+        - Quantization error ranges from 0 to +LSB (always positive bias)
+        - Formula: code = floor(vin * 2^N / v_ref)
+
+    SYMMETRIC:
+        DSP / signal processing model. Suitable for quantization noise analysis
+        where zero-mean error is desired.
+        - LSB = v_ref / (2^N - 1)
+        - The first (code 0) and last (code 2^N-1) bins are half-width (LSB/2)
+        - All middle bins are exactly 1 LSB wide
+        - Quantization error is symmetric: -LSB/2 to +LSB/2 (zero mean)
+        - Formula: code = floor(vin * (2^N - 1) / v_ref + 0.5)
+    """
+    FLOOR = 'floor'
+    SYMMETRIC = 'symmetric'
 
 class ADCBase(ABC):
     """Abstract base class for all ADC architectures"""
