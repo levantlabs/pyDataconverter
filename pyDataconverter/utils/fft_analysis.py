@@ -11,7 +11,9 @@ from scipy import signal
 from enum import Enum
 
 import matplotlib.pyplot as plt
-from pyDataconverter.utils.signal_gen import generate_sine, generate_two_tone, convert_to_differential
+from pyDataconverter.utils.signal_gen import (generate_sine, generate_two_tone,
+                                               convert_to_differential,
+                                               generate_coherent_sine)
 
 
 
@@ -182,102 +184,21 @@ def find_harmonics(freqs: np.ndarray,
             print(f"Warning: {e}")
 
     return harmonics
-def plot_fft(freqs: np.ndarray,
-             mags: np.ndarray,
-             title: str = "FFT",
-             max_freq: float = None,
-             min_db: float = None,
-             max_db: float = None,
-             fig=None,
-             ax=None):
-    """
-    Plot FFT with automatic frequency unit selection.
-
-    Args:
-        freqs: Frequency array in Hz
-        mags: Magnitude array in dB
-        title: Plot title
-        max_freq: Maximum frequency to display (in Hz), if None shows all frequencies
-        min_db: Minimum dB value to display
-        max_db: Maximum dB value to display, if None uses max of data + small margin
-        fig: Matplotlib figure to plot on (optional)
-        ax: Matplotlib axis to plot on (optional)
-    """
-    import matplotlib.pyplot as plt
-
-    # Create figure if not provided
-    if fig is None and ax is None:
-        fig, ax = plt.subplots(figsize=(12, 6))
-
-    # Apply frequency limit if specified
-    if max_freq:
-        mask = freqs <= max_freq
-        freqs = freqs[mask]
-        mags = mags[mask]
-    else:
-        max_freq = np.max(freqs)
-
-    # Determine frequency unit
-    if max_freq >= 1e9:
-        freq_scale = 1e9
-        freq_unit = 'GHz'
-    elif max_freq >= 1e6:
-        freq_scale = 1e6
-        freq_unit = 'MHz'
-    elif max_freq >= 1e3:
-        freq_scale = 1e3
-        freq_unit = 'kHz'
-    else:
-        freq_scale = 1
-        freq_unit = 'Hz'
-
-    # Find nice maximum frequency for plot
-    scaled_max = max_freq / freq_scale
-    if scaled_max <= 1:
-        plot_max = 1
-    else:
-        plot_max = np.ceil(scaled_max)
-
-    # Plot
-    ax.plot(freqs / freq_scale, mags)
-    ax.grid(True)
-    ax.set_xlabel(f'Frequency ({freq_unit})')
-    ax.set_ylabel('Magnitude (dB)')
-    ax.set_title(title)
-
-    # Set axis limits
-    ax.set_xlim(0, plot_max)
-    if max_db is None:
-        max_db = np.ceil(np.max(mags)) + 2  # Add 2 dB margin
-    ax.set_ylim(min_db, max_db)
-
-    return ax
-"""
-FFT Analysis Demo
-================
-
-Demonstrates FFT analysis with various test signals.
-"""
-
-
 def demo_fft_analysis():
     """Demonstrate FFT analysis functions with various test signals"""
     import matplotlib.pyplot as plt
+    from pyDataconverter.utils.visualizations.fft_plots import plot_fft
 
     # Test parameters
     fs = 1e6  # 1 MHz sampling rate
     NFFT = 1024
     NFIN = 11
-    duration = NFFT / fs
 
     # 1. Single tone with harmonics
     print("\nDemo 1: Single tone with harmonics")
-    f0 = NFIN / NFFT * fs  # Coherent signal
-
-    # Generate fundamental and harmonics using signal generator
-    signal1 = generate_sine(f0, fs, amplitude=1.0, duration=duration)
-    signal2 = generate_sine(2 * f0, fs, amplitude=0.1, duration=duration)
-    signal3 = generate_sine(3 * f0, fs, amplitude=0.05, duration=duration)
+    signal1, f0 = generate_coherent_sine(fs, NFFT, NFIN, amplitude=1.0)
+    signal2 = generate_sine(2 * f0, fs, amplitude=0.1, duration=NFFT / fs)
+    signal3 = generate_sine(3 * f0, fs, amplitude=0.05, duration=NFFT / fs)
     signal = signal1 + signal2 + signal3
 
     # In demo_fft_analysis()

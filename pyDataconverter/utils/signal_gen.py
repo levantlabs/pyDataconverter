@@ -414,6 +414,73 @@ def generate_digital_imd_tones(n_bits: int,
 
     return signal, imd_freqs
 
+def generate_coherent_sine(sampling_rate: float,
+                           n_fft: int,
+                           n_fin: int,
+                           amplitude: float = 1.0,
+                           offset: float = 0.0) -> Tuple[np.ndarray, float]:
+    """
+    Generate a coherent sine wave for FFT-based ADC testing.
+
+    Coherent sampling places the signal at an exact FFT bin frequency
+    (f_in = n_fin / n_fft * fs), eliminating spectral leakage so that
+    dynamic metrics such as SNR, SFDR, THD, and ENOB can be measured
+    accurately from a single FFT window.
+
+    Args:
+        sampling_rate: Sampling rate in Hz
+        n_fft: FFT size. Sets duration = n_fft / sampling_rate so that
+               exactly one FFT window is captured.
+        n_fin: Input frequency bin number (integer, 1 <= n_fin < n_fft/2).
+               The actual frequency is f_in = n_fin / n_fft * sampling_rate.
+        amplitude: Peak amplitude in volts (default 1.0)
+        offset: DC offset in volts (default 0.0)
+
+    Returns:
+        Tuple of (signal array, input frequency in Hz)
+    """
+    f_in = n_fin / n_fft * sampling_rate
+    duration = n_fft / sampling_rate
+    signal = generate_sine(f_in, sampling_rate, amplitude, offset, duration)
+    return signal, f_in
+
+
+def generate_coherent_two_tone(sampling_rate: float,
+                               n_fft: int,
+                               n_fin1: int,
+                               n_fin2: int,
+                               amplitude1: float = 0.5,
+                               amplitude2: float = 0.5,
+                               phase1: float = 0.0,
+                               phase2: float = 0.0) -> Tuple[np.ndarray, float, float]:
+    """
+    Generate a coherent two-tone signal for FFT-based ADC testing.
+
+    Both tones land on exact FFT bin frequencies, eliminating spectral
+    leakage. Useful for IMD and two-tone intermodulation measurements
+    where the in-band IMD products must be resolved accurately.
+
+    Args:
+        sampling_rate: Sampling rate in Hz
+        n_fft: FFT size. Duration = n_fft / sampling_rate.
+        n_fin1: First tone frequency bin number
+        n_fin2: Second tone frequency bin number
+        amplitude1: First tone peak amplitude in volts (default 0.5)
+        amplitude2: Second tone peak amplitude in volts (default 0.5)
+        phase1: First tone initial phase in radians (default 0.0)
+        phase2: Second tone initial phase in radians (default 0.0)
+
+    Returns:
+        Tuple of (signal array, f1 in Hz, f2 in Hz)
+    """
+    f1 = n_fin1 / n_fft * sampling_rate
+    f2 = n_fin2 / n_fft * sampling_rate
+    duration = n_fft / sampling_rate
+    signal = generate_two_tone(f1, f2, sampling_rate, amplitude1, amplitude2,
+                               phase1, phase2, duration)
+    return signal, f1, f2
+
+
 # Usage example
 if __name__ == "__main__":
     # Generate a sine wave
