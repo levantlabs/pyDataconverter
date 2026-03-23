@@ -38,7 +38,7 @@ from enum import Enum
 from typing import Optional, Type, Union, Tuple
 import numpy as np
 from pyDataconverter.dataconverter import ADCBase, InputType
-from pyDataconverter.components.comparator import Comparator
+from pyDataconverter.components.comparator import ComparatorBase, DifferentialComparator
 from pyDataconverter.components.reference import ReferenceBase, ReferenceLadder
 
 
@@ -82,7 +82,7 @@ class FlashADC(ADCBase):
                  n_bits: int,
                  v_ref: float = 1.0,
                  input_type: InputType = InputType.SINGLE,
-                 comparator_type: Type[Comparator] = Comparator,
+                 comparator_type: Type[ComparatorBase] = DifferentialComparator,
                  comparator_params: Optional[dict] = None,
                  offset_std: float = 0.0,
                  reference: Optional[ReferenceBase] = None,
@@ -131,8 +131,13 @@ class FlashADC(ADCBase):
                     f"{n_bits}-bit ADC needs {self.n_comparators}")
             self.reference = reference
         else:
-            v_min = -v_ref / 2 if input_type == InputType.DIFFERENTIAL else 0.0
-            v_max =  v_ref / 2 if input_type == InputType.DIFFERENTIAL else v_ref
+            # For differential mode each comparator receives (v_pos - v_refp[i], v_neg - v_refn[i]).
+            # v_refp and v_refn come from opposite ends of the same ladder, so the effective
+            # differential threshold = v_refp[i] - v_refn[i] = 2 * tap_voltage[i].
+            # The ladder therefore spans [-v_ref/4, +v_ref/4] so that the differential
+            # thresholds cover the full [-v_ref/2, +v_ref/2] input range.
+            v_min = -v_ref / 4 if input_type == InputType.DIFFERENTIAL else 0.0
+            v_max =  v_ref / 4 if input_type == InputType.DIFFERENTIAL else v_ref
             self.reference = ReferenceLadder(n_bits, v_min, v_max,
                                              resistor_mismatch=resistor_mismatch,
                                              noise_rms=reference_noise)
@@ -199,18 +204,26 @@ class FlashADC(ADCBase):
         Returns:
             int: Output code in [0, 2^n_bits - 1].
         """
+        comp_refs = self.reference.get_voltages()
+        n = self.n_comparators
+
         if self.input_type == InputType.DIFFERENTIAL:
             v_pos, v_neg = analog_input
-            vin = v_pos - v_neg
+            # v_refp[i] comes from the bottom of the ladder (ascending index);
+            # v_refn[i] comes from the opposite (top) end (descending index).
+            # Effective threshold[i] = v_refp[i] − v_refn[i] = 2 × comp_refs[i],
+            # which spans [−v_ref/2, +v_ref/2] because the ladder spans [−v_ref/4, +v_ref/4].
+            thermometer = np.array([
+                comp.compare(v_pos, v_neg, comp_refs[i], comp_refs[n - 1 - i])
+                for i, comp in enumerate(self.comparators)
+            ])
         else:
             vin = float(analog_input)
-
-        comp_refs = self.reference.get_voltages()
-
-        thermometer = np.array([
-            comp.compare(vin, ref)
-            for comp, ref in zip(self.comparators, comp_refs)
-        ])
+            # Single-ended: reference injected as v_refp; v_neg and v_refn are 0.
+            thermometer = np.array([
+                comp.compare(vin, 0.0, ref, 0.0)
+                for comp, ref in zip(self.comparators, comp_refs)
+            ])
 
         return int(np.clip(self._encode(thermometer), 0, 2 ** self.n_bits - 1))
 
