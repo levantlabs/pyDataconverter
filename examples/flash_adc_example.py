@@ -445,17 +445,30 @@ def test_noise_snr_vs_bits():
 # ---------------------------------------------------------------------------
 
 def test_visualizer():
-    """Static snapshot of the comparator bank at a given input voltage."""
+    """
+    Comparator bank visualizer:
+      - Static snapshot at a fixed input voltage (single-ended)
+      - Interactive slider for real-time exploration (single-ended)
+      - Interactive slider for differential mode
+    """
     print('--- Architecture visualizer ---')
     np.random.seed(1)
-    adc = FlashADC(
-        n_bits=3,
-        v_ref=1.0,
-        input_type=InputType.SINGLE,
-        offset_std=0.01,
-    )
-    visualize_flash_adc(adc, input_voltage=0.4)
+
+    adc_se = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE,
+                      offset_std=0.01)
+
+    # Static snapshot
+    visualize_flash_adc(adc_se, input_voltage=0.4)
     plt.show()
+
+    # Interactive single-ended (slider controls v_in)
+    visualize_flash_adc(adc_se, interactive=True)
+
+    # Interactive differential (slider controls v_diff)
+    np.random.seed(2)
+    adc_diff = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.DIFFERENTIAL,
+                        offset_std=0.01)
+    visualize_flash_adc(adc_diff, interactive=True)
 
 
 # ---------------------------------------------------------------------------
