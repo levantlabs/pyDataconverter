@@ -166,10 +166,105 @@ class TestSimpleADC(unittest.TestCase):
                 self.assertEqual(adc.convert(0.0), 0)
 
     def test_repr(self):
-        """repr includes quant_mode"""
+        """repr includes quant_mode and any non-zero non-ideality parameters"""
         adc = SimpleADC(self.n_bits, self.v_ref, InputType.SINGLE,
                         quant_mode=QuantizationMode.SYMMETRIC)
         self.assertIn('SYMMETRIC', repr(adc))
+
+        adc_ni = SimpleADC(self.n_bits, self.v_ref, InputType.SINGLE,
+                           noise_rms=1e-4, offset=1e-3,
+                           gain_error=0.001, t_jitter=1e-12)
+        r = repr(adc_ni)
+        self.assertIn('noise_rms', r)
+        self.assertIn('offset', r)
+        self.assertIn('gain_error', r)
+        self.assertIn('t_jitter', r)
+
+    # ------------------------------------------------------------------ #
+    # Non-idealities                                                       #
+    # ------------------------------------------------------------------ #
+
+    def test_offset_shifts_codes(self):
+        """A positive offset shifts all codes upward by roughly offset/LSB."""
+        lsb = self.v_ref / 2**self.n_bits
+        offset = 10 * lsb
+        adc_ideal  = SimpleADC(self.n_bits, self.v_ref, InputType.SINGLE)
+        adc_offset = SimpleADC(self.n_bits, self.v_ref, InputType.SINGLE,
+                               offset=offset)
+
+        for vin in [0.1, 0.3, 0.5, 0.7]:
+            ideal_code  = adc_ideal.convert(vin)
+            offset_code = adc_offset.convert(vin)
+            # Code should shift by approximately offset/lsb (allow ±1 rounding)
+            self.assertAlmostEqual(offset_code - ideal_code, round(offset / lsb),
+                                   delta=1,
+                                   msg=f"vin={vin}: offset shift wrong")
+
+    def test_gain_error_scales_codes(self):
+        """
+        A gain error of +1 % should cause the mid-scale code to be
+        approximately 1 % higher than ideal (before clipping).
+        """
+        gain_error = 0.01
+        adc_ideal = SimpleADC(self.n_bits, self.v_ref, InputType.SINGLE)
+        adc_gain  = SimpleADC(self.n_bits, self.v_ref, InputType.SINGLE,
+                              gain_error=gain_error)
+
+        vin = 0.25  # well within range so gain shift doesn't clip
+        ideal_code = adc_ideal.convert(vin)
+        gain_code  = adc_gain.convert(vin)
+        expected_shift = round(ideal_code * gain_error)
+        self.assertAlmostEqual(gain_code - ideal_code, expected_shift,
+                               delta=1,
+                               msg="Gain error did not shift code as expected")
+
+    def test_noise_rms_zero_means_ideal(self):
+        """With noise_rms=0 every call returns the same code as ideal."""
+        adc = SimpleADC(self.n_bits, self.v_ref, InputType.SINGLE, noise_rms=0.0)
+        adc_ideal = SimpleADC(self.n_bits, self.v_ref, InputType.SINGLE)
+        for vin in [0.0, 0.25, 0.5, 0.75, 1.0]:
+            self.assertEqual(adc.convert(vin), adc_ideal.convert(vin))
+
+    def test_noise_spreads_codes(self):
+        """Large noise_rms should cause output codes to vary across repeated conversions."""
+        lsb = self.v_ref / 2**self.n_bits
+        adc = SimpleADC(self.n_bits, self.v_ref, InputType.SINGLE,
+                        noise_rms=100 * lsb)
+        vin = 0.5
+        codes = [adc.convert(vin) for _ in range(200)]
+        # With 100 LSB noise, output must not be constant
+        self.assertGreater(len(set(codes)), 1,
+                           "Codes should vary with large noise_rms")
+
+    def test_aperture_jitter_zero_dvdt_no_effect(self):
+        """Aperture jitter has no effect when dvdt=0 (default)."""
+        lsb = self.v_ref / 2**self.n_bits
+        adc_jitter = SimpleADC(self.n_bits, self.v_ref, InputType.SINGLE,
+                               t_jitter=1e-6)   # very large jitter
+        adc_ideal  = SimpleADC(self.n_bits, self.v_ref, InputType.SINGLE)
+        # Without passing dvdt the jitter term is zero regardless of t_jitter
+        for vin in [0.25, 0.5, 0.75]:
+            self.assertEqual(adc_jitter.convert(vin), adc_ideal.convert(vin))
+
+    def test_aperture_jitter_with_dvdt_spreads_codes(self):
+        """Aperture jitter with a large dvdt should spread output codes."""
+        import math
+        lsb = self.v_ref / 2**self.n_bits
+        # Jitter large enough to cause multi-LSB errors
+        t_jitter = 100 * lsb   # 100 LSB * 1 V/s ≈ 100 LSB error at dvdt=1 V/s
+        adc = SimpleADC(self.n_bits, self.v_ref, InputType.SINGLE,
+                        t_jitter=t_jitter)
+        dvdt = 1.0  # V/s — large enough that jitter * dvdt >> LSB
+        codes = [adc.convert(0.5, dvdt=dvdt) for _ in range(200)]
+        self.assertGreater(len(set(codes)), 1,
+                           "Codes should vary when t_jitter and dvdt are both non-zero")
+
+    def test_parameter_validation(self):
+        """noise_rms and t_jitter must be non-negative."""
+        with self.assertRaises(ValueError):
+            SimpleADC(self.n_bits, self.v_ref, InputType.SINGLE, noise_rms=-1.0)
+        with self.assertRaises(ValueError):
+            SimpleADC(self.n_bits, self.v_ref, InputType.SINGLE, t_jitter=-1e-12)
 
 
 if __name__ == '__main__':

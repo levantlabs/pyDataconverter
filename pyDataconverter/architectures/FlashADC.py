@@ -2,10 +2,12 @@
 Flash ADC Module
 ===============
 
-This module provides a Flash ADC implementation with configurable non-idealities.
+This module provides a Flash ADC implementation with configurable non-idealities
+and encoder types.
 
 Classes:
-    FlashADC: Flash ADC implementation inheriting from ADCBase
+    EncoderType: Enum defining the thermometer-to-binary encoding strategy.
+    FlashADC: Flash ADC implementation inheriting from ADCBase.
 
 Version History:
 ---------------
@@ -14,36 +16,66 @@ Version History:
     - Basic Flash ADC implementation
     - Integration with Comparator component
     - Support for offset, noise, and resistor mismatch
+1.1.0 (2026-03-23):
+    - Added EncoderType enum (COUNT_ONES, XOR)
+    - Added differential input support
+    - Refactored encoder into _encode() method
 
 Notes:
 ------
 The Flash ADC model includes:
     - Configurable number of bits
-    - Individual comparator non-idealities
+    - Individual comparator non-idealities (via Comparator class)
     - Resistor ladder mismatch
     - Reference noise modeling
-Future versions may include:
-    - Temperature effects
-    - Dynamic timing effects
-    - Power consumption modeling
+    - Choice of thermometer-to-binary encoder
+TODO:
+    - Bandwidth modeling: Comparator.compare() accepts time_step for bandwidth
+      limiting, but FlashADC does not yet pass it.
 """
 
-from typing import Optional, Type
+from enum import Enum
+from typing import Optional, Type, Union, Tuple
 import numpy as np
 from pyDataconverter.dataconverter import ADCBase, InputType
 from pyDataconverter.components.comparator import Comparator
+from pyDataconverter.components.reference import ReferenceBase, ReferenceLadder
+
+
+class EncoderType(Enum):
+    """
+    Thermometer-to-binary encoding strategy for Flash ADC.
+
+    COUNT_ONES:
+        Counts the total number of asserted comparator outputs.
+        Equivalent to a Wallace tree counter in hardware.
+        Robust to bubble errors: each bubble reduces the code by 1
+        rather than producing a large sparkle error.
+        Formula: code = sum(thermometer)
+
+    XOR:
+        XORs adjacent thermometer bits to produce a one-hot intermediate X,
+        then maps to binary via OR gates:
+            bit k of output = OR of X[i] for all i where bit k is set in (i+1)
+        Mirrors the standard hardware ROM encoder.
+        With a valid thermometer code the result equals COUNT_ONES.
+        With bubble errors, multiple XOR bits fire and the OR logic produces
+        sparkle codes (large, unpredictable errors).
+    """
+    COUNT_ONES = 'count_ones'
+    XOR        = 'xor'
 
 
 class FlashADC(ADCBase):
     """
-    Flash ADC implementation with configurable non-idealities.
+    Flash ADC implementation with configurable non-idealities and encoder.
 
     Attributes:
         Inherits all attributes from ADCBase, plus:
-        n_comparators: Number of comparators (2^n_bits - 1)
-        comparators: List of comparator instances
-        reference_voltages: Reference voltages from resistor ladder
-        reference_noise: RMS noise of reference ladder
+        n_comparators (int): Number of comparators (2^n_bits - 1).
+        comparators (list): Per-comparator Comparator instances.
+        reference (ReferenceBase): Voltage reference generator.
+        encoder_type (EncoderType): Thermometer-to-binary encoding strategy.
     """
 
     def __init__(self,
@@ -53,87 +85,146 @@ class FlashADC(ADCBase):
                  comparator_type: Type[Comparator] = Comparator,
                  comparator_params: Optional[dict] = None,
                  offset_std: float = 0.0,
+                 reference: Optional[ReferenceBase] = None,
                  reference_noise: float = 0.0,
-                 resistor_mismatch: float = 0.0):
+                 resistor_mismatch: float = 0.0,
+                 encoder_type: EncoderType = EncoderType.COUNT_ONES):
         """
         Initialize Flash ADC.
 
         Args:
-            n_bits: Resolution in bits
-            v_ref: Reference voltage
-            input_type: Input type (SINGLE or DIFFERENTIAL)
-            comparator_type: Comparator class to use
-            comparator_params: Parameters for comparator initialization
-            offset_std: Standard deviation of comparator offsets
-            reference_noise: RMS noise of reference ladder
-            resistor_mismatch: Standard deviation of resistor mismatch
+            n_bits: Resolution in bits.
+            v_ref: Reference voltage.
+            input_type: SINGLE or DIFFERENTIAL.
+            comparator_type: Comparator class to instantiate for each stage.
+            comparator_params: Shared keyword arguments passed to every
+                comparator (e.g. noise_rms, hysteresis). The 'offset' key
+                is reserved — per-comparator offsets are set via offset_std.
+            offset_std: Standard deviation of comparator input-referred offsets
+                (V). Drawn once at construction and held fixed.
+            reference: Voltage reference instance (ReferenceBase subclass).
+                If provided, reference_noise and resistor_mismatch are ignored
+                and the reference component fully controls the thresholds.
+                If None, a default ReferenceLadder is built from v_ref,
+                input_type, resistor_mismatch, and reference_noise.
+            reference_noise: RMS dynamic noise for the default ReferenceLadder
+                (ignored when reference is provided).
+            resistor_mismatch: Resistor mismatch std for the default
+                ReferenceLadder (ignored when reference is provided).
+            encoder_type: Thermometer-to-binary encoding strategy.
         """
-        # Initialize parent class
         super().__init__(n_bits, v_ref, input_type)
 
-        # Number of comparators
-        self.n_comparators = 2 ** n_bits - 1
+        if not isinstance(encoder_type, EncoderType):
+            raise TypeError("encoder_type must be an EncoderType enum")
 
-        # Initialize comparator parameters
+        self.n_comparators = 2 ** n_bits - 1
+        self.encoder_type  = encoder_type
+
+        # Reference generator
+        if reference is not None:
+            if not isinstance(reference, ReferenceBase):
+                raise TypeError("reference must be a ReferenceBase instance")
+            if reference.n_references != self.n_comparators:
+                raise ValueError(
+                    f"reference has {reference.n_references} taps but "
+                    f"{n_bits}-bit ADC needs {self.n_comparators}")
+            self.reference = reference
+        else:
+            v_min = -v_ref / 2 if input_type == InputType.DIFFERENTIAL else 0.0
+            v_max =  v_ref / 2 if input_type == InputType.DIFFERENTIAL else v_ref
+            self.reference = ReferenceLadder(n_bits, v_min, v_max,
+                                             resistor_mismatch=resistor_mismatch,
+                                             noise_rms=reference_noise)
+
+        # Comparator bank
         if comparator_params is None:
             comparator_params = {}
 
-        # Generate random offsets if specified
-        if offset_std > 0:
-            offsets = np.random.normal(0, offset_std, self.n_comparators)
-        else:
-            offsets = np.zeros(self.n_comparators)
+        offsets = (np.random.normal(0, offset_std, self.n_comparators)
+                   if offset_std > 0 else np.zeros(self.n_comparators))
 
-        # Create comparators
         self.comparators = []
         for i in range(self.n_comparators):
             params = comparator_params.copy()
             params['offset'] = offsets[i]
             self.comparators.append(comparator_type(**params))
 
-        # Generate reference voltages with mismatch
-        ideal_refs = np.linspace(0, v_ref, self.n_comparators + 2)[1:-1]
-        if resistor_mismatch > 0:
-            mismatch = np.random.normal(0, resistor_mismatch, self.n_comparators)
-            self.reference_voltages = ideal_refs * (1 + mismatch)
-        else:
-            self.reference_voltages = ideal_refs
+    @property
+    def reference_voltages(self) -> np.ndarray:
+        """Static reference voltages (no noise). Convenience alias for reference.voltages."""
+        return self.reference.voltages
 
-        self.reference_noise = reference_noise
-
-    def _convert_input(self, analog_input: float) -> int:
+    def _encode(self, thermometer: np.ndarray) -> int:
         """
-        Convert analog input to digital output.
+        Convert thermometer code to binary output code.
+
+        COUNT_ONES: code = sum of asserted bits.
+
+        XOR: XOR adjacent thermometer bits (appending a virtual 0 at the top)
+             to produce a one-hot intermediate X, then for each output bit k
+             OR together all X[i] where bit k is set in (i+1).
+             With a bubble, multiple X[i] bits fire and the OR produces a
+             sparkle code.
 
         Args:
-            analog_input: Input voltage
+            thermometer: Boolean/int array of length n_comparators.
 
         Returns:
-            Digital output code
+            int: Binary output code in [0, 2^n_bits - 1].
         """
-        # Add reference noise if specified
-        if self.reference_noise > 0:
-            ref_noise = np.random.normal(0, self.reference_noise, self.n_comparators)
-            comp_refs = self.reference_voltages + ref_noise
-        else:
-            comp_refs = self.reference_voltages
+        if self.encoder_type == EncoderType.COUNT_ONES:
+            return int(np.sum(thermometer))
 
-        # Run comparisons
-        thermometer_code = np.array([
-            comp.compare(analog_input, ref)
+        # XOR encoder
+        extended = np.append(thermometer, 0)
+        X = thermometer ^ extended[1:]          # 2^N - 1 one-hot-like bits
+
+        code = 0
+        for k in range(self.n_bits):
+            for i in np.where(X)[0]:
+                if (int(i) + 1) >> k & 1:
+                    code |= (1 << k)
+                    break                        # one active input is enough
+        return code
+
+    def _convert_input(self, analog_input) -> int:
+        """
+        Run the comparator bank and encode the thermometer code.
+
+        Args:
+            analog_input: Single voltage (single-ended) or (v_pos, v_neg)
+                          tuple (differential).
+
+        Returns:
+            int: Output code in [0, 2^n_bits - 1].
+        """
+        if self.input_type == InputType.DIFFERENTIAL:
+            v_pos, v_neg = analog_input
+            vin = v_pos - v_neg
+        else:
+            vin = float(analog_input)
+
+        comp_refs = self.reference.get_voltages()
+
+        thermometer = np.array([
+            comp.compare(vin, ref)
             for comp, ref in zip(self.comparators, comp_refs)
         ])
 
-        # Convert thermometer code to binary
-        code = np.sum(thermometer_code)
-
-        # Clip to valid range
-        return np.clip(code, 0, 2 ** self.n_bits - 1)
+        return int(np.clip(self._encode(thermometer), 0, 2 ** self.n_bits - 1))
 
     def reset(self):
-        """Reset all comparators to initial state."""
+        """Reset all comparator states (hysteresis history, bandwidth filter)."""
         for comp in self.comparators:
             comp.reset()
+
+    def __repr__(self) -> str:
+        return (f"{self.__class__.__name__}("
+                f"n_bits={self.n_bits}, v_ref={self.v_ref}, "
+                f"input_type={self.input_type.name}, "
+                f"encoder_type={self.encoder_type.name}, "
+                f"reference={self.reference!r})")
 
 
 

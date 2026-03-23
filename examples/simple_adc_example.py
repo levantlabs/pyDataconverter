@@ -226,12 +226,185 @@ def test_transfer_function_3bit():
     plt.show()
 
 
+def test_nonidealities():
+    """
+    Illustrate the effect of each SimpleADC non-ideality:
+      1. Offset and gain error: 2x2 grid — single-ended (top) and differential (bottom)
+      2. Thermal noise degrading SNR on a 12-bit differential FFT
+      3. Aperture jitter: SNR vs input frequency (log x-axis, sweep to ~200 MHz)
+    """
+    print('--- Non-ideality demonstrations ---')
+
+    # ------------------------------------------------------------------ #
+    # 1. Offset and gain error — single-ended and differential            #
+    # ------------------------------------------------------------------ #
+    n_bits = 3
+    v_ref  = 1.0
+    lsb    = v_ref / 2**n_bits
+
+    # Single-ended: sweep 0 → v_ref
+    vin_se   = np.linspace(0, v_ref, 5000)
+    # Differential: sweep -v_ref/2 → +v_ref/2 (vdiff), vcm fixed at v_ref/2
+    vdiff_sw = np.linspace(-v_ref / 2, v_ref / 2, 5000)
+    vcm      = v_ref / 2
+
+    ni_cases = [
+        ('Ideal',          dict(),                          'black',     '-'),
+        ('+2 LSB offset',  dict(offset= 2*lsb),            'steelblue', '--'),
+        ('−2 LSB offset',  dict(offset=-2*lsb),            'tomato',    '--'),
+    ]
+    gain_cases = [
+        ('Ideal',           dict(),                         'black',     '-'),
+        ('+10 % gain err',  dict(gain_error= 0.10),        'steelblue', '--'),
+        ('−10 % gain err',  dict(gain_error=-0.10),        'tomato',    '--'),
+    ]
+
+    fig, axes = plt.subplots(2, 2, figsize=(13, 9))
+    fig.suptitle('3-bit ADC Non-Idealities: Offset and Gain Error', fontweight='bold')
+
+    def _style(ax, title):
+        ax.set_yticks(range(2**n_bits))
+        ax.set_ylim(-0.5, 2**n_bits - 0.5)
+        ax.set_title(title)
+        ax.legend(fontsize=8)
+        ax.grid(True, axis='y', alpha=0.4)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+    # Row 0: Single-ended
+    for label, kwargs, color, ls in ni_cases:
+        adc   = SimpleADC(n_bits, v_ref, InputType.SINGLE, **kwargs)
+        codes = [adc.convert(v) for v in vin_se]
+        axes[0, 0].plot(vin_se, codes, color=color, linestyle=ls, linewidth=1.8, label=label)
+    axes[0, 0].set_xlabel('Input Voltage (V)')
+    axes[0, 0].set_ylabel('Output Code')
+    _style(axes[0, 0], 'Offset Error — Single-Ended')
+
+    for label, kwargs, color, ls in gain_cases:
+        adc   = SimpleADC(n_bits, v_ref, InputType.SINGLE, **kwargs)
+        codes = [adc.convert(v) for v in vin_se]
+        axes[0, 1].plot(vin_se, codes, color=color, linestyle=ls, linewidth=1.8, label=label)
+    axes[0, 1].set_xlabel('Input Voltage (V)')
+    _style(axes[0, 1], 'Gain Error — Single-Ended')
+
+    # Row 1: Differential
+    for label, kwargs, color, ls in ni_cases:
+        adc   = SimpleADC(n_bits, v_ref, InputType.DIFFERENTIAL, **kwargs)
+        codes = [adc.convert((vcm + vd/2, vcm - vd/2)) for vd in vdiff_sw]
+        axes[1, 0].plot(vdiff_sw, codes, color=color, linestyle=ls, linewidth=1.8, label=label)
+    axes[1, 0].set_xlabel('Differential Input Voltage (V)')
+    axes[1, 0].set_ylabel('Output Code')
+    _style(axes[1, 0], 'Offset Error — Differential')
+
+    for label, kwargs, color, ls in gain_cases:
+        adc   = SimpleADC(n_bits, v_ref, InputType.DIFFERENTIAL, **kwargs)
+        codes = [adc.convert((vcm + vd/2, vcm - vd/2)) for vd in vdiff_sw]
+        axes[1, 1].plot(vdiff_sw, codes, color=color, linestyle=ls, linewidth=1.8, label=label)
+    axes[1, 1].set_xlabel('Differential Input Voltage (V)')
+    _style(axes[1, 1], 'Gain Error — Differential')
+
+    plt.tight_layout()
+    plt.show()
+
+    # ------------------------------------------------------------------ #
+    # 2. Thermal noise degrading SNR — differential FFT comparison        #
+    # ------------------------------------------------------------------ #
+    n_bits_12 = 12
+    fsr       = 1.0
+    fs        = 1e6
+    NFFT      = 1024
+    NFIN      = 11
+    full_scale_peak  = fsr / 2
+    amplitude_6dbfs  = full_scale_peak / 2   # -6 dBFS
+    full_scale_codes = 2**n_bits_12 / 2
+
+    sine, f_in = generate_coherent_sine(fs, NFFT, NFIN, amplitude=amplitude_6dbfs)
+    v_pos, v_neg = convert_to_differential(sine, vcm=0.5)
+
+    lsb_12      = fsr / 2**n_bits_12
+    noise_cases = [
+        ('Ideal (Differential)',        0.0,       'black',     '-'),
+        ('noise = 1 LSB (Differential)', lsb_12,   'steelblue', '--'),
+        ('noise = 4 LSB (Differential)', 4*lsb_12, 'tomato',    ':'),
+    ]
+
+    fig, axes = plt.subplots(1, len(noise_cases), figsize=(15, 5), sharey=True)
+    fig.suptitle('12-bit ADC (Differential): Effect of Thermal Noise on FFT Spectrum',
+                 fontweight='bold')
+
+    for ax, (label, noise_rms, color, ls) in zip(axes, noise_cases):
+        adc = SimpleADC(n_bits_12, fsr, InputType.DIFFERENTIAL, noise_rms=noise_rms)
+        codes = [adc.convert((vp, vn)) for vp, vn in zip(v_pos, v_neg)]
+        freqs, mags = fftan.compute_fft(codes, fs,
+                                        normalization=fftan.FFTNormalization.DBFS,
+                                        full_scale=full_scale_codes)
+        res = metrics.calculate_adc_dynamic_metrics(freqs=freqs, mags=mags, fs=fs,
+                                                    f0=f_in, full_scale=full_scale_codes)
+        plot_fft(freqs, mags, title=label, metrics=res, fig=fig, ax=ax)
+
+    plt.tight_layout()
+    plt.show()
+
+    # ------------------------------------------------------------------ #
+    # 3. Aperture jitter: SNR vs input frequency (log x-axis, to ~200 MHz)#
+    # ------------------------------------------------------------------ #
+    # Use 500 MHz sample rate so the sweep can reach 200 MHz
+    fs_j    = 500e6
+    NFFT_j  = 1024
+    fsc_j   = 2**n_bits_12 / 2   # full-scale codes (same ADC)
+    amp_j   = (fsr / 2) / 2      # -6 dBFS relative to differential FSR
+
+    # ~50 log-spaced frequency bins from ~2 MHz to ~200 MHz
+    n_fin_arr = np.unique(
+        np.round(np.logspace(np.log10(4), np.log10(409), 50)).astype(int)
+    )
+
+    jitter_values = [0, 1e-12, 10e-12, 100e-12]
+    snr_curves    = {tj: [] for tj in jitter_values}
+    f_in_mhz      = []
+
+    for n_fin in n_fin_arr:
+        f_sweep = n_fin * fs_j / NFFT_j
+        f_in_mhz.append(f_sweep / 1e6)
+        sig, _  = generate_coherent_sine(fs_j, NFFT_j, n_fin, amplitude=amp_j)
+        t_vec   = np.arange(NFFT_j) / fs_j
+        dvdt    = amp_j * 2 * np.pi * f_sweep * np.cos(2 * np.pi * f_sweep * t_vec)
+        vp, vn  = convert_to_differential(sig, vcm=0.5)
+
+        for tj in jitter_values:
+            adc = SimpleADC(n_bits_12, fsr, InputType.DIFFERENTIAL, t_jitter=tj)
+            c   = [adc.convert((p, n), dvdt=dv) for p, n, dv in zip(vp, vn, dvdt)]
+            fr, mg = fftan.compute_fft(c, fs_j, normalization=fftan.FFTNormalization.DBFS,
+                                       full_scale=fsc_j)
+            res = metrics.calculate_adc_dynamic_metrics(freqs=fr, mags=mg, fs=fs_j,
+                                                        f0=f_sweep)
+            snr_curves[tj].append(res['SNR'])
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    colors = ['black', 'steelblue', 'tomato', 'seagreen']
+    for tj, color in zip(jitter_values, colors):
+        label = 'Ideal' if tj == 0 else f't_j = {tj*1e12:.0f} ps'
+        ax.semilogx(f_in_mhz, snr_curves[tj], color=color, linewidth=1.8, label=label)
+
+    ax.set_xlabel('Input Frequency (MHz)')
+    ax.set_ylabel('SNR (dB)')
+    ax.set_title('12-bit ADC (Differential): SNR vs Input Frequency — Aperture Jitter',
+                 fontweight='bold')
+    ax.legend()
+    ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.6)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    plt.tight_layout()
+    plt.show()
+
+
 def main():
     # Run all tests
     test_transfer_function_3bit()
     test_sine_wave()
     test_ramp()
     test_two_tone()
+    test_nonidealities()
 
 
 if __name__ == "__main__":
