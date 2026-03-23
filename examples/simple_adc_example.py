@@ -24,17 +24,21 @@ import pyDataconverter.utils.fft_analysis as fftan
 
 
 def test_sine_wave():
-    """Test ADC with sine wave input"""
-    print('--- Running sine wave input example ---')
+    """Test ADC with sine wave input at -6 dBFS to demonstrate dB vs dBFS annotation."""
+    print('--- Running sine wave input example (-6 dBFS) ---')
     # Setup ADC
     fsr = 1
     adc = SimpleADC(n_bits=12, v_ref=fsr, input_type=InputType.DIFFERENTIAL)
+
+    # -6 dBFS: amplitude = full-scale-peak / 2  (20*log10(0.5) = -6.02 dBFS)
+    full_scale_peak = fsr / 2   # differential full-scale peak is v_ref/2
+    amplitude_6dbfs = full_scale_peak / 2  # -6 dBFS
 
     # Generate coherent sine wave (exact FFT bin frequency eliminates leakage)
     fs = 1e6   # 1 MHz sampling rate
     NFIN = 11
     NFFT = 1024
-    sine, f_in = generate_coherent_sine(fs, NFFT, NFIN, amplitude=fsr/2)
+    sine, f_in = generate_coherent_sine(fs, NFFT, NFIN, amplitude=amplitude_6dbfs)
 
     # Convert to differential
     v_pos, v_neg = convert_to_differential(sine, vcm=0.5)
@@ -43,17 +47,28 @@ def test_sine_wave():
     t = np.arange(len(sine)) / fs
     codes = [adc.convert((vp, vn)) for vp, vn in zip(v_pos, v_neg)]
 
-    # Plot results
-    plot_conversion(t, v_pos - v_neg, codes, "Sine Wave")
+    # Plot time-domain result
+    plot_conversion(t, v_pos - v_neg, codes, "Sine Wave (-6 dBFS)")
     plt.show()
 
-    #Now, analyze performance.  Calculate FFT and plot
-    freqs, mags = fftan.compute_fft(codes, fs, normalization=fftan.FFTNormalization.DBFS, full_scale=2**adc.n_bits/2) # use default window. Normalize to dBFS
-    plot_fft(freqs, mags)
+    # Compute FFT (dBFS normalised)
+    full_scale_codes = 2**adc.n_bits / 2
+    freqs, mags = fftan.compute_fft(codes, fs, normalization=fftan.FFTNormalization.DBFS,
+                                    full_scale=full_scale_codes)
+
+    # Calculate metrics (with full_scale so dBFS variant keys are populated)
+    results = metrics.calculate_adc_dynamic_metrics(freqs=freqs, mags=mags, fs=fs, f0=f_in,
+                                                    full_scale=full_scale_codes)
+
+    # Plot 1: with dBFS metrics annotation (auto-detected from dict keys)
+    plot_fft(freqs, mags, title="FFT Spectrum (-6 dBFS) — metrics in dBFS", metrics=results)
     plt.show()
 
-    #Calculate metrics and print
-    results = metrics.calculate_adc_dynamic_metrics(freqs=freqs, mags=mags, fs=fs, f0=f_in)
+    # Plot 2: suppress dBFS keys so annotation falls back to plain dB
+    results_db_only = {k: v for k, v in results.items() if not k.endswith('_dBFS')}
+    plot_fft(freqs, mags, title="FFT Spectrum (-6 dBFS) — metrics in dB", metrics=results_db_only)
+    plt.show()
+
     print('Sine wave test results:')
     for k in results.keys():
         print('--- {}: {}'.format(k, results[k]))
@@ -127,6 +142,14 @@ def test_two_tone():
                 print(f"  {subkey}: {freq / 1e3:.1f} kHz")
         else:
             print(f"{key}: {value / 1e3:.1f} kHz")
+
+    # Compute FFT and metrics, then plot
+    freqs, mags = fftan.compute_fft(codes, fs, normalization=fftan.FFTNormalization.DBFS,
+                                    full_scale=2**adc.n_bits/2)
+    results = metrics.calculate_adc_dynamic_metrics(freqs=freqs, mags=mags, fs=fs, f0=f1,
+                                                    full_scale=2**adc.n_bits/2)
+    plot_fft(freqs, mags, title="Two-Tone FFT", metrics=results)
+    plt.show()
 
 
 def test_transfer_function_3bit():

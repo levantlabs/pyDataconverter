@@ -3,9 +3,156 @@ Test code for ADC metrics calculations
 """
 
 import numpy as np
+import pytest
 from pyDataconverter.utils.signal_gen import generate_sine
 from pyDataconverter.utils.metrics import calculate_adc_dynamic_metrics, calculate_adc_static_metrics, is_monotonic, calculate_histogram
 
+
+# ---------------------------------------------------------------------------
+# dBFS metrics tests
+# ---------------------------------------------------------------------------
+
+_RATIO_KEYS = ['SNR', 'SNDR', 'SFDR', 'THD']
+_DBFS_KEYS  = [k + '_dBFS' for k in _RATIO_KEYS]
+
+
+def _make_clean_signal():
+    fs, NFFT, NFIN = 1e6, 1024, 11
+    f0 = NFIN * fs / NFFT
+    signal = generate_sine(f0, fs, amplitude=0.9, duration=NFFT / fs)
+    return signal, fs, f0
+
+
+def test_dbfs_keys_absent_without_full_scale():
+    """dBFS variant keys must not be present when full_scale is not given."""
+    signal, fs, f0 = _make_clean_signal()
+    result = calculate_adc_dynamic_metrics(signal, fs, f0)
+    for k in _DBFS_KEYS:
+        assert k not in result, f"Key {k!r} should not be present without full_scale"
+
+
+def test_dbfs_keys_present_with_full_scale():
+    """dBFS variant keys must appear when full_scale is given."""
+    signal, fs, f0 = _make_clean_signal()
+    result = calculate_adc_dynamic_metrics(signal, fs, f0, full_scale=1.0)
+    for k in _DBFS_KEYS:
+        assert k in result, f"Key {k!r} missing from metrics dict"
+
+
+def test_original_db_keys_still_present_with_full_scale():
+    """Original dB ratio keys must be preserved when full_scale is given."""
+    signal, fs, f0 = _make_clean_signal()
+    result = calculate_adc_dynamic_metrics(signal, fs, f0, full_scale=1.0)
+    for k in _RATIO_KEYS:
+        assert k in result, f"Original key {k!r} missing when full_scale is set"
+
+
+def test_dbfs_values_correct_formulas():
+    """
+    Verify the dBFS variants use the correct formulas relative to fund_mag_dBFS.
+
+    - SFDR_dBFS = SFDR - fund_mag_dBFS   (spur distance from full scale)
+    - SNR/SNDR/THD_dBFS = metric + fund_mag_dBFS  (referenced to full scale)
+
+    For the time_data path, fund_mag_dBFS = fund_mag - 20*log10(full_scale) - 20*log10(N/2).
+    """
+    signal, fs, f0 = _make_clean_signal()
+    NFFT = 1024
+    full_scale = 2.0
+    result = calculate_adc_dynamic_metrics(signal, fs, f0, full_scale=full_scale)
+
+    level_correction = 20 * np.log10(full_scale) + 20 * np.log10(NFFT / 2)
+    fund_mag_dBFS = result["FundamentalMagnitude"] - level_correction
+
+    assert abs(result["FundamentalMagnitude_dBFS"] - fund_mag_dBFS) < 1e-9
+
+    # SFDR: spur below full scale
+    assert abs(result["SFDR_dBFS"] - (result["SFDR"] - fund_mag_dBFS)) < 1e-9
+
+    # SNR / SNDR / THD: referenced to full scale
+    for k in ['SNR', 'SNDR', 'THD']:
+        expected = result[k] + fund_mag_dBFS
+        actual   = result[k + '_dBFS']
+        assert abs(actual - expected) < 1e-9, (
+            f"{k}_dBFS ({actual:.4f}) != {k} + fund_mag_dBFS ({expected:.4f})"
+        )
+
+
+def test_enob_unchanged_by_full_scale():
+    """ENOB is derived from SNDR (a ratio) and must not change with full_scale."""
+    signal, fs, f0 = _make_clean_signal()
+    r_no_fs = calculate_adc_dynamic_metrics(signal, fs, f0)
+    r_fs    = calculate_adc_dynamic_metrics(signal, fs, f0, full_scale=4.0)
+    assert abs(r_no_fs['ENOB'] - r_fs['ENOB']) < 1e-9, "ENOB should be scale-independent"
+
+
+# ---------------------------------------------------------------------------
+# plot_fft metrics annotation tests
+# ---------------------------------------------------------------------------
+
+def test_plot_fft_metrics_annotation_dBFS(tmp_path):
+    """plot_fft must display dBFS labels when SNR_dBFS is present in metrics."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from pyDataconverter.utils.visualizations.fft_plots import plot_fft
+    from pyDataconverter.utils.fft_analysis import compute_fft
+
+    signal, fs, f0 = _make_clean_signal()
+    freqs, mags = compute_fft(signal, fs)
+    metrics = calculate_adc_dynamic_metrics(signal, fs, f0, full_scale=1.0)
+
+    fig, ax = plt.subplots()
+    plot_fft(freqs, mags, metrics=metrics, fig=fig, ax=ax)
+
+    # Check annotation text contains 'dBFS'
+    texts = [t.get_text() for t in ax.texts]
+    assert any('dBFS' in t for t in texts), "Annotation should contain 'dBFS' label"
+    plt.close(fig)
+
+
+def test_plot_fft_metrics_annotation_db(tmp_path):
+    """plot_fft must display dB labels when no dBFS keys are present."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from pyDataconverter.utils.visualizations.fft_plots import plot_fft
+    from pyDataconverter.utils.fft_analysis import compute_fft
+
+    signal, fs, f0 = _make_clean_signal()
+    freqs, mags = compute_fft(signal, fs)
+    metrics = calculate_adc_dynamic_metrics(signal, fs, f0)  # no full_scale
+
+    fig, ax = plt.subplots()
+    plot_fft(freqs, mags, metrics=metrics, fig=fig, ax=ax)
+
+    texts = [t.get_text() for t in ax.texts]
+    assert any('SNR' in t for t in texts), "Annotation should contain SNR"
+    assert not any('dBFS' in t for t in texts), "Annotation should not contain 'dBFS' without full_scale"
+    plt.close(fig)
+
+
+def test_plot_fft_show_metrics_false():
+    """No annotation should appear when show_metrics=False."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from pyDataconverter.utils.visualizations.fft_plots import plot_fft
+    from pyDataconverter.utils.fft_analysis import compute_fft
+
+    signal, fs, f0 = _make_clean_signal()
+    freqs, mags = compute_fft(signal, fs)
+    metrics = calculate_adc_dynamic_metrics(signal, fs, f0, full_scale=1.0)
+
+    fig, ax = plt.subplots()
+    plot_fft(freqs, mags, metrics=metrics, show_metrics=False, fig=fig, ax=ax)
+    assert len(ax.texts) == 0, "No annotation should be rendered when show_metrics=False"
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Original integration tests (unchanged)
+# ---------------------------------------------------------------------------
 
 def test_dynamic_metrics():
     """Test dynamic metrics with known input signals"""

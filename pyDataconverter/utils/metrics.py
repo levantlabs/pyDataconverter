@@ -107,18 +107,33 @@ def calculate_adc_dynamic_metrics(time_data: np.ndarray = None,
         "HarmonicMags": [h[1] for h in harmonics]
     }
 
-    # Convert relevant metrics to dBFS if full_scale provided
+    # When full_scale is provided, add dBFS variants alongside the original dB values.
+    # The original ratio metrics (SNR, SNDR, SFDR, THD, ENOB) are kept as-is in dB.
+    #
+    # fund_mag_dBFS is the fundamental level in dBFS:
+    #   - freqs/mags path: caller is expected to pre-normalize mags to dBFS, so
+    #     fund_mag is already in dBFS and no further correction is needed.
+    #   - time_data path: the FFT is computed internally in raw dB, so we apply
+    #     the equivalent of compute_fft's DBFS normalization here.
     if full_scale is not None:
-        dbfs_correction = 20 * np.log10(full_scale)
-        results["SNR"] += dbfs_correction
-        results["SNDR"] += dbfs_correction
-        results["SFDR"] += dbfs_correction
-        results["THD"] += dbfs_correction
-        results["NoiseFloor"] += dbfs_correction
-        results["FundamentalMagnitude"] += dbfs_correction
-        results["HarmonicMags"] = [m + dbfs_correction for m in results["HarmonicMags"]]
-        results["Offset"] = 20 * np.log10(abs(results["Offset"] / full_scale))  # Convert offset to dBFS
+        if time_data is not None:
+            N = len(time_data)
+            level_correction = 20 * np.log10(full_scale) + 20 * np.log10(N / 2)
+        else:
+            level_correction = 0  # mags assumed already in dBFS
 
+        fund_mag_dBFS = fund_mag - level_correction
+
+        results["FundamentalMagnitude_dBFS"] = fund_mag_dBFS
+        results["HarmonicMags_dBFS"] = [m - level_correction for m in results["HarmonicMags"]]
+
+        # SFDR_dBFS: worst spur distance from full scale = -(spur_dBFS)
+        results["SFDR_dBFS"]  = sfdr - fund_mag_dBFS
+
+        # SNR/SNDR/THD_dBFS: metric referenced to full scale (penalises backed-off signals)
+        results["SNR_dBFS"]   = snr  + fund_mag_dBFS
+        results["SNDR_dBFS"]  = sndr + fund_mag_dBFS
+        results["THD_dBFS"]   = thd  + fund_mag_dBFS
 
     return results
 
