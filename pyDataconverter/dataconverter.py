@@ -56,8 +56,8 @@ class ADCBase(ABC):
     def __init__(self, n_bits: int, v_ref: float=1.0, input_type: InputType=InputType.DIFFERENTIAL):
         if not isinstance(n_bits, int):
             raise TypeError('n_bits must be an integer.')
-        if n_bits < 1:
-            raise ValueError('n_bits must be larger than 0.')
+        if n_bits < 1 or n_bits > 32:
+            raise ValueError('n_bits must be between 1 and 32.')
         self.n_bits = n_bits
         # Validate v_ref
         if not isinstance(v_ref, (int, float)):
@@ -134,7 +134,7 @@ class DACBase(ABC):
         self.n_bits = n_bits
         self.v_ref = v_ref
         self.output_type = output_type
-        self.lsb = v_ref / (2 ** n_bits)
+        self.lsb = v_ref / (2 ** n_bits - 1)
 
     def convert(self, digital_input: int) -> Union[float, Tuple[float, float]]:
         """

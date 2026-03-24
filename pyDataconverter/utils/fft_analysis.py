@@ -38,7 +38,7 @@ def compute_fft(time_data: np.ndarray,
         window: Window type ('hann', 'blackman', etc.), None for no window
         remove_dc: If True, removes DC component
         normalization: Type of normalization to apply
-        full_scale: Full scale value for dBFS normalization
+        full_scale: Full scale value for dBFS normalization.  This is the largest code value assuming offset binary
 
     Returns:
         Tuple of (frequencies, magnitudes_db)
@@ -54,6 +54,13 @@ def compute_fft(time_data: np.ndarray,
 
     # Apply window if specified
     if window is not None:
+        _ALLOWED_WINDOWS = {
+            'hann', 'hamming', 'blackman', 'bartlett', 'kaiser',
+            'flattop', 'boxcar', 'tukey', 'cosine', 'exponential',
+        }
+        if window not in _ALLOWED_WINDOWS:
+            raise ValueError(
+                f"Unknown window '{window}'. Allowed: {sorted(_ALLOWED_WINDOWS)}")
         window_func = getattr(signal.windows, window)
         time_data = time_data * window_func(N)
 
@@ -62,7 +69,7 @@ def compute_fft(time_data: np.ndarray,
     freqs = np.fft.fftfreq(len(time_data), 1 / fs)
 
     # Convert to dB
-    magnitudes_db = 20 * np.log10(np.abs(fft_data))
+    magnitudes_db = 20 * np.log10(np.abs(fft_data) + 1e-20)
 
     # Apply normalization
     if normalization == FFTNormalization.POWER:
@@ -74,7 +81,7 @@ def compute_fft(time_data: np.ndarray,
         if full_scale is None:
             raise ValueError("full_scale must be provided for dBFS normalization")
         # Normalize to full scale
-        magnitudes_db = magnitudes_db - 20 * np.log10(full_scale) - 20 * np.log10(N/2)
+        magnitudes_db = magnitudes_db - 20 * np.log10(full_scale/2) - 20 * np.log10(N/2)
 
     # Return positive frequencies only
     pos_mask = freqs >= 0
@@ -157,7 +164,8 @@ def find_harmonics(freqs: np.ndarray,
                    f0: float,
                    fs: float,
                    num_harmonics: int = 5,
-                   tol: float = 0.1) -> List[Tuple[float, float]]:
+                   tol: float = 0.1,
+                   verbose: bool = False) -> List[Tuple[float, float]]:
     """
     Find harmonic frequencies and their magnitudes, excluding fundamental.
 
@@ -177,11 +185,13 @@ def find_harmonics(freqs: np.ndarray,
         try:
             harm_freq, harm_mag = _get_harmonic(freqs, mags, f0, fs, n, tol)
             harmonics.append((harm_freq, harm_mag))
-            print(f"Harmonic {n}: True freq = {n * f0 / 1e3:.1f} kHz, "
-                  f"Aliased freq = {harm_freq / 1e3:.1f} kHz, "
-                  f"Magnitude = {harm_mag:.1f} dB")
+            if verbose:
+                print(f"Harmonic {n}: True freq = {n * f0 / 1e3:.1f} kHz, "
+                      f"Aliased freq = {harm_freq / 1e3:.1f} kHz, "
+                      f"Magnitude = {harm_mag:.1f} dB")
         except ValueError as e:
-            print(f"Warning: {e}")
+            if verbose:
+                print(f"Warning: {e}")
 
     return harmonics
 def demo_fft_analysis():

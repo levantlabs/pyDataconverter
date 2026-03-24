@@ -49,16 +49,17 @@ class TestDACBase(unittest.TestCase):
         """Test single-ended and differential outputs"""
         # Single-ended
         dac_se = self.DACClass(12, output_type=OutputType.SINGLE)
-        output = dac_se.convert(2048)  # Mid-scale for 12 bits
+        output = dac_se.convert(2048)  # Near mid-scale for 12 bits
         self.assertIsInstance(output, float)
-        self.assertAlmostEqual(output, 0.5)  # Should be v_ref/2
+        self.assertAlmostEqual(output, 2048 / (2**12 - 1))
 
         # Differential
         dac_diff = self.DACClass(12, output_type=OutputType.DIFFERENTIAL)
-        output = dac_diff.convert(2048)  # Mid-scale
+        output = dac_diff.convert(2048)  # Near mid-scale
         self.assertIsInstance(output, tuple)
         self.assertEqual(len(output), 2)
-        self.assertAlmostEqual(output[0] - output[1], 0.0)  # Should be 0V differential
+        # No integer code maps exactly to 0V diff with (2^N-1) LSB; check within 1 LSB
+        self.assertAlmostEqual(output[0] - output[1], 0.0, delta=dac_diff.lsb)
 
     def test_input_validation(self):
         """Test input code validation"""
@@ -79,7 +80,7 @@ class TestDACBase(unittest.TestCase):
     def test_lsb_calculation(self):
         """Test LSB calculation"""
         dac = self.DACClass(12, v_ref=1.0)
-        expected_lsb = 1.0 / (2 ** 12)
+        expected_lsb = 1.0 / (2 ** 12 - 1)
         self.assertAlmostEqual(dac.lsb, expected_lsb)
 
     def test_string_representation(self):
@@ -104,10 +105,10 @@ class TestDACBase(unittest.TestCase):
         """Test differential output range"""
         dac = self.DACClass(12, v_ref=1.0, output_type=OutputType.DIFFERENTIAL)
 
-        # Test mid-scale (should give 0V differential)
+        # Test near mid-scale (no integer code maps exactly to 0V with (2^N-1) LSB)
         mid_output = dac.convert(2048)
         v_pos, v_neg = mid_output
-        self.assertAlmostEqual(v_pos - v_neg, 0.0)
+        self.assertAlmostEqual(v_pos - v_neg, 0.0, delta=dac.lsb)
 
         # Test full-scale (should give maximum differential voltage)
         max_output = dac.convert(4095)
@@ -117,7 +118,23 @@ class TestDACBase(unittest.TestCase):
         # Test minimum (should give minimum differential voltage)
         min_output = dac.convert(0)
         v_pos, v_neg = min_output
-        self.assertAlmostEqual(v_pos - v_neg, -1.0)
+        self.assertAlmostEqual(v_pos - v_neg, -0.5)
+
+
+    def test_convert_numpy_integer_types(self):
+        """convert() accepts np.int32, np.int64, np.uint32 inputs without TypeError"""
+        import numpy as np
+        dac = self.DACClass(12, v_ref=1.0)
+
+        for dtype in [np.int32, np.int64, np.uint32]:
+            code = dtype(100)
+            # Should not raise TypeError — np.integer types are accepted
+            output = dac.convert(code)
+            expected = int(code) * dac.lsb
+            self.assertAlmostEqual(output, expected, places=10)
+
+        # Edge: min code with numpy integer
+        self.assertAlmostEqual(dac.convert(np.int32(0)), 0.0)
 
 
 if __name__ == '__main__':

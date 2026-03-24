@@ -20,8 +20,7 @@ def _effective_thresholds(adc: FlashADC) -> np.ndarray:
     """
     refs = adc.reference_voltages
     if adc.input_type == InputType.DIFFERENTIAL:
-        n = len(refs)
-        return np.array([refs[i] - refs[n - 1 - i] for i in range(n)])
+        return refs - refs[::-1]
     return refs.copy()
 
 
@@ -46,12 +45,14 @@ def _eval_comparators(adc: FlashADC, v_pos: float, v_neg: float) -> list:
     """Evaluate each comparator using static (noiseless) reference taps."""
     refs = adc.reference_voltages
     n    = len(refs)
+    results = [0] * n
     if adc.input_type == InputType.DIFFERENTIAL:
-        return [comp.compare(v_pos, v_neg, refs[i], refs[n - 1 - i])
-                for i, comp in enumerate(adc.comparators)]
+        for i, comp in enumerate(adc.comparators):
+            results[i] = comp.compare(v_pos, v_neg, refs[i], refs[n - 1 - i])
     else:
-        return [comp.compare(v_pos, 0.0, ref, 0.0)
-                for comp, ref in zip(adc.comparators, refs)]
+        for i, (comp, ref) in enumerate(zip(adc.comparators, refs)):
+            results[i] = comp.compare(v_pos, 0.0, ref, 0.0)
+    return results
 
 
 def _y_limits(adc: FlashADC) -> Tuple[float, float]:

@@ -67,7 +67,7 @@ def test_transfer_function():
         # Mark reference voltages
         for vref_tap in adc_se.reference_voltages if ax is ax1 else adc_diff.reference_voltages:
             ax.axvline(vref_tap, color='tomato', linewidth=0.7, linestyle='--', alpha=0.6)
-
+    
     plt.tight_layout()
     plt.show()
 
@@ -330,7 +330,7 @@ def test_dynamic_metrics():
     NFIN   = 11
 
     full_scale_peak  = v_ref            # single-ended FSR = v_ref
-    amplitude_6dbfs  = full_scale_peak / 2  # -6 dBFS (amplitude = FSR/2)
+    amplitude_6dbfs  = full_scale_peak / 4  # -6 dBFS (amplitude = FSR/4)
     full_scale_codes = 2 ** n_bits      # single-ended: full scale
 
     adc = FlashADC(n_bits=n_bits, v_ref=v_ref, input_type=InputType.SINGLE)
@@ -406,7 +406,7 @@ def test_noise_snr_vs_bits():
         snrs = []
         for n_bits in bit_range:
             v_ref  = 1.0
-            amp    = v_ref / 4       # -12 dBFS keeps signal well within range
+            amp    = v_ref / 2 * 0.99     # -0.1 dBFS keeps signal well within range
             fs_c   = 2 ** n_bits     # full-scale codes
 
             adc    = FlashADC(n_bits=n_bits, v_ref=v_ref, input_type=InputType.SINGLE,

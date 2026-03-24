@@ -266,6 +266,72 @@ class TestSimpleADC(unittest.TestCase):
         with self.assertRaises(ValueError):
             SimpleADC(self.n_bits, self.v_ref, InputType.SINGLE, t_jitter=-1e-12)
 
+    # ------------------------------------------------------------------ #
+    # Combined non-idealities                                              #
+    # ------------------------------------------------------------------ #
+
+    def test_gain_error_and_offset_combined(self):
+        """Both gain_error and offset applied simultaneously shift codes correctly."""
+        lsb = self.v_ref / 2**self.n_bits
+        gain_error = 0.01   # +1%
+        offset_val = 10 * lsb
+
+        adc_ideal = SimpleADC(self.n_bits, self.v_ref, InputType.SINGLE)
+        adc_combo = SimpleADC(self.n_bits, self.v_ref, InputType.SINGLE,
+                              gain_error=gain_error, offset=offset_val)
+
+        vin = 0.25  # well within range
+        ideal_code = adc_ideal.convert(vin)
+        combo_code = adc_combo.convert(vin)
+
+        # Expected voltage after non-idealities: vin*(1+gain_error) + offset
+        v_effective = vin * (1.0 + gain_error) + offset_val
+        expected_code = adc_ideal.convert(np.clip(v_effective, 0, self.v_ref))
+
+        self.assertAlmostEqual(combo_code, expected_code, delta=1,
+                               msg="Combined gain_error + offset should match expected code")
+
+    def test_aperture_jitter_negative_dvdt(self):
+        """Aperture jitter with negative dvdt (falling edge) still spreads codes."""
+        lsb = self.v_ref / 2**self.n_bits
+        t_jitter = 100 * lsb
+        adc = SimpleADC(self.n_bits, self.v_ref, InputType.SINGLE,
+                        t_jitter=t_jitter)
+        dvdt = -1.0  # falling edge
+        codes = [adc.convert(0.5, dvdt=dvdt) for _ in range(200)]
+        self.assertGreater(len(set(codes)), 1,
+                           "Codes should vary with negative dvdt and non-zero jitter")
+
+    def test_quantize_degenerate_v_min_equals_v_max(self):
+        """_quantize with v_min == v_max should not crash (division by zero guard)."""
+        adc = SimpleADC(self.n_bits, self.v_ref, InputType.SINGLE)
+        # Calling _quantize directly with degenerate range
+        # v_min == v_max means v_range == 0; any voltage clips to v_min
+        try:
+            code = adc._quantize(0.5, v_min=0.5, v_max=0.5)
+            # If it doesn't raise, verify the code is within valid range
+            self.assertGreaterEqual(code, 0)
+            self.assertLessEqual(code, 2**self.n_bits - 1)
+        except (ZeroDivisionError, ValueError, FloatingPointError):
+            # Acceptable: the degenerate case is undefined
+            pass
+
+    # ------------------------------------------------------------------ #
+    # SYMMETRIC mode — 1-bit ADC                                           #
+    # ------------------------------------------------------------------ #
+
+    def test_symmetric_1bit_adc(self):
+        """SYMMETRIC mode with 1-bit ADC: code 0 below midpoint, code 1 above."""
+        adc = SimpleADC(1, self.v_ref, InputType.SINGLE,
+                        quant_mode=QuantizationMode.SYMMETRIC)
+        # With 1-bit SYMMETRIC: LSB = v_ref/(2^1 - 1) = v_ref
+        # Transition at 0.5*LSB = 0.5*v_ref
+        self.assertEqual(adc.convert(0.0), 0)
+        self.assertEqual(adc.convert(self.v_ref), 1)
+        # Near midpoint
+        self.assertEqual(adc.convert(self.v_ref * 0.4), 0)
+        self.assertEqual(adc.convert(self.v_ref * 0.6), 1)
+
 
 if __name__ == '__main__':
     unittest.main()

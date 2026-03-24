@@ -63,6 +63,23 @@ class TestADCBase(unittest.TestCase):
 
 
 
+    def test_differential_tuple_wrong_length_raises(self):
+        """Differential input tuple with != 2 elements raises TypeError"""
+        adc_diff = self.ADCClass(12, input_type=InputType.DIFFERENTIAL)
+        # 3-element tuple
+        with self.assertRaises(TypeError):
+            adc_diff.convert((0.5, 0.25, 0.1))
+        # 0-element tuple
+        with self.assertRaises(TypeError):
+            adc_diff.convert(())
+
+    def test_n_bits_above_32_raises(self):
+        """n_bits > 32 should raise ValueError"""
+        with self.assertRaises(ValueError):
+            self.ADCClass(n_bits=33)
+        with self.assertRaises(ValueError):
+            self.ADCClass(n_bits=64)
+
     def test_string_representation(self):
         """Test string representation"""
         adc = self.ADCClass(12, v_ref=1.0, input_type=InputType.DIFFERENTIAL)

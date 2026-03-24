@@ -132,6 +132,86 @@ def test_plot_fft_metrics_annotation_db(tmp_path):
     plt.close(fig)
 
 
+def test_dynamic_metrics_raises_on_empty_input():
+    """calculate_adc_dynamic_metrics raises on empty input."""
+    with pytest.raises((ValueError, IndexError)):
+        calculate_adc_dynamic_metrics(np.array([]), fs=1e6, f0=1e3)
+
+
+def test_dynamic_metrics_all_zero_input():
+    """calculate_adc_dynamic_metrics on all-zero input produces finite results (no -inf)."""
+    signal = np.zeros(1024)
+    # All-zero after DC removal is all zeros; should not produce -inf
+    result = calculate_adc_dynamic_metrics(signal, fs=1e6, f0=1e3)
+    assert np.isfinite(result["SNR"]), "SNR should be finite for all-zero input"
+    assert np.isfinite(result["SNDR"]), "SNDR should be finite for all-zero input"
+
+
+def test_static_metrics_skipped_codes():
+    """calculate_adc_static_metrics handles ADC that skips codes."""
+    n_bits = 3
+    n_points = 1000
+    input_voltages = np.linspace(0, 1, n_points)
+    # Create codes that skip code 3 (goes directly from 2 to 4)
+    ideal_codes = np.floor(input_voltages * 2**n_bits).astype(int)
+    ideal_codes = np.clip(ideal_codes, 0, 2**n_bits - 1)
+    # Replace code 3 with code 4
+    output_codes = ideal_codes.copy()
+    output_codes[output_codes == 3] = 4
+
+    metrics = calculate_adc_static_metrics(input_voltages, output_codes, n_bits)
+    # Should still return valid metrics
+    assert 'DNL' in metrics
+    assert 'INL' in metrics
+    # MaxDNL should be > 0 due to skipped code
+    assert metrics['MaxDNL'] > 0
+
+
+def test_is_monotonic_with_skipped_codes():
+    """is_monotonic returns False when a code is completely skipped.
+
+    _calculate_code_edges fills missing transitions with duplicates,
+    so np.diff(transitions) contains zeros, making is_monotonic False.
+    """
+    n_bits = 3
+    n_points = 1000
+    input_voltages = np.linspace(0, 1, n_points)
+    # Create codes that skip code 3 entirely (0,1,2,4,5,6,7)
+    codes = np.floor(input_voltages * 2**n_bits).astype(int)
+    codes = np.clip(codes, 0, 2**n_bits - 1)
+    # Replace code 3 with code 4 to simulate a skipped code
+    codes[codes == 3] = 4
+
+    result = is_monotonic(input_voltages, codes, n_bits)
+    assert result == False, "Skipped code should cause non-monotonicity in transitions"
+
+
+def test_histogram_all_same_code():
+    """calculate_histogram with all-same-code input."""
+    n_bits = 4
+    codes = np.full(1000, 7)  # all code 7
+    hist = calculate_histogram(codes, n_bits, input_type='uniform')
+    # Only one code should have non-zero count
+    nonzero_bins = np.sum(hist['bin_counts'] > 0)
+    assert nonzero_bins == 1
+    assert 7 in np.where(hist['bin_counts'] > 0)[0]
+
+
+def test_histogram_sine_pdf_removal_near_edges():
+    """Histogram PDF removal at normalized amplitude near ±1.0 does not crash or produce inf."""
+    n_bits = 4
+    n_points = 10000
+    # Generate sine wave that hits edge codes
+    t = np.linspace(0, 10 * np.pi, n_points)
+    sine_wave = np.sin(t)
+    sine_codes = np.round((sine_wave + 1) * (2**(n_bits - 1) - 0.5)).astype(int)
+    sine_codes = np.clip(sine_codes, 0, 2**n_bits - 1)
+
+    hist = calculate_histogram(sine_codes, n_bits, input_type='sine', remove_pdf=True)
+    # Should not contain inf or nan
+    assert np.all(np.isfinite(hist['bin_counts'])), "PDF-compensated histogram should have finite counts"
+
+
 def test_plot_fft_show_metrics_false():
     """No annotation should appear when show_metrics=False."""
     import matplotlib

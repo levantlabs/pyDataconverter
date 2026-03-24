@@ -155,6 +155,8 @@ class ArbitraryReference(ReferenceBase):
         thresholds = np.asarray(thresholds, dtype=float)
         if thresholds.ndim != 1 or len(thresholds) == 0:
             raise ValueError("thresholds must be a non-empty 1-D array")
+        if not np.all(np.isfinite(thresholds)):
+            raise ValueError("thresholds must all be finite (no NaN or Inf)")
         if not np.all(np.diff(thresholds) > 0):
             raise ValueError("thresholds must be strictly increasing")
         if noise_rms < 0:

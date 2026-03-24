@@ -67,6 +67,11 @@ class TestReferenceLadder:
             ladder.get_voltages()
         np.testing.assert_array_equal(ladder.voltages, static_before)
 
+    def test_v_min_equals_v_max_raises(self):
+        """ReferenceLadder with v_min == v_max raises ValueError."""
+        with pytest.raises(ValueError):
+            ReferenceLadder(3, 0.5, 0.5)
+
     def test_invalid_range(self):
         with pytest.raises(ValueError):
             ReferenceLadder(3, 1.0, 0.0)   # v_max <= v_min
@@ -121,6 +126,22 @@ class TestArbitraryReference:
     def test_empty_thresholds(self):
         with pytest.raises(ValueError):
             ArbitraryReference([])
+
+    def test_single_element_threshold(self):
+        """ArbitraryReference with single-element threshold [0.5] is valid."""
+        ref = ArbitraryReference([0.5])
+        assert ref.n_references == 1
+        np.testing.assert_allclose(ref.voltages, [0.5])
+
+    def test_nan_threshold_raises(self):
+        """ArbitraryReference with NaN threshold raises ValueError."""
+        with pytest.raises(ValueError):
+            ArbitraryReference([0.25, float('nan'), 0.75])
+
+    def test_inf_threshold_raises(self):
+        """ArbitraryReference with Inf threshold raises ValueError."""
+        with pytest.raises(ValueError):
+            ArbitraryReference([0.25, float('inf'), 0.75])
 
     def test_negative_noise(self):
         with pytest.raises(ValueError):

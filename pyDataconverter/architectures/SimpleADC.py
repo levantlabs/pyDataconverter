@@ -141,6 +141,8 @@ class SimpleADC(ADCBase):
             End bins (code 0 and 2^N-1) are LSB/2 wide; all others are 1 LSB.
             LSB = v_range / (2^N - 1).
         """
+        if v_max <= v_min:
+            raise ValueError(f"v_max ({v_max}) must be greater than v_min ({v_min})")
         v_range = v_max - v_min
         v = np.clip(voltage, v_min, v_max) - v_min  # shift to [0, v_range]
 

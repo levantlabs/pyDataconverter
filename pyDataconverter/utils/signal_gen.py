@@ -150,10 +150,14 @@ def generate_multitone(frequencies: List[float],
         raise ValueError("Number of frequencies must match number of amplitudes and phases")
 
     t = np.arange(0, duration, 1 / sampling_rate)
-    signal = np.zeros_like(t)
+    frequencies = np.asarray(frequencies)
+    amplitudes = np.asarray(amplitudes)
+    phases = np.asarray(phases)
 
-    for freq, amp, phase in zip(frequencies, amplitudes, phases):
-        signal += amp * np.sin(2 * np.pi * freq * t + phase)
+    # Vectorized: outer product gives (n_tones, n_samples) matrix
+    signal = (amplitudes[:, np.newaxis] *
+              np.sin(2 * np.pi * np.outer(frequencies, t) + phases[:, np.newaxis])
+              ).sum(axis=0)
 
     return signal
 
@@ -354,10 +358,12 @@ def generate_digital_multitone(n_bits: int,
     max_code = 2 ** n_bits - 1
     t = np.arange(0, duration, 1 / sampling_rate)
 
-    # Generate analog multitone
-    analog_signal = np.zeros_like(t)
-    for freq, amp in zip(frequencies, amplitudes):
-        analog_signal += amp * np.sin(2 * np.pi * freq * t)
+    # Generate analog multitone — vectorized
+    frequencies_arr = np.asarray(frequencies)
+    amplitudes_arr = np.asarray(amplitudes)
+    analog_signal = (amplitudes_arr[:, np.newaxis] *
+                     np.sin(2 * np.pi * np.outer(frequencies_arr, t))
+                     ).sum(axis=0)
 
     # Add offset to center the signal
     analog_signal += 0.5

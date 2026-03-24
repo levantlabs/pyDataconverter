@@ -158,7 +158,7 @@ class FlashADC(ADCBase):
     @property
     def reference_voltages(self) -> np.ndarray:
         """Static reference voltages (no noise). Convenience alias for reference.voltages."""
-        return self.reference.voltages
+        return self.reference.voltages*2 if self.input_type == InputType.DIFFERENTIAL else self.reference.voltages
 
     def _encode(self, thermometer: np.ndarray) -> int:
         """
@@ -181,16 +181,17 @@ class FlashADC(ADCBase):
         if self.encoder_type == EncoderType.COUNT_ONES:
             return int(np.sum(thermometer))
 
-        # XOR encoder
-        extended = np.append(thermometer, 0)
+        # XOR encoder — vectorized
+        extended = np.concatenate([thermometer, [0]])
         X = thermometer ^ extended[1:]          # 2^N - 1 one-hot-like bits
 
-        code = 0
-        for k in range(self.n_bits):
-            for i in np.where(X)[0]:
-                if (int(i) + 1) >> k & 1:
-                    code |= (1 << k)
-                    break                        # one active input is enough
+        active = np.where(X)[0]
+        if len(active) == 0:
+            return 0
+        # values[i] = i + 1 for each active XOR bit
+        values = active + 1
+        # OR together all active values to produce the binary code
+        code = int(np.bitwise_or.reduce(values))
         return code
 
     def _convert_input(self, analog_input) -> int:
@@ -207,23 +208,20 @@ class FlashADC(ADCBase):
         comp_refs = self.reference.get_voltages()
         n = self.n_comparators
 
+        thermometer = np.empty(n, dtype=int)
         if self.input_type == InputType.DIFFERENTIAL:
             v_pos, v_neg = analog_input
             # v_refp[i] comes from the bottom of the ladder (ascending index);
             # v_refn[i] comes from the opposite (top) end (descending index).
             # Effective threshold[i] = v_refp[i] − v_refn[i] = 2 × comp_refs[i],
             # which spans [−v_ref/2, +v_ref/2] because the ladder spans [−v_ref/4, +v_ref/4].
-            thermometer = np.array([
-                comp.compare(v_pos, v_neg, comp_refs[i], comp_refs[n - 1 - i])
-                for i, comp in enumerate(self.comparators)
-            ])
+            for i, comp in enumerate(self.comparators):
+                thermometer[i] = comp.compare(v_pos, v_neg, comp_refs[i], comp_refs[n - 1 - i])
         else:
             vin = float(analog_input)
             # Single-ended: reference injected as v_refp; v_neg and v_refn are 0.
-            thermometer = np.array([
-                comp.compare(vin, 0.0, ref, 0.0)
-                for comp, ref in zip(self.comparators, comp_refs)
-            ])
+            for i, (comp, ref) in enumerate(zip(self.comparators, comp_refs)):
+                thermometer[i] = comp.compare(vin, 0.0, ref, 0.0)
 
         return int(np.clip(self._encode(thermometer), 0, 2 ** self.n_bits - 1))
 

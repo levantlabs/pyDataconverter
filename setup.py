@@ -1,5 +1,8 @@
 from setuptools import setup
 
+with open('README.md', encoding='utf-8') as f:
+    long_description = f.read()
+
 setup(
     name="pyDataconverter",
     version="0.02",
@@ -12,7 +15,7 @@ setup(
     ],
     author="Levant Labs",
     description="A Python toolbox for modeling and analyzing data converters",
-    long_description=open('README.md').read(),
+    long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/levantlabs/pyDataconverter",
     classifiers=[

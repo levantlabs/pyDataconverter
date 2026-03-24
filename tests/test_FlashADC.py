@@ -320,6 +320,55 @@ class TestDifferentialReferenceLadder:
 # repr
 # ---------------------------------------------------------------------------
 
+class TestResetClearsHysteresis:
+
+    def test_reset_makes_conversion_deterministic(self):
+        """After reset, two fresh conversions of the same voltage give the same code."""
+        adc = FlashADC(n_bits=3, v_ref=1.0,
+                       comparator_params={'hysteresis': 0.05})
+        # Drive high then low to build hysteresis history
+        for _ in range(10):
+            adc.convert(1.0)
+        for _ in range(10):
+            adc.convert(0.0)
+
+        adc.reset()
+        code_a = adc.convert(0.5)
+
+        # Reset again and convert the same voltage
+        adc.reset()
+        code_b = adc.convert(0.5)
+
+        assert code_a == code_b, "After reset, same input must produce same code"
+
+
+class TestXorEncoderAllOnes:
+
+    def test_xor_all_ones_thermometer_3bit(self):
+        """XOR encoder with all-ones thermometer for 3-bit ADC gives max code 7."""
+        adc = FlashADC(n_bits=3, v_ref=1.0, encoder_type=EncoderType.XOR)
+        therm = np.ones(7, dtype=int)
+        assert adc._encode(therm) == 7
+
+    def test_xor_all_ones_matches_count_ones(self):
+        """XOR all-ones result matches COUNT_ONES for 3-bit and 4-bit ADCs."""
+        for n in [3, 4]:
+            n_comp = 2**n - 1
+            adc_xor = FlashADC(n_bits=n, v_ref=1.0, encoder_type=EncoderType.XOR)
+            adc_co  = FlashADC(n_bits=n, v_ref=1.0, encoder_type=EncoderType.COUNT_ONES)
+            therm = np.ones(n_comp, dtype=int)
+            assert adc_xor._encode(therm) == adc_co._encode(therm)
+
+
+class TestOffsetStdZeroDeterministic:
+
+    def test_offset_std_zero_produces_identical_results(self):
+        """With offset_std=0, repeated conversions of the same voltage are identical."""
+        adc = FlashADC(n_bits=3, v_ref=1.0, offset_std=0.0)
+        codes = [adc.convert(0.5) for _ in range(20)]
+        assert len(set(codes)) == 1, "offset_std=0 should produce identical results"
+
+
 class TestRepr:
 
     def test_repr_contains_class_name(self):

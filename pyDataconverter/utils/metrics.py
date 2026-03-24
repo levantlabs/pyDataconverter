@@ -62,24 +62,20 @@ def calculate_adc_dynamic_metrics(time_data: np.ndarray = None,
     sfdr = fund_mag - max_spur
 
     # Calculate noise power (excluding fundamental and harmonics)
-    mask = np.ones_like(freqs, dtype=bool)
-
-    # Exclude fundamental
-    mask &= np.abs(freqs - fund_freq) > bin_width
-
-    # Exclude harmonics
-    for h_freq, _ in harmonics:
-        mask &= np.abs(freqs - h_freq) > bin_width
+    exclude_freqs = np.array([fund_freq] + [h[0] for h in harmonics])
+    # Vectorized exclusion: shape (len(exclude_freqs), len(freqs))
+    mask = ~np.any(np.abs(freqs[np.newaxis, :] - exclude_freqs[:, np.newaxis]) <= bin_width, axis=0)
 
     noise_floor = np.mean(mags[mask])
     noise_pwr = sum(10 ** (m / 10) for m in mags[mask])
     noise_floor = noise_pwr / (fs/2) #Noise floor calculation based on sample rate
 
     # Calculate SNR (excluding top 7 harmonics)
+    noise_pwr = max(float(noise_pwr), 1e-20)
     snr = 10 * np.log10(fund_pwr / noise_pwr)
 
     # Calculate SNDR (including harmonic distortion)
-    total_noise_and_dist_pwr = noise_pwr + harmonic_pwr
+    total_noise_and_dist_pwr = max(float(noise_pwr + harmonic_pwr), 1e-20)
     sndr = 10 * np.log10(fund_pwr / total_noise_and_dist_pwr)
 
     # Calculate ENOB
@@ -118,7 +114,7 @@ def calculate_adc_dynamic_metrics(time_data: np.ndarray = None,
     if full_scale is not None:
         if time_data is not None:
             N = len(time_data)
-            level_correction = 20 * np.log10(full_scale) + 20 * np.log10(N / 2)
+            level_correction = 20 * np.log10(full_scale/2) + 20 * np.log10(N / 2)
         else:
             level_correction = 0  # mags assumed already in dBFS
 
@@ -130,10 +126,10 @@ def calculate_adc_dynamic_metrics(time_data: np.ndarray = None,
         # SFDR_dBFS: worst spur distance from full scale = -(spur_dBFS)
         results["SFDR_dBFS"]  = sfdr - fund_mag_dBFS
 
-        # SNR/SNDR/THD_dBFS: metric referenced to full scale (penalises backed-off signals)
-        results["SNR_dBFS"]   = snr  + fund_mag_dBFS
-        results["SNDR_dBFS"]  = sndr + fund_mag_dBFS
-        results["THD_dBFS"]   = thd  + fund_mag_dBFS
+        # SNR/SNDR/THD_dBFS: metric referenced to full scale (for backed-off signals)
+        results["SNR_dBFS"]   = snr  - fund_mag_dBFS
+        results["SNDR_dBFS"]  = sndr - fund_mag_dBFS
+        results["THD_dBFS"]   = thd  - fund_mag_dBFS
 
     return results
 
@@ -297,9 +293,10 @@ def calculate_histogram(codes: np.ndarray,
         pdf = np.zeros_like(normalized_amp)
         pdf[valid_mask] = 1 / (np.pi * np.sqrt(1 - normalized_amp[valid_mask] ** 2))
 
-        # Remove PDF from histogram where counts exist
+        # Remove PDF from histogram where counts exist and PDF is valid
         nonzero_mask = bin_counts > 0
-        bin_counts[nonzero_mask] = bin_counts[nonzero_mask] / pdf[nonzero_mask]
+        valid_pdf = (pdf > 0) & nonzero_mask
+        bin_counts[valid_pdf] = bin_counts[valid_pdf] / pdf[valid_pdf]
 
     # Normalize if requested
     if normalize:
