@@ -1,12 +1,12 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 with open('README.md', encoding='utf-8') as f:
     long_description = f.read()
 
 setup(
     name="pyDataconverter",
-    version="0.02",
-    packages=['pyDataconverter'],
+    version="0.03",
+    packages=find_packages(exclude=['tests']),
     python_requires='>=3.7',
     install_requires=[
         'numpy',
