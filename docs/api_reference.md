@@ -19,6 +19,7 @@
    - [Signal Generation](#signal-generation)
    - [FFT Analysis](#fft-analysis)
    - [Metrics](#metrics)
+   - [DAC Metrics](#dac-metrics)
 5. [Visualization](#visualization)
    - [ADC Plots](#adc-plots)
    - [DAC Plots](#dac-plots)
@@ -394,6 +395,8 @@ non-ideality parameters default to zero (disabled).
 | noise_rms | float | `0.0` | Output-referred RMS noise voltage (V). Must be >= 0. |
 | offset | float | `0.0` | Output DC offset voltage (V). |
 | gain_error | float | `0.0` | Fractional gain error (dimensionless). 0.01 = +1 %. |
+| fs | float | `1.0` | Sample rate (Hz). Used by `convert_sequence` to generate the time axis. |
+| oversample | int | `1` | Zero-order-hold oversampling factor. Each code is repeated this many times in the output of `convert_sequence`. Must be >= 1. |
 
 **Attributes**
 
@@ -406,12 +409,34 @@ non-ideality parameters default to zero (disabled).
 | noise_rms | float | Output-referred RMS noise voltage (V). |
 | offset | float | Output DC offset voltage (V). |
 | gain_error | float | Fractional gain error. |
+| fs | float | Sample rate (Hz). |
+| oversample | int | Zero-order-hold oversampling factor. |
 
 **Methods**
 
+#### `convert_sequence(codes)`
+
+Convert an array of digital codes to a time-domain zero-order-hold (ZOH) waveform.
+
+Each code is held for `oversample` output samples. The time axis is spaced at
+`1 / (fs * oversample)` seconds. Non-idealities (gain error, offset, noise) are
+applied to the full oversampled waveform. Out-of-range codes are clipped to
+`[0, 2^n_bits − 1]`.
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| codes | numpy.ndarray | — | 1-D array of integer DAC codes. |
+
+**Returns**
+
+| Type | Description |
+|------|-------------|
+| tuple[numpy.ndarray, numpy.ndarray] | `(t, voltages)` — time vector and voltage waveform (single-ended mode). |
+| tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray] | `(t, v_pos, v_neg)` — time vector and differential voltages (differential mode). |
+
 #### `convert(digital_input)`
 
-Convert a digital code to an analog output voltage.
+Convert a single digital code to an analog output voltage (inherited from `DACBase`).
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
@@ -428,24 +453,35 @@ Convert a digital code to an analog output voltage.
 
 | Exception | Condition |
 |-----------|-----------|
-| TypeError | `digital_input` is not an integer. |
-| ValueError | `digital_input` is outside the valid code range. |
+| TypeError | `digital_input` is not an integer (raised by `convert`). |
+| ValueError | `digital_input` is outside the valid code range (raised by `convert`). |
 | ValueError | `noise_rms` is negative (raised at construction). |
+| ValueError | `oversample` is less than 1 (raised at construction). |
 
 **Notes**
 
 - Non-idealities are applied in the order: gain error → offset → noise.
 - In differential mode the output is centered around `v_ref / 2`: `v_pos = v_diff/2 + v_ref/2`, `v_neg = −v_diff/2 + v_ref/2`.
 - The ideal voltage is computed as `digital_input * lsb`.
+- `convert_sequence` applies noise *after* oversampling so each held sample receives independent noise.
+- `convert_sequence` clips out-of-range codes silently rather than raising an error.
 
 **Examples**
 
 ```python
 from pyDataconverter.architectures.SimpleDAC import SimpleDAC
+import numpy as np
 
+# Single-sample conversion
 dac = SimpleDAC(n_bits=12, v_ref=1.0)
 voltage = dac.convert(2048)
 print(f"{voltage:.4f}")  # 0.5001
+
+# ZOH waveform with oversampling
+dac = SimpleDAC(n_bits=8, v_ref=3.3, fs=1000.0, oversample=4)
+codes = np.array([0, 128, 255])
+t, v = dac.convert_sequence(codes)
+print(len(t))  # 12  (3 codes × 4 oversample)
 ```
 
 **See Also**
@@ -1780,6 +1816,163 @@ print(f"Missing codes: {len(hist['missing_codes'])}")
 **See Also**
 
 - `calculate_adc_static_metrics` — DNL/INL from ramp data.
+
+---
+
+### DAC Metrics
+
+Functions for calculating DAC-specific static and dynamic performance metrics.
+
+---
+
+### `calculate_dac_static_metrics`
+
+*`pyDataconverter.utils.dac_metrics`*
+
+Compute static linearity metrics by sweeping digital codes through a DAC instance.
+
+Drives every code (or an evenly-spaced subset) through the DAC, records the output
+voltage, and derives DNL, INL, offset, and gain error.  For differential DACs the
+output is collapsed to a single voltage via `v_pos - v_neg` before computation.
+The INL reference line uses an endpoint fit per IEEE 1057.
+
+**Parameters**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| dac | `DACBase` | — | A DAC instance to characterize. Must expose `n_bits`, `v_ref`, `output_type`, and `convert(code)`. |
+| n_points | `int` or `None` | `None` | Number of evenly-spaced codes to sweep. When `None`, all `2**n_bits` codes are used. Must be >= 2 if provided. |
+
+**Returns**
+
+| Type | Description |
+|------|-------------|
+| `dict` | Dictionary with the following keys: |
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `DNL` | `np.ndarray` | Differential non-linearity per code step (LSB). Length is `len(Codes) - 1`. |
+| `INL` | `np.ndarray` | Integral non-linearity, endpoint-fit (LSB). Length equals `len(Codes)`. |
+| `MaxDNL` | `float` | Maximum absolute DNL value (LSB). |
+| `MaxINL` | `float` | Maximum absolute INL value (LSB). |
+| `Offset` | `float` | DC offset voltage at code 0 (V). |
+| `GainError` | `float` | Fractional gain error (dimensionless). 0.01 means +1 %. |
+| `Codes` | `np.ndarray` | The digital codes that were swept. |
+| `Voltages` | `np.ndarray` | The measured output voltage for each code. |
+
+**Raises**
+
+| Exception | Condition |
+|-----------|-----------|
+| `TypeError` | If `dac` is not a `DACBase` instance. |
+| `ValueError` | If `n_points` is less than 2. |
+
+**Notes**
+
+- LSB is defined as `v_ref / (2**n_bits - 1)` so that the maximum code maps exactly to `v_ref`.
+- For differential DACs the output voltage is `v_pos - v_neg`.
+- INL uses an endpoint-fit reference line per IEEE 1057.
+
+**Examples**
+
+```python
+from pyDataconverter.architectures.SimpleDAC import SimpleDAC
+from pyDataconverter.utils.dac_metrics import calculate_dac_static_metrics
+
+dac = SimpleDAC(n_bits=8, v_ref=1.0)
+result = calculate_dac_static_metrics(dac)
+print(result['MaxDNL'])   # 0.0
+print(result['Offset'])   # 0.0
+```
+
+**See Also**
+
+- `calculate_adc_static_metrics` — equivalent static metrics for ADCs.
+- `DACBase` — abstract base class that `dac` must implement.
+
+---
+
+### `calculate_dac_dynamic_metrics`
+
+*`pyDataconverter.utils.dac_metrics`*
+
+Compute frequency-domain performance metrics from a captured DAC output waveform.
+
+Performs an FFT on the captured voltage samples and calculates SNR, SNDR, SFDR,
+THD, and ENOB within the requested Nyquist zone of the DAC update rate.  Supports
+multi-zone analysis for characterizing DAC images in higher Nyquist zones.
+
+**Parameters**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| voltages | `np.ndarray` | — | 1-D array of captured DAC output samples (V), sampled at rate `fs`. |
+| fs | `float` | — | Capture sampling rate (Hz). |
+| fs_update | `float` or `None` | `None` | DAC update rate (Hz). Defaults to `fs` when `None` (no oversampling). |
+| nyquist_zone | `int` | `1` | Which Nyquist zone to analyse. Zone *i* covers `[(i-1)*fs_update/2, i*fs_update/2)`. |
+| window | `str` | `'hann'` | Window function name passed to `compute_fft`. |
+| full_scale | `float` or `None` | `None` | Full-scale voltage for dBFS normalisation. When `None`, metrics are in absolute dB. |
+
+**Returns**
+
+| Type | Description |
+|------|-------------|
+| `dict` | Dictionary with the following keys: |
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `SNR` | `float` | Signal-to-noise ratio (dB), fundamental vs in-zone noise. |
+| `SNDR` | `float` | Signal-to-noise-and-distortion ratio (dB). |
+| `SFDR` | `float` | Spurious-free dynamic range (dB), fundamental vs worst spur. |
+| `THD` | `float` | Total harmonic distortion (dB), in-zone harmonics only. |
+| `ENOB` | `float` | Effective number of bits, `(SNDR - 1.76) / 6.02`. |
+| `FundamentalFrequency` | `float` | Detected fundamental frequency (Hz). |
+| `FundamentalMagnitude` | `float` | Fundamental magnitude (dB or dBFS). |
+| `ZoneBandHz` | `tuple[float, float]` | `(f_low, f_high)` edges of the analysed Nyquist zone (Hz). |
+| `NyquistZone` | `int` | The zone number that was analysed. |
+
+When `full_scale` is not `None`, the following additional keys are included:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `SNR_dBFS` | `float` | SNR referenced to full scale. |
+| `SNDR_dBFS` | `float` | SNDR referenced to full scale. |
+| `SFDR_dBFS` | `float` | SFDR referenced to full scale. |
+| `THD_dBFS` | `float` | THD referenced to full scale. |
+| `FundamentalMagnitude_dBFS` | `float` | Fundamental magnitude referenced to full scale. |
+
+**Raises**
+
+| Exception | Condition |
+|-----------|-----------|
+| `ValueError` | If `fs < nyquist_zone * fs_update` (requested zone is not visible in the captured spectrum). |
+| `ValueError` | If `nyquist_zone < 1`. |
+| `ValueError` | If `voltages` is not a non-empty 1-D array. |
+
+**Notes**
+
+- Nyquist zone *i* spans `[(i-1)*fs_update/2, i*fs_update/2)`. For a DAC with update rate `fs_update`, the baseband output lives in zone 1. Images (sinc-weighted replicas) appear in higher zones.
+- Only harmonics that alias *into* the selected zone contribute to the in-zone THD and noise calculations.
+- The dBFS convention matches `calculate_adc_dynamic_metrics` in `metrics.py`.
+
+**Examples**
+
+```python
+import numpy as np
+from pyDataconverter.utils.dac_metrics import calculate_dac_dynamic_metrics
+
+fs = 1e6
+t = np.arange(1024) / fs
+voltages = 0.5 * np.sin(2 * np.pi * 10e3 * t)
+result = calculate_dac_dynamic_metrics(voltages, fs)
+print(result['NyquistZone'])  # 1
+print(result['ENOB'] > 0)    # True
+```
+
+**See Also**
+
+- `calculate_adc_dynamic_metrics` — equivalent dynamic metrics for ADCs.
+- `compute_fft` — the FFT engine used internally.
 
 ---
 

@@ -32,9 +32,9 @@
       "symbols_documented": ["SimpleADC", "SimpleADC.convert"]
     },
     "pyDataconverter/architectures/SimpleDAC.py::SimpleDAC": {
-      "documented_at": "2026-03-25T02:11:24Z",
-      "source_hash": "b900ece7529e669bb6b9029df7f3ba475d558575577485acfcdd2e39bee5c53c",
-      "symbols_documented": ["SimpleDAC", "SimpleDAC.convert"]
+      "documented_at": "2026-03-25T03:08:01Z",
+      "source_hash": "6605fb51b89e1279ad0c9e5084c51d52970f3b1d17388e0412f8dbab1503ebba",
+      "symbols_documented": ["SimpleDAC", "SimpleDAC.convert", "SimpleDAC.convert_sequence"]
     },
     "pyDataconverter/architectures/FlashADC.py::EncoderType": {
       "documented_at": "2026-03-25T02:11:24Z",
@@ -230,6 +230,16 @@
       "documented_at": "2026-03-25T02:11:24Z",
       "source_hash": "ce5fa3767b4fca8ae24dcd47d648b7fa505477954723d7a17b18b327e13d36a1",
       "symbols_documented": ["animate_flash_adc"]
+    },
+    "pyDataconverter/utils/dac_metrics.py::calculate_dac_static_metrics": {
+      "documented_at": "2026-03-25T02:52:32Z",
+      "source_hash": "4444e442669e6e4ffc855bad1be79efb16a44765814660066194861cb2e495e0",
+      "symbols_documented": ["calculate_dac_static_metrics"]
+    },
+    "pyDataconverter/utils/dac_metrics.py::calculate_dac_dynamic_metrics": {
+      "documented_at": "2026-03-25T02:52:32Z",
+      "source_hash": "4444e442669e6e4ffc855bad1be79efb16a44765814660066194861cb2e495e0",
+      "symbols_documented": ["calculate_dac_dynamic_metrics"]
     }
   }
 }

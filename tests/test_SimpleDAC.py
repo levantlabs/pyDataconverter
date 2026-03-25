@@ -266,5 +266,182 @@ class TestSimpleDAC(unittest.TestCase):
         self.assertNotIn('gain_error', r_ideal)
 
 
+    # ------------------------------------------------------------------ #
+    # Constructor: fs and oversample defaults / validation                  #
+    # ------------------------------------------------------------------ #
+
+    def test_defaults_fs_and_oversample(self):
+        """fs defaults to 1.0 and oversample defaults to 1."""
+        dac = SimpleDAC(self.n_bits, self.v_ref)
+        self.assertEqual(dac.fs, 1.0)
+        self.assertEqual(dac.oversample, 1)
+
+    def test_oversample_zero_raises(self):
+        """oversample=0 raises ValueError."""
+        with self.assertRaises(ValueError):
+            SimpleDAC(self.n_bits, self.v_ref, oversample=0)
+
+    def test_oversample_negative_raises(self):
+        """oversample=-1 raises ValueError."""
+        with self.assertRaises(ValueError):
+            SimpleDAC(self.n_bits, self.v_ref, oversample=-1)
+
+    # ------------------------------------------------------------------ #
+    # convert_sequence — single-ended                                       #
+    # ------------------------------------------------------------------ #
+
+    def test_convert_sequence_returns_two_arrays(self):
+        """Single-ended convert_sequence returns (t, voltages)."""
+        dac = SimpleDAC(self.n_bits, self.v_ref, OutputType.SINGLE)
+        result = dac.convert_sequence(np.array([0, 1, 2]))
+        self.assertEqual(len(result), 2)
+
+    def test_convert_sequence_length(self):
+        """Output length == len(codes) * oversample."""
+        oversample = 4
+        codes = np.array([0, 100, 200, 300])
+        dac = SimpleDAC(self.n_bits, self.v_ref, oversample=oversample)
+        t, v = dac.convert_sequence(codes)
+        expected_len = len(codes) * oversample
+        self.assertEqual(len(t), expected_len)
+        self.assertEqual(len(v), expected_len)
+
+    def test_convert_sequence_time_axis(self):
+        """Time axis starts at 0, ends correctly, has uniform spacing."""
+        fs = 100.0
+        oversample = 4
+        codes = np.array([0, 100, 200])
+        dac = SimpleDAC(self.n_bits, self.v_ref, fs=fs, oversample=oversample)
+        t, _ = dac.convert_sequence(codes)
+
+        self.assertAlmostEqual(t[0], 0.0)
+        expected_last = (len(codes) * oversample - 1) / (fs * oversample)
+        self.assertAlmostEqual(t[-1], expected_last)
+        spacing = np.diff(t)
+        np.testing.assert_allclose(spacing, 1.0 / (fs * oversample))
+
+    def test_convert_sequence_zoh_hold(self):
+        """With oversample=4, each group of 4 consecutive voltages are equal."""
+        oversample = 4
+        codes = np.array([0, 2048, 4095])
+        dac = SimpleDAC(self.n_bits, self.v_ref, oversample=oversample)
+        _, v = dac.convert_sequence(codes)
+        for i in range(len(codes)):
+            group = v[i * oversample:(i + 1) * oversample]
+            np.testing.assert_allclose(group, group[0])
+
+    def test_convert_sequence_code_zero(self):
+        """Ideal DAC, code=0 → voltages all 0.0."""
+        dac = SimpleDAC(self.n_bits, self.v_ref, oversample=2)
+        _, v = dac.convert_sequence(np.array([0, 0, 0]))
+        np.testing.assert_allclose(v, 0.0)
+
+    def test_convert_sequence_code_full_scale(self):
+        """Ideal DAC, code=4095 (12-bit) → voltages ≈ v_ref."""
+        max_code = 2 ** self.n_bits - 1
+        dac = SimpleDAC(self.n_bits, self.v_ref, oversample=2)
+        _, v = dac.convert_sequence(np.array([max_code, max_code]))
+        np.testing.assert_allclose(v, self.v_ref, atol=1e-9)
+
+    def test_convert_sequence_gain_and_offset(self):
+        """Gain error + offset applied per code, held across oversample steps."""
+        gain_error = 0.02
+        offset = 0.005
+        oversample = 4
+        codes = np.array([1000, 2048, 3000])
+        dac = SimpleDAC(self.n_bits, self.v_ref,
+                        gain_error=gain_error, offset=offset,
+                        oversample=oversample)
+        _, v = dac.convert_sequence(codes)
+
+        for i, code in enumerate(codes):
+            ideal_v = code * dac.lsb
+            expected = ideal_v * (1.0 + gain_error) + offset
+            group = v[i * oversample:(i + 1) * oversample]
+            np.testing.assert_allclose(group, expected,
+                                       err_msg=f"code={code}: gain+offset mismatch")
+
+    def test_convert_sequence_noise_per_sample(self):
+        """Noise is independent per output sample; std ≈ noise_rms (within 20%)."""
+        noise_rms = 0.01
+        dac = SimpleDAC(self.n_bits, self.v_ref, noise_rms=noise_rms,
+                        oversample=1)
+        codes = np.full(10000, 2048)
+        _, v = dac.convert_sequence(codes)
+        ideal_v = 2048 * dac.lsb
+        measured_std = np.std(v - ideal_v)
+        self.assertAlmostEqual(measured_std, noise_rms,
+                               delta=noise_rms * 0.2,
+                               msg=f"Measured std {measured_std} != expected {noise_rms}")
+
+    def test_convert_sequence_time_spacing_high_fs(self):
+        """fs=10e6, oversample=8: spacing = 1/(10e6*8)."""
+        fs = 10e6
+        oversample = 8
+        codes = np.array([0, 100])
+        dac = SimpleDAC(self.n_bits, self.v_ref, fs=fs, oversample=oversample)
+        t, _ = dac.convert_sequence(codes)
+        spacing = np.diff(t)
+        np.testing.assert_allclose(spacing, 1.0 / (fs * oversample))
+
+    def test_convert_sequence_clips_codes(self):
+        """Codes outside [0, 2^n_bits-1] are clipped, not rejected."""
+        dac = SimpleDAC(self.n_bits, self.v_ref)
+        max_code = 2 ** self.n_bits - 1
+        codes = np.array([-5, 0, max_code, max_code + 100])
+        _, v = dac.convert_sequence(codes)
+        # -5 clipped to 0, max_code+100 clipped to max_code
+        self.assertAlmostEqual(v[0], 0.0)
+        self.assertAlmostEqual(v[-1], self.v_ref, places=9)
+
+    # ------------------------------------------------------------------ #
+    # convert_sequence — differential                                       #
+    # ------------------------------------------------------------------ #
+
+    def test_convert_sequence_differential_returns_three(self):
+        """Differential convert_sequence returns (t, v_pos, v_neg)."""
+        dac = SimpleDAC(self.n_bits, self.v_ref, OutputType.DIFFERENTIAL)
+        result = dac.convert_sequence(np.array([0, 2048, 4095]))
+        self.assertEqual(len(result), 3)
+
+    def test_convert_sequence_differential_full_scale(self):
+        """Full-scale: v_pos - v_neg ≈ +v_ref."""
+        max_code = 2 ** self.n_bits - 1
+        dac = SimpleDAC(self.n_bits, self.v_ref, OutputType.DIFFERENTIAL)
+        t, vp, vn = dac.convert_sequence(np.array([max_code]))
+        np.testing.assert_allclose(vp - vn, self.v_ref, atol=1e-9)
+
+    def test_convert_sequence_differential_zero_scale(self):
+        """Zero-scale: v_pos - v_neg ≈ -v_ref."""
+        dac = SimpleDAC(self.n_bits, self.v_ref, OutputType.DIFFERENTIAL)
+        t, vp, vn = dac.convert_sequence(np.array([0]))
+        np.testing.assert_allclose(vp - vn, -self.v_ref, atol=1e-9)
+
+    def test_convert_sequence_differential_common_mode(self):
+        """v_pos + v_neg ≈ v_ref (common mode) for all codes."""
+        codes = np.array([0, 1000, 2048, 3000, 4095])
+        dac = SimpleDAC(self.n_bits, self.v_ref, OutputType.DIFFERENTIAL)
+        t, vp, vn = dac.convert_sequence(codes)
+        np.testing.assert_allclose(vp + vn, self.v_ref, atol=1e-9)
+
+    # ------------------------------------------------------------------ #
+    # __repr__ with fs / oversample                                         #
+    # ------------------------------------------------------------------ #
+
+    def test_repr_default_omits_fs_oversample(self):
+        """Default fs/oversample should NOT appear in repr."""
+        dac = SimpleDAC(self.n_bits, self.v_ref)
+        r = repr(dac)
+        self.assertNotIn('fs=', r)
+        self.assertNotIn('oversample=', r)
+
+    def test_repr_nondefault_shows_fs_oversample(self):
+        """Non-default fs/oversample should appear in repr."""
+        dac = SimpleDAC(self.n_bits, self.v_ref, fs=48000.0, oversample=8)
+        r = repr(dac)
+        self.assertIn('fs=48000.0', r)
+        self.assertIn('oversample=8', r)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -46,15 +46,21 @@ class SimpleDAC(DACBase):
                  output_type: OutputType = OutputType.SINGLE,
                  noise_rms: float = 0.0,
                  offset: float = 0.0,
-                 gain_error: float = 0.0):
+                 gain_error: float = 0.0,
+                 fs: float = 1.0,
+                 oversample: int = 1):
         super().__init__(n_bits, v_ref, output_type)
 
         if noise_rms < 0:
             raise ValueError("noise_rms must be >= 0")
+        if oversample < 1:
+            raise ValueError("oversample must be >= 1")
 
         self.noise_rms  = noise_rms
         self.offset     = offset
         self.gain_error = gain_error
+        self.fs         = fs
+        self.oversample = oversample
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -107,6 +113,44 @@ class SimpleDAC(DACBase):
             v_neg = -v_diff / 2 + self.v_ref / 2
             return (v_pos, v_neg)
 
+    def convert_sequence(self, codes: np.ndarray) -> Union[
+            Tuple[np.ndarray, np.ndarray],
+            Tuple[np.ndarray, np.ndarray, np.ndarray]]:
+        """
+        Convert an array of digital codes to a time-domain ZOH waveform.
+
+        Args:
+            codes: Array of integer DAC codes.
+
+        Returns:
+            Single-ended: (t, voltages)
+            Differential:  (t, v_pos, v_neg)
+        """
+        max_code = (1 << self.n_bits) - 1
+        codes = np.clip(codes, 0, max_code)
+
+        voltages = codes.astype(float) * self.lsb
+
+        if self.gain_error:
+            voltages *= (1.0 + self.gain_error)
+        if self.offset:
+            voltages += self.offset
+
+        voltages = np.repeat(voltages, self.oversample)
+
+        if self.noise_rms:
+            voltages = voltages + np.random.normal(0.0, self.noise_rms, len(voltages))
+
+        t = np.arange(len(voltages)) / (self.fs * self.oversample)
+
+        if self.output_type == OutputType.SINGLE:
+            return (t, voltages)
+        else:
+            v_diff = 2 * voltages - self.v_ref
+            v_pos = v_diff / 2 + self.v_ref / 2
+            v_neg = -v_diff / 2 + self.v_ref / 2
+            return (t, v_pos, v_neg)
+
     def __repr__(self) -> str:
         parts = [
             f"n_bits={self.n_bits}",
@@ -119,6 +163,10 @@ class SimpleDAC(DACBase):
             parts.append(f"offset={self.offset}")
         if self.gain_error:
             parts.append(f"gain_error={self.gain_error}")
+        if self.fs != 1.0:
+            parts.append(f"fs={self.fs}")
+        if self.oversample != 1:
+            parts.append(f"oversample={self.oversample}")
         return f"{self.__class__.__name__}({', '.join(parts)})"
 
 
