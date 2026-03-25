@@ -1,4 +1,235 @@
 {
-  "last_full_build": null,
-  "entries": {}
+  "last_full_build": "2026-03-25T02:11:24Z",
+  "entries": {
+    "pyDataconverter/dataconverter.py::InputType": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "17036ac1a95aff0f6bee35c26d170b054519d2f2eecd2f19f5cb4a14338053a1",
+      "symbols_documented": ["InputType"]
+    },
+    "pyDataconverter/dataconverter.py::QuantizationMode": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "17036ac1a95aff0f6bee35c26d170b054519d2f2eecd2f19f5cb4a14338053a1",
+      "symbols_documented": ["QuantizationMode"]
+    },
+    "pyDataconverter/dataconverter.py::ADCBase": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "17036ac1a95aff0f6bee35c26d170b054519d2f2eecd2f19f5cb4a14338053a1",
+      "symbols_documented": ["ADCBase", "ADCBase.convert"]
+    },
+    "pyDataconverter/dataconverter.py::OutputType": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "17036ac1a95aff0f6bee35c26d170b054519d2f2eecd2f19f5cb4a14338053a1",
+      "symbols_documented": ["OutputType"]
+    },
+    "pyDataconverter/dataconverter.py::DACBase": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "17036ac1a95aff0f6bee35c26d170b054519d2f2eecd2f19f5cb4a14338053a1",
+      "symbols_documented": ["DACBase", "DACBase.convert"]
+    },
+    "pyDataconverter/architectures/SimpleADC.py::SimpleADC": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "f7a305ab0d40a3e3f26c1e28ca1cbea4386f28c3a8b11e35617a9dbbe616301a",
+      "symbols_documented": ["SimpleADC", "SimpleADC.convert"]
+    },
+    "pyDataconverter/architectures/SimpleDAC.py::SimpleDAC": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "b900ece7529e669bb6b9029df7f3ba475d558575577485acfcdd2e39bee5c53c",
+      "symbols_documented": ["SimpleDAC", "SimpleDAC.convert"]
+    },
+    "pyDataconverter/architectures/FlashADC.py::EncoderType": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "b40e1a014bd84ac6f4ce6cd48ece3013a403b5830225a2851e6ccfba2dad357d",
+      "symbols_documented": ["EncoderType"]
+    },
+    "pyDataconverter/architectures/FlashADC.py::FlashADC": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "b40e1a014bd84ac6f4ce6cd48ece3013a403b5830225a2851e6ccfba2dad357d",
+      "symbols_documented": ["FlashADC", "FlashADC.convert", "FlashADC.reset", "FlashADC.reference_voltages"]
+    },
+    "pyDataconverter/components/comparator.py::ComparatorBase": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "f1301e062a970de60866de5d903450ca50d015e58c8fd19db445748138ec33c0",
+      "symbols_documented": ["ComparatorBase", "ComparatorBase.compare", "ComparatorBase.reset"]
+    },
+    "pyDataconverter/components/comparator.py::DifferentialComparator": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "f1301e062a970de60866de5d903450ca50d015e58c8fd19db445748138ec33c0",
+      "symbols_documented": ["DifferentialComparator", "DifferentialComparator.compare", "DifferentialComparator.reset"]
+    },
+    "pyDataconverter/components/reference.py::ReferenceBase": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "afb65aa6f70d20fe52f337bebe8a84261d2a796c45c5afc4ad89aceef52f2545",
+      "symbols_documented": ["ReferenceBase", "ReferenceBase.n_references", "ReferenceBase.voltages", "ReferenceBase.get_voltages"]
+    },
+    "pyDataconverter/components/reference.py::ReferenceLadder": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "afb65aa6f70d20fe52f337bebe8a84261d2a796c45c5afc4ad89aceef52f2545",
+      "symbols_documented": ["ReferenceLadder", "ReferenceLadder.get_voltages"]
+    },
+    "pyDataconverter/components/reference.py::ArbitraryReference": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "afb65aa6f70d20fe52f337bebe8a84261d2a796c45c5afc4ad89aceef52f2545",
+      "symbols_documented": ["ArbitraryReference", "ArbitraryReference.get_voltages"]
+    },
+    "pyDataconverter/utils/signal_gen.py::convert_to_differential": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "215aa8a4f8c21b80df81f79f05cb4b86611f7654e064deb4d7cf8065520afc70",
+      "symbols_documented": ["convert_to_differential"]
+    },
+    "pyDataconverter/utils/signal_gen.py::generate_sine": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "215aa8a4f8c21b80df81f79f05cb4b86611f7654e064deb4d7cf8065520afc70",
+      "symbols_documented": ["generate_sine"]
+    },
+    "pyDataconverter/utils/signal_gen.py::generate_ramp": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "215aa8a4f8c21b80df81f79f05cb4b86611f7654e064deb4d7cf8065520afc70",
+      "symbols_documented": ["generate_ramp"]
+    },
+    "pyDataconverter/utils/signal_gen.py::generate_step": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "215aa8a4f8c21b80df81f79f05cb4b86611f7654e064deb4d7cf8065520afc70",
+      "symbols_documented": ["generate_step"]
+    },
+    "pyDataconverter/utils/signal_gen.py::generate_two_tone": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "215aa8a4f8c21b80df81f79f05cb4b86611f7654e064deb4d7cf8065520afc70",
+      "symbols_documented": ["generate_two_tone"]
+    },
+    "pyDataconverter/utils/signal_gen.py::generate_multitone": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "215aa8a4f8c21b80df81f79f05cb4b86611f7654e064deb4d7cf8065520afc70",
+      "symbols_documented": ["generate_multitone"]
+    },
+    "pyDataconverter/utils/signal_gen.py::generate_imd_tones": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "215aa8a4f8c21b80df81f79f05cb4b86611f7654e064deb4d7cf8065520afc70",
+      "symbols_documented": ["generate_imd_tones"]
+    },
+    "pyDataconverter/utils/signal_gen.py::generate_digital_ramp": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "215aa8a4f8c21b80df81f79f05cb4b86611f7654e064deb4d7cf8065520afc70",
+      "symbols_documented": ["generate_digital_ramp"]
+    },
+    "pyDataconverter/utils/signal_gen.py::generate_digital_step": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "215aa8a4f8c21b80df81f79f05cb4b86611f7654e064deb4d7cf8065520afc70",
+      "symbols_documented": ["generate_digital_step"]
+    },
+    "pyDataconverter/utils/signal_gen.py::generate_digital_sine": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "215aa8a4f8c21b80df81f79f05cb4b86611f7654e064deb4d7cf8065520afc70",
+      "symbols_documented": ["generate_digital_sine"]
+    },
+    "pyDataconverter/utils/signal_gen.py::generate_digital_two_tone": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "215aa8a4f8c21b80df81f79f05cb4b86611f7654e064deb4d7cf8065520afc70",
+      "symbols_documented": ["generate_digital_two_tone"]
+    },
+    "pyDataconverter/utils/signal_gen.py::generate_digital_multitone": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "215aa8a4f8c21b80df81f79f05cb4b86611f7654e064deb4d7cf8065520afc70",
+      "symbols_documented": ["generate_digital_multitone"]
+    },
+    "pyDataconverter/utils/signal_gen.py::generate_digital_imd_tones": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "215aa8a4f8c21b80df81f79f05cb4b86611f7654e064deb4d7cf8065520afc70",
+      "symbols_documented": ["generate_digital_imd_tones"]
+    },
+    "pyDataconverter/utils/signal_gen.py::generate_coherent_sine": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "215aa8a4f8c21b80df81f79f05cb4b86611f7654e064deb4d7cf8065520afc70",
+      "symbols_documented": ["generate_coherent_sine"]
+    },
+    "pyDataconverter/utils/signal_gen.py::generate_coherent_two_tone": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "215aa8a4f8c21b80df81f79f05cb4b86611f7654e064deb4d7cf8065520afc70",
+      "symbols_documented": ["generate_coherent_two_tone"]
+    },
+    "pyDataconverter/utils/fft_analysis.py::FFTNormalization": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "a45a3833b7eebc0d82a7baf90c41c6c003755ec893610e5ae4241195c60a82e2",
+      "symbols_documented": ["FFTNormalization"]
+    },
+    "pyDataconverter/utils/fft_analysis.py::compute_fft": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "a45a3833b7eebc0d82a7baf90c41c6c003755ec893610e5ae4241195c60a82e2",
+      "symbols_documented": ["compute_fft"]
+    },
+    "pyDataconverter/utils/fft_analysis.py::find_fundamental": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "a45a3833b7eebc0d82a7baf90c41c6c003755ec893610e5ae4241195c60a82e2",
+      "symbols_documented": ["find_fundamental"]
+    },
+    "pyDataconverter/utils/fft_analysis.py::find_harmonics": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "a45a3833b7eebc0d82a7baf90c41c6c003755ec893610e5ae4241195c60a82e2",
+      "symbols_documented": ["find_harmonics"]
+    },
+    "pyDataconverter/utils/fft_analysis.py::demo_fft_analysis": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "a45a3833b7eebc0d82a7baf90c41c6c003755ec893610e5ae4241195c60a82e2",
+      "symbols_documented": ["demo_fft_analysis"]
+    },
+    "pyDataconverter/utils/metrics.py::calculate_adc_dynamic_metrics": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "2634ad9d4b99972dcee10de70257083fa2a962d54e36f1acd4704c703c0d7fce",
+      "symbols_documented": ["calculate_adc_dynamic_metrics"]
+    },
+    "pyDataconverter/utils/metrics.py::calculate_adc_static_metrics": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "2634ad9d4b99972dcee10de70257083fa2a962d54e36f1acd4704c703c0d7fce",
+      "symbols_documented": ["calculate_adc_static_metrics"]
+    },
+    "pyDataconverter/utils/metrics.py::is_monotonic": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "2634ad9d4b99972dcee10de70257083fa2a962d54e36f1acd4704c703c0d7fce",
+      "symbols_documented": ["is_monotonic"]
+    },
+    "pyDataconverter/utils/metrics.py::calculate_histogram": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "2634ad9d4b99972dcee10de70257083fa2a962d54e36f1acd4704c703c0d7fce",
+      "symbols_documented": ["calculate_histogram"]
+    },
+    "pyDataconverter/utils/visualizations/adc_plots.py::plot_conversion": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "d22ff97932945238e3876bd14c581410c8729b086215166229622099e6fb4ef5",
+      "symbols_documented": ["plot_conversion"]
+    },
+    "pyDataconverter/utils/visualizations/adc_plots.py::plot_transfer_function": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "d22ff97932945238e3876bd14c581410c8729b086215166229622099e6fb4ef5",
+      "symbols_documented": ["plot_transfer_function"]
+    },
+    "pyDataconverter/utils/visualizations/dac_plots.py::plot_transfer_curve": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "f9edf26b985e52533095179b4bb297edcefb3c19f7aff0e9d1d6375eeb0b7c9d",
+      "symbols_documented": ["plot_transfer_curve"]
+    },
+    "pyDataconverter/utils/visualizations/dac_plots.py::plot_inl_dnl": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "f9edf26b985e52533095179b4bb297edcefb3c19f7aff0e9d1d6375eeb0b7c9d",
+      "symbols_documented": ["plot_inl_dnl"]
+    },
+    "pyDataconverter/utils/visualizations/dac_plots.py::plot_output_spectrum": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "f9edf26b985e52533095179b4bb297edcefb3c19f7aff0e9d1d6375eeb0b7c9d",
+      "symbols_documented": ["plot_output_spectrum"]
+    },
+    "pyDataconverter/utils/visualizations/fft_plots.py::plot_fft": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "e92f34b7d52dafc16834ec4389783064eb5b2f635b8497cbc984cc1ce61f0ed2",
+      "symbols_documented": ["plot_fft"]
+    },
+    "pyDataconverter/utils/visualizations/visualize_FlashADC.py::visualize_flash_adc": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "ce5fa3767b4fca8ae24dcd47d648b7fa505477954723d7a17b18b327e13d36a1",
+      "symbols_documented": ["visualize_flash_adc"]
+    },
+    "pyDataconverter/utils/visualizations/visualize_FlashADC.py::animate_flash_adc": {
+      "documented_at": "2026-03-25T02:11:24Z",
+      "source_hash": "ce5fa3767b4fca8ae24dcd47d648b7fa505477954723d7a17b18b327e13d36a1",
+      "symbols_documented": ["animate_flash_adc"]
+    }
+  }
 }
