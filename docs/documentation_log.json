@@ -240,6 +240,91 @@
       "documented_at": "2026-03-25T02:52:32Z",
       "source_hash": "4444e442669e6e4ffc855bad1be79efb16a44765814660066194861cb2e495e0",
       "symbols_documented": ["calculate_dac_dynamic_metrics"]
+    },
+    "pyDataconverter/architectures/SARADC.py::SARADC": {
+      "documented_at": "2026-03-25T22:33:00Z",
+      "source_hash": "70750624eef5d025c39ad7236000769aaee0c55ae9d2fa174d73675427f8533d",
+      "symbols_documented": ["SARADC", "SARADC.convert", "SARADC.convert_with_trace", "SARADC.reset", "SARADC.dac_voltages"]
+    },
+    "pyDataconverter/components/cdac.py::CDACBase": {
+      "documented_at": "2026-03-25T00:00:00Z",
+      "source_hash": "4f8e33607e3b3fe086aab7be612b5b3fb9c60ce9b77b3a6725639f0f3b939355",
+      "symbols_documented": ["CDACBase", "CDACBase.n_bits", "CDACBase.v_ref", "CDACBase.cap_weights", "CDACBase.cap_total", "CDACBase.get_voltage", "CDACBase.voltages"]
+    },
+    "pyDataconverter/components/cdac.py::SingleEndedCDAC": {
+      "documented_at": "2026-03-25T00:00:00Z",
+      "source_hash": "4f8e33607e3b3fe086aab7be612b5b3fb9c60ce9b77b3a6725639f0f3b939355",
+      "symbols_documented": ["SingleEndedCDAC", "SingleEndedCDAC.n_bits", "SingleEndedCDAC.v_ref", "SingleEndedCDAC.cap_weights", "SingleEndedCDAC.cap_total", "SingleEndedCDAC.cap_mismatch", "SingleEndedCDAC.cap_instances", "SingleEndedCDAC.get_voltage"]
+    },
+    "pyDataconverter/components/cdac.py::DifferentialCDAC": {
+      "documented_at": "2026-03-25T00:00:00Z",
+      "source_hash": "4f8e33607e3b3fe086aab7be612b5b3fb9c60ce9b77b3a6725639f0f3b939355",
+      "symbols_documented": ["DifferentialCDAC", "DifferentialCDAC.n_bits", "DifferentialCDAC.v_ref", "DifferentialCDAC.cap_weights", "DifferentialCDAC.cap_weights_neg", "DifferentialCDAC.cap_total", "DifferentialCDAC.cap_total_neg", "DifferentialCDAC.cap_mismatch", "DifferentialCDAC.cap_instances", "DifferentialCDAC.cap_instances_neg", "DifferentialCDAC.get_voltage"]
+    },
+    "pyDataconverter/components/decoder.py::DecoderBase": {
+      "documented_at": "2026-03-25T00:00:00Z",
+      "source_hash": "8dc61f3764f74fd027ef81939cf64c8cfbcd09416dac3ceafe4bf1c2dfe62e9b",
+      "symbols_documented": ["DecoderBase", "DecoderBase.n_bits", "DecoderBase.n_therm_bits", "DecoderBase.n_binary_bits", "DecoderBase.decode"]
+    },
+    "pyDataconverter/components/decoder.py::BinaryDecoder": {
+      "documented_at": "2026-03-25T00:00:00Z",
+      "source_hash": "8dc61f3764f74fd027ef81939cf64c8cfbcd09416dac3ceafe4bf1c2dfe62e9b",
+      "symbols_documented": ["BinaryDecoder", "BinaryDecoder.decode"]
+    },
+    "pyDataconverter/components/decoder.py::ThermometerDecoder": {
+      "documented_at": "2026-03-25T00:00:00Z",
+      "source_hash": "8dc61f3764f74fd027ef81939cf64c8cfbcd09416dac3ceafe4bf1c2dfe62e9b",
+      "symbols_documented": ["ThermometerDecoder", "ThermometerDecoder.n_elements", "ThermometerDecoder.decode"]
+    },
+    "pyDataconverter/components/decoder.py::SegmentedDecoder": {
+      "documented_at": "2026-03-25T00:00:00Z",
+      "source_hash": "8dc61f3764f74fd027ef81939cf64c8cfbcd09416dac3ceafe4bf1c2dfe62e9b",
+      "symbols_documented": ["SegmentedDecoder", "SegmentedDecoder.n_therm_elements", "SegmentedDecoder.decode"]
+    },
+    "pyDataconverter/components/capacitor.py::UnitCapacitorBase": {
+      "documented_at": "2026-03-25T00:00:00Z",
+      "source_hash": "4189cdf58bb934880cc4956b1cbd5714f5e0a8981940b52aeba72ba1015d9754",
+      "symbols_documented": ["UnitCapacitorBase", "UnitCapacitorBase.c_nominal", "UnitCapacitorBase.capacitance"]
+    },
+    "pyDataconverter/components/capacitor.py::IdealCapacitor": {
+      "documented_at": "2026-03-25T00:00:00Z",
+      "source_hash": "4189cdf58bb934880cc4956b1cbd5714f5e0a8981940b52aeba72ba1015d9754",
+      "symbols_documented": ["IdealCapacitor", "IdealCapacitor.c_nominal", "IdealCapacitor.mismatch", "IdealCapacitor.capacitance"]
+    },
+    "pyDataconverter/components/current_source.py::UnitCurrentSourceBase": {
+      "documented_at": "2026-03-25T00:00:00Z",
+      "source_hash": "b517a6cc76d6b7d9c39d01495f206c48f419b5b01ff9ce4a331a32810d2c548d",
+      "symbols_documented": ["UnitCurrentSourceBase", "UnitCurrentSourceBase.i_nominal", "UnitCurrentSourceBase.current"]
+    },
+    "pyDataconverter/components/current_source.py::IdealCurrentSource": {
+      "documented_at": "2026-03-25T00:00:00Z",
+      "source_hash": "b517a6cc76d6b7d9c39d01495f206c48f419b5b01ff9ce4a331a32810d2c548d",
+      "symbols_documented": ["IdealCurrentSource", "IdealCurrentSource.i_nominal", "IdealCurrentSource.mismatch", "IdealCurrentSource.current"]
+    },
+    "pyDataconverter/components/current_source.py::CurrentSourceArray": {
+      "documented_at": "2026-03-25T00:00:00Z",
+      "source_hash": "b517a6cc76d6b7d9c39d01495f206c48f419b5b01ff9ce4a331a32810d2c548d",
+      "symbols_documented": ["CurrentSourceArray", "CurrentSourceArray.therm_sources", "CurrentSourceArray.binary_sources", "CurrentSourceArray.i_unit", "CurrentSourceArray.current_mismatch", "CurrentSourceArray.n_therm_bits", "CurrentSourceArray.n_binary_bits", "CurrentSourceArray.n_bits", "CurrentSourceArray.i_total", "CurrentSourceArray.get_current"]
+    },
+    "pyDataconverter/architectures/CurrentSteeringDAC.py::CurrentSteeringDAC": {
+      "documented_at": "2026-03-25T00:00:00Z",
+      "source_hash": "ec5d072f636d686b615a0965b8effc20d9fd5b9f672cf0de67dbf77488df4d88",
+      "symbols_documented": ["CurrentSteeringDAC", "CurrentSteeringDAC.n_therm_bits", "CurrentSteeringDAC.n_binary_bits", "CurrentSteeringDAC.i_unit", "CurrentSteeringDAC.r_load", "CurrentSteeringDAC.current_mismatch", "CurrentSteeringDAC.i_total", "CurrentSteeringDAC.dac_currents", "CurrentSteeringDAC.convert"]
+    },
+    "pyDataconverter/utils/visualizations/visualize_SARADC.py::visualize_sar_adc": {
+      "documented_at": "2026-03-25T22:33:00Z",
+      "source_hash": "d7d8e1387540bb51da9c148312f00b328d01e2b33dcdd53c3d4560c63fe45cf8",
+      "symbols_documented": ["visualize_sar_adc"]
+    },
+    "pyDataconverter/utils/visualizations/visualize_SARADC.py::animate_sar_conversion": {
+      "documented_at": "2026-03-25T22:33:00Z",
+      "source_hash": "d7d8e1387540bb51da9c148312f00b328d01e2b33dcdd53c3d4560c63fe45cf8",
+      "symbols_documented": ["animate_sar_conversion"]
+    },
+    "pyDataconverter/utils/visualizations/visualize_SARADC.py::animate_sar_adc": {
+      "documented_at": "2026-03-25T22:33:00Z",
+      "source_hash": "d7d8e1387540bb51da9c148312f00b328d01e2b33dcdd53c3d4560c63fe45cf8",
+      "symbols_documented": ["animate_sar_adc"]
     }
   }
 }

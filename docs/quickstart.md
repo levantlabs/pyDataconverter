@@ -26,14 +26,17 @@ pip install -e .
 2. [SimpleADC](#simpleadc)
 3. [SimpleDAC](#simpledac)
 4. [FlashADC](#flashadc)
-5. [Signal Generation](#signal-generation)
-6. [Analysis](#analysis)
+5. [SARADC](#saradc)
+6. [CurrentSteeringDAC](#currentsteeringdac)
+7. [Signal Generation](#signal-generation)
+8. [Analysis](#analysis)
    - [Static Metrics — ADC](#static-metrics--adc)
    - [Dynamic Metrics — ADC / DAC](#dynamic-metrics--adc--dac)
-7. [Visualization](#visualization)
+9. [Visualization](#visualization)
    - [ADC Plots](#adc-plots)
    - [DAC Plots](#dac-plots)
    - [Flash ADC Visualization](#flash-adc-visualization)
+   - [SAR ADC Visualization](#sar-adc-visualization)
 
 ---
 
@@ -216,6 +219,151 @@ adc_diff = FlashADC(n_bits=4, v_ref=1.0, input_type=InputType.DIFFERENTIAL)
 
 # Input range: v_pos - v_neg in [-0.5 V, +0.5 V]
 code = adc_diff.convert((0.6, 0.4))   # v_diff = +0.2 V
+```
+
+---
+
+## SARADC
+
+A structural SAR ADC model that performs N binary-search comparisons per conversion using a binary-weighted C-DAC. Supports capacitor mismatch, comparator noise/offset/hysteresis, input-referred noise, gain error, and aperture jitter.
+
+### Ideal conversion
+
+```python
+from pyDataconverter.architectures.SARADC import SARADC
+from pyDataconverter.dataconverter import InputType
+
+# 12-bit, 1 V reference, single-ended input
+adc = SARADC(n_bits=12, v_ref=1.0, input_type=InputType.SINGLE)
+
+print(adc.convert(0.0))    # 0
+print(adc.convert(0.5))    # ~2048
+print(adc.convert(1.0))    # 4095
+```
+
+### With non-idealities
+
+```python
+adc = SARADC(
+    n_bits=12,
+    v_ref=1.0,
+    cap_mismatch=0.001,         # 0.1% capacitor mismatch (static DNL/INL)
+    comparator_params={
+        'noise_rms': 0.5e-3,    # 0.5 mV RMS comparator noise
+        'offset':    1e-3,      # 1 mV comparator offset
+        'hysteresis': 0.5e-3,   # 0.5 mV hysteresis
+    },
+    noise_rms=100e-6,           # 100 µV kT/C sampling noise
+    offset=2e-3,                # 2 mV input-referred offset
+    gain_error=0.002,           # +0.2% gain error
+    t_jitter=1e-12,             # 1 ps aperture jitter
+)
+```
+
+### Cycle-by-cycle trace
+
+`convert_with_trace()` returns the final code plus a dict with every bit decision and C-DAC voltage:
+
+```python
+code, trace = adc.convert_with_trace(0.37)
+
+print(f"Code: {code}")
+for k, (bit, v_dac) in enumerate(zip(trace['bits'], trace['v_dac'])):
+    print(f"  Bit {k}: trial_v_dac={v_dac:.4f} V  →  bit={bit}")
+```
+
+### Differential input
+
+```python
+adc_diff = SARADC(n_bits=12, v_ref=1.0, input_type=InputType.DIFFERENTIAL)
+
+# Input range: v_diff = v_pos - v_neg in [-v_ref/2, +v_ref/2]
+code = adc_diff.convert((0.75, 0.25))   # v_diff = +0.5 V
+code = adc_diff.convert((0.5,  0.5))    # v_diff =  0.0 V
+```
+
+---
+
+## CurrentSteeringDAC
+
+A current-steering DAC that supports binary, thermometer, and segmented topologies. All current sources are always conducting; they are steered between positive and negative output rails by a decoder.
+
+Segmentation is controlled by `n_therm_bits`:
+- `n_therm_bits = 0` — fully binary-weighted (default)
+- `n_therm_bits = n_bits` — fully thermometer (unary)
+- `0 < n_therm_bits < n_bits` — segmented (MSBs thermometer, LSBs binary)
+
+### Binary mode (default)
+
+```python
+from pyDataconverter.architectures.CurrentSteeringDAC import CurrentSteeringDAC
+from pyDataconverter.dataconverter import OutputType
+
+# 8-bit binary DAC, 100 µA unit current, 1 kΩ load → full-scale ~10 mV per LSB
+dac = CurrentSteeringDAC(
+    n_bits=8,
+    n_therm_bits=0,       # fully binary
+    i_unit=100e-6,
+    r_load=1000.0,
+    output_type=OutputType.SINGLE,
+)
+
+v_out = dac.convert(128)   # ~half-scale voltage
+```
+
+### Thermometer mode
+
+```python
+# 4-bit fully thermometer — 15 unit sources
+dac_therm = CurrentSteeringDAC(
+    n_bits=4,
+    n_therm_bits=4,       # fully thermometer
+    i_unit=100e-6,
+    r_load=1000.0,
+    output_type=OutputType.SINGLE,
+)
+```
+
+### Segmented mode
+
+```python
+# 8-bit segmented: top 4 bits thermometer, bottom 4 bits binary
+dac_seg = CurrentSteeringDAC(
+    n_bits=8,
+    n_therm_bits=4,
+    i_unit=100e-6,
+    r_load=1000.0,
+    output_type=OutputType.SINGLE,
+)
+```
+
+### Differential output
+
+```python
+dac_diff = CurrentSteeringDAC(
+    n_bits=8,
+    n_therm_bits=4,
+    i_unit=100e-6,
+    r_load=1000.0,
+    output_type=OutputType.DIFFERENTIAL,
+)
+
+v_pos, v_neg = dac_diff.convert(255)   # full scale
+v_pos, v_neg = dac_diff.convert(128)   # mid scale
+v_diff = v_pos - v_neg
+```
+
+### With current source mismatch
+
+```python
+dac = CurrentSteeringDAC(
+    n_bits=10,
+    n_therm_bits=4,
+    i_unit=50e-6,
+    r_load=2000.0,
+    current_mismatch=0.005,   # 0.5% mismatch per source (static DNL/INL)
+    output_type=OutputType.DIFFERENTIAL,
+)
 ```
 
 ---
@@ -410,6 +558,38 @@ voltages = 0.5 + 0.45 * np.sin(t)
 animate_flash_adc(adc, voltages, interval=0.08)
 ```
 
+### SAR ADC Visualization
+
+Static snapshot of the bit-cycling funnel and animated conversion.
+
+```python
+import numpy as np
+from pyDataconverter.architectures.SARADC import SARADC
+from pyDataconverter.dataconverter import InputType
+from pyDataconverter.utils.visualizations.visualize_SARADC import (
+    visualize_sar_adc,
+    animate_sar_conversion,
+    animate_sar_adc,
+)
+
+adc = SARADC(n_bits=4, v_ref=1.0, cap_mismatch=0.005,
+             comparator_params={'noise_rms': 1e-3})
+
+# Static snapshot at a single input voltage
+visualize_sar_adc(adc, input_voltage=0.37)
+
+# Interactive mode: slider to step through bit cycles
+visualize_sar_adc(adc, interactive=True)
+
+# Animated single conversion (shows each bit decision in turn)
+animate_sar_conversion(adc, input_voltage=0.62)
+
+# Animated sequence of conversions (e.g., a sine wave)
+t = np.linspace(0, 2 * np.pi, 40)
+v_in = 0.5 + 0.45 * np.sin(t)
+animate_sar_adc(adc, input_voltages=v_in)
+```
+
 ---
 
 ## Putting It All Together
@@ -460,4 +640,5 @@ plt.show()
   - `simple_adc_example.py` — ADC non-ideality sweeps
   - `simple_dac_example.py` — DAC non-ideality and spectrum examples
   - `flash_adc_example.py` — Flash ADC with non-idealities and animation
+  - `sar_adc_example.py` — SAR ADC with C-DAC mismatch, static/dynamic metrics, and visualization
 - See `docs/api_reference.md` for full parameter documentation on every class and function.

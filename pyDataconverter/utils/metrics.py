@@ -1,8 +1,11 @@
 """
-ADC Performance Metrics
-======================
+Converter Performance Metrics
+==============================
 
-Functions for calculating various ADC performance metrics.
+Functions for calculating ADC and DAC performance metrics.
+Shared spectral metrics live in _calculate_dynamic_metrics; the public
+calculate_adc_dynamic_metrics and calculate_dac_dynamic_metrics wrappers
+call it and can add converter-specific metrics on top.
 """
 
 import numpy as np
@@ -10,85 +13,61 @@ from typing import Dict, List
 from .fft_analysis import compute_fft, find_harmonics, find_fundamental
 
 
-def calculate_adc_dynamic_metrics(time_data: np.ndarray = None,
-                              fs: float = None,
-                              f0: float = None,
-                              freqs: np.ndarray = None,
-                              mags: np.ndarray = None,
-                              full_scale: float = None) -> Dict[str, float]:
+def _calculate_dynamic_metrics(freqs: np.ndarray,
+                                mags: np.ndarray,
+                                fs: float,
+                                f0: float,
+                                full_scale: float,
+                                time_data: np.ndarray) -> Dict[str, float]:
     """
-    Calculate dynamic ADC metrics from either time domain data or FFT data.
+    Core FFT-based dynamic metrics shared by ADC and DAC calculations.
+
+    Computes SNR, SNDR, SFDR, THD, ENOB, noise floor, and optional dBFS
+    variants from a pre-computed FFT spectrum.
 
     Args:
-        time_data: Input signal array (optional if freqs/mags provided)
-        fs: Sampling frequency in Hz (required if time_data provided)
-        f0: Fundamental frequency (if known)
-        freqs: Frequency array from FFT (optional if time_data provided)
-        mags: Magnitude array from FFT (optional if time_data provided)
-        full_scale: Full scale value for dBFS conversion. If None, results are in dB.
+        freqs: Frequency array in Hz.
+        mags: Magnitude array in dB.
+        fs: Sample/update rate in Hz.
+        f0: Fundamental frequency in Hz (or None to auto-detect).
+        full_scale: Full-scale value for dBFS conversion (or None for plain dB).
+        time_data: Original time-domain data, used only for DC offset when provided.
 
     Returns:
-        Dictionary of metrics. If full_scale provided, relevant metrics are in dBFS.
-
-    Raises:
-        ValueError: If neither time_data nor (freqs,mags) are provided
+        Dictionary of metrics.
     """
-    # Check inputs
-    if time_data is None and (freqs is None or mags is None):
-        raise ValueError("Must provide either time_data or freqs/mags")
-
-    # Compute FFT if not provided
-    if freqs is None or mags is None:
-        freqs, mags = compute_fft(time_data, fs)
-
-    # Calculate bin width
     bin_width = freqs[1] - freqs[0]
 
-    # Find fundamental
     fund_freq, fund_mag = find_fundamental(freqs, mags, f0, fs)
-
-    # Find harmonics (up to 7)
     harmonics = find_harmonics(freqs, mags, fund_freq, fs, num_harmonics=7)
 
-    # Calculate THD (using all found harmonics)
     harmonic_pwr = sum(10 ** (h[1] / 10) for h in harmonics)
     fund_pwr = 10 ** (fund_mag / 10)
-    thd = 10 * np.log10(harmonic_pwr / fund_pwr)
+    thd = 10 * np.log10(max(harmonic_pwr, 1e-20) / fund_pwr)
 
-    # Calculate SFDR
-    # Create mask to exclude fundamental bin
     mask = np.abs(freqs - fund_freq) > bin_width
     max_spur = np.max(mags[mask])
     sfdr = fund_mag - max_spur
 
-    # Calculate noise power (excluding fundamental and harmonics)
     exclude_freqs = np.array([fund_freq] + [h[0] for h in harmonics])
-    # Vectorized exclusion: shape (len(exclude_freqs), len(freqs))
     mask = ~np.any(np.abs(freqs[np.newaxis, :] - exclude_freqs[:, np.newaxis]) <= bin_width, axis=0)
 
-    noise_floor = np.mean(mags[mask])
     noise_pwr = sum(10 ** (m / 10) for m in mags[mask])
-    noise_floor = noise_pwr / (fs/2) #Noise floor calculation based on sample rate
+    noise_floor = noise_pwr / (fs / 2)
 
-    # Calculate SNR (excluding top 7 harmonics)
     noise_pwr = max(float(noise_pwr), 1e-20)
     snr = 10 * np.log10(fund_pwr / noise_pwr)
 
-    # Calculate SNDR (including harmonic distortion)
     total_noise_and_dist_pwr = max(float(noise_pwr + harmonic_pwr), 1e-20)
     sndr = 10 * np.log10(fund_pwr / total_noise_and_dist_pwr)
 
-    # Calculate ENOB
     enob = (sndr - 1.76) / 6.02
 
-    # Calculate DC offset (use time_data if available, otherwise use DC bin from FFT)
     if time_data is not None:
         offset = np.mean(time_data)
     else:
-        # DC is at index 0 of FFT
-        offset = 10 ** (mags[0] / 20)  # Convert from dB back to voltage
+        offset = 10 ** (mags[0] / 20)
 
-    # Create results dictionary
     results = {
         "SNR": snr,
         "SNDR": sndr,
@@ -100,38 +79,84 @@ def calculate_adc_dynamic_metrics(time_data: np.ndarray = None,
         "FundamentalFrequency": fund_freq,
         "FundamentalMagnitude": fund_mag,
         "HarmonicFreqs": [h[0] for h in harmonics],
-        "HarmonicMags": [h[1] for h in harmonics]
+        "HarmonicMags": [h[1] for h in harmonics],
     }
 
-    # When full_scale is provided, add dBFS variants alongside the original dB values.
-    # The original ratio metrics (SNR, SNDR, SFDR, THD, ENOB) are kept as-is in dB.
-    #
-    # fund_mag_dBFS is the fundamental level in dBFS:
-    #   - freqs/mags path: caller is expected to pre-normalize mags to dBFS, so
-    #     fund_mag is already in dBFS and no further correction is needed.
-    #   - time_data path: the FFT is computed internally in raw dB, so we apply
-    #     the equivalent of compute_fft's DBFS normalization here.
     if full_scale is not None:
         if time_data is not None:
             N = len(time_data)
-            level_correction = 20 * np.log10(full_scale/2) + 20 * np.log10(N / 2)
+            level_correction = 20 * np.log10(full_scale / 2) + 20 * np.log10(N / 2)
         else:
             level_correction = 0  # mags assumed already in dBFS
 
         fund_mag_dBFS = fund_mag - level_correction
-
         results["FundamentalMagnitude_dBFS"] = fund_mag_dBFS
         results["HarmonicMags_dBFS"] = [m - level_correction for m in results["HarmonicMags"]]
-
-        # SFDR_dBFS: worst spur distance from full scale = -(spur_dBFS)
-        results["SFDR_dBFS"]  = sfdr - fund_mag_dBFS
-
-        # SNR/SNDR/THD_dBFS: metric referenced to full scale (for backed-off signals)
-        results["SNR_dBFS"]   = snr  - fund_mag_dBFS
-        results["SNDR_dBFS"]  = sndr - fund_mag_dBFS
-        results["THD_dBFS"]   = thd  - fund_mag_dBFS
+        results["SFDR_dBFS"]  = sfdr  - fund_mag_dBFS
+        results["SNR_dBFS"]   = snr   - fund_mag_dBFS
+        results["SNDR_dBFS"]  = sndr  - fund_mag_dBFS
+        results["THD_dBFS"]   = thd   - fund_mag_dBFS
 
     return results
+
+
+def calculate_adc_dynamic_metrics(time_data: np.ndarray = None,
+                                   fs: float = None,
+                                   f0: float = None,
+                                   freqs: np.ndarray = None,
+                                   mags: np.ndarray = None,
+                                   full_scale: float = None) -> Dict[str, float]:
+    """
+    Calculate dynamic ADC metrics from either time-domain data or FFT data.
+
+    Args:
+        time_data: Input signal array (optional if freqs/mags provided).
+        fs: Sampling frequency in Hz (required if time_data provided).
+        f0: Fundamental frequency (if known).
+        freqs: Frequency array from FFT (optional if time_data provided).
+        mags: Magnitude array from FFT (optional if time_data provided).
+        full_scale: Full-scale value for dBFS conversion. If None, results are in dB.
+
+    Returns:
+        Dictionary of metrics.
+
+    Raises:
+        ValueError: If neither time_data nor (freqs, mags) are provided.
+    """
+    if time_data is None and (freqs is None or mags is None):
+        raise ValueError("Must provide either time_data or freqs/mags")
+
+    if freqs is None or mags is None:
+        freqs, mags = compute_fft(time_data, fs)
+
+    return _calculate_dynamic_metrics(freqs, mags, fs, f0, full_scale, time_data)
+
+
+def calculate_dac_dynamic_metrics(freqs: np.ndarray = None,
+                                   mags: np.ndarray = None,
+                                   fs: float = None,
+                                   f0: float = None,
+                                   full_scale: float = None) -> Dict[str, float]:
+    """
+    Calculate dynamic DAC metrics from FFT data.
+
+    Args:
+        freqs: Frequency array from FFT.
+        mags: Magnitude array from FFT.
+        fs: DAC update rate in Hz.
+        f0: Fundamental frequency (if known).
+        full_scale: Full-scale voltage for dBFS conversion. If None, results are in dB.
+
+    Returns:
+        Dictionary of metrics.
+
+    Raises:
+        ValueError: If freqs or mags are not provided.
+    """
+    if freqs is None or mags is None:
+        raise ValueError("Must provide freqs and mags")
+
+    return _calculate_dynamic_metrics(freqs, mags, fs, f0, full_scale, time_data=None)
 
 
 def _calculate_code_edges(input_voltages: np.ndarray,

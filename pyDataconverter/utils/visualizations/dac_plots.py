@@ -6,9 +6,11 @@ Common plotting functions for DAC testbenches. These are architecture-agnostic
 and can be used with any DAC that implements the DACBase interface.
 
 Functions:
-    plot_transfer_curve: Ideal vs actual output voltage and error in LSBs.
-    plot_inl_dnl: INL and DNL bar charts from a code sweep.
-    plot_output_spectrum: FFT of DAC output driven by a sinusoidal code sequence.
+    plot_transfer_curve:  Ideal vs actual output voltage and error in LSBs.
+    plot_inl_dnl:         INL and DNL bar charts from a code sweep.
+    plot_output_spectrum: FFT of DAC output. Clips to first Nyquist zone by
+                          default; pass full_spectrum=True to show all zones
+                          with Nyquist shading and ZOH sinc envelope.
 """
 
 import numpy as np
@@ -17,9 +19,8 @@ from typing import Tuple, Optional
 
 from pyDataconverter.architectures.SimpleDAC import SimpleDAC
 from pyDataconverter.dataconverter import OutputType
-from pyDataconverter.utils.fft_analysis import compute_fft, FFTNormalization
 from pyDataconverter.utils.visualizations.fft_plots import plot_fft
-from pyDataconverter.utils.signal_gen import generate_digital_sine
+import pyDataconverter.utils.metrics as metrics
 
 
 def _get_voltage(dac, code: int) -> float:
@@ -166,61 +167,94 @@ def plot_inl_dnl(dac,
     return fig, (ax1, ax2)
 
 
-def plot_output_spectrum(dac,
+def plot_output_spectrum(freqs: np.ndarray,
+                         mags: np.ndarray,
                          fs: float,
-                         f_sig: float,
-                         n_fft: int = 4096,
-                         window: str = 'hann',
                          title: Optional[str] = None,
-                         metrics: dict = None):
+                         nyquist_zone: int = 1,
+                         precomputed_metrics: dict = None):
     """
-    Plot the output spectrum of a DAC driven by a sinusoidal code sequence.
+    Plot a DAC output spectrum from a pre-computed FFT.
 
-    Generates a digital sine wave, converts each code through the DAC, then
-    computes and plots the FFT of the output voltage. Coherent sampling is
-    used (f_sig is snapped to the nearest FFT bin) to eliminate spectral
-    leakage.
-
-    Oversampling note: the DAC update rate ``fs`` sets the Nyquist bandwidth.
-    When ``fs >> f_sig``, the noise floor spreads across a wider bandwidth,
-    lowering the in-band noise density. This is visible in the spectrum as
-    a lower noise floor relative to the signal.
+    The caller is responsible for generating the signal, running
+    convert_sequence, and computing the FFT.  This function handles
+    the DAC-specific display: metrics annotation for a single Nyquist
+    zone, or full-bandwidth Nyquist zone shading with ZOH sinc envelope.
 
     Args:
-        dac: DAC instance.
-        fs: DAC update rate (Hz).
-        f_sig: Desired signal frequency (Hz).
-        n_fft: FFT size (default 4096).
-        window: Window function for FFT (default 'hann').
-        title: Plot title. Defaults to the DAC's __repr__.
-        metrics: Pre-computed metrics dict to display in annotation box.
+        freqs: Frequency array from compute_fft (Hz).
+        mags: Magnitude array from compute_fft (dBFS).
+        fs: DAC update rate (Hz). Sets the Nyquist zone boundaries.
+        title: Plot title.
+        nyquist_zone: Which Nyquist zone to display. Defaults to 1 (0 to fs/2).
+            Pass any integer N to show zone N ((N-1)*fs/2 to N*fs/2).
+            Pass None to show the full bandwidth with zone shading and
+            ZOH sinc envelope.
+        precomputed_metrics: Optional metrics dict (ignored when
+            nyquist_zone=None). Computed automatically when None.
 
     Returns:
         ax: The matplotlib axis used for the plot.
     """
-    # Snap to nearest FFT bin for coherent sampling
-    n_fin = max(1, round(f_sig * n_fft / fs))
-    f_actual = n_fin / n_fft * fs
-    duration = n_fft / fs
+    fs_fft     = len(freqs) * 2 * (freqs[1] - freqs[0])
+    plot_title = title if title is not None else 'DAC Output Spectrum'
 
-    # Generate digital sine code sequence
-    codes = generate_digital_sine(dac.n_bits, f_actual, fs,
-                                  amplitude=0.9, offset=0.5,
-                                  duration=duration)
+    if nyquist_zone is None:
+        # Full bandwidth — all Nyquist zones with sinc envelope
+        oversample   = max(1, round(fs_fft / fs))
+        min_db       = -120
+        mags_clipped = np.clip(np.where(np.isfinite(mags), mags, min_db), min_db, None)
+        sinc_env     = np.clip(20 * np.log10(np.abs(np.sinc(freqs / fs)) + 1e-20), min_db, 0)
+        n_zones      = int(np.ceil((fs_fft / 2) / (fs / 2)))
+        zone_colors  = ['#ddeeff', '#ffeedd']
 
-    # Convert each code through the DAC
-    voltages = np.array([_get_voltage(dac, int(c)) for c in codes])
+        fig, ax = plt.subplots(figsize=(14, 5))
 
-    # Compute FFT
-    freqs, mags = compute_fft(voltages, fs,
-                              window=window,
-                              normalization=FFTNormalization.DBFS,
-                              full_scale=dac.v_ref)
+        for k in range(n_zones):
+            f_lo = k * fs / 2
+            f_hi = min((k + 1) * fs / 2, fs_fft / 2)
+            lbl  = f'Nyquist zone {k + 1}' if k < 2 else f'_z{k}'
+            ax.axvspan(f_lo / 1e6, f_hi / 1e6, alpha=0.35,
+                       color=zone_colors[k % 2], label=lbl)
 
-    # Plot
-    plot_title = title if title is not None else f'DAC Output Spectrum: {repr(dac)}'
-    ax = plot_fft(freqs, mags, title=plot_title,
-                  max_freq=fs / 2,
-                  metrics=metrics, metrics_dbfs=True)
+        for k in range(1, n_zones):
+            ax.axvline(k * fs / 2 / 1e6, color='gray', linewidth=0.7, linestyle=':')
+            ax.text(k * fs / 2 / 1e6, -8, f'Z{k + 1}',
+                    fontsize=7, ha='center', va='top', color='dimgray')
+
+        ax.fill_between(freqs / 1e6, min_db, mags_clipped, alpha=0.25, color='steelblue')
+        ax.plot(freqs / 1e6, mags_clipped, color='steelblue', linewidth=0.8,
+                label='DAC spectrum')
+        ax.plot(freqs / 1e6, sinc_env, color='tomato', linewidth=1.5,
+                linestyle='--', label='ZOH sinc envelope')
+
+        ax.set_xlim(0, fs_fft / 2 / 1e6)
+        ax.set_ylim(min_db, 0)
+        ax.set_xlabel('Frequency (MHz)')
+        ax.set_ylabel('Magnitude (dBFS)')
+        n_fft = len(freqs) * 2
+        ax.set_title(f'{plot_title} — All {n_zones} Nyquist Zones (NFFT={n_fft}, ×{oversample} ZOH)')
+        ax.legend(loc='lower left', fontsize=8)
+        ax.grid(True, axis='y', alpha=0.4, linestyle='--')
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        plt.tight_layout()
+    else:
+        # Single Nyquist zone with metrics
+        f_lo      = (nyquist_zone - 1) * fs / 2
+        f_hi      = nyquist_zone * fs / 2
+        zone_mask = (freqs >= f_lo) & (freqs <= f_hi)
+        freqs_z   = freqs[zone_mask]
+        mags_z    = mags[zone_mask]
+        pos_mask  = freqs_z > 0
+        f0        = freqs_z[pos_mask][np.argmax(mags_z[pos_mask])]
+        plot_metrics = precomputed_metrics if precomputed_metrics is not None else \
+            metrics.calculate_dac_dynamic_metrics(freqs=freqs_z, mags=mags_z,
+                                                  fs=fs_fft, f0=f0, full_scale=None)
+        zone_title = f'{plot_title} — Nyquist Zone {nyquist_zone}' if nyquist_zone > 1 else plot_title
+        ax = plot_fft(freqs, mags, title=zone_title,
+                      min_freq=f_lo if nyquist_zone > 1 else None,
+                      max_freq=f_hi,
+                      metrics=plot_metrics, metrics_dbfs=True)
 
     return ax

@@ -1,7 +1,7 @@
 # pyDataconverter API Reference
 
 > Version: 0.02
-> Last updated: 2026-03-25
+> Last updated: 2026-03-25 (updated)
 
 ## Contents
 
@@ -12,9 +12,15 @@
    - [SimpleADC](#simpleadc)
    - [SimpleDAC](#simpledac)
    - [FlashADC](#flashadc)
+   - [SARADC](#saradc)
+   - [CurrentSteeringDAC](#currentsteeringdac)
 3. [Components](#components)
    - [Comparator](#comparator)
    - [Reference](#reference)
+   - [CDAC](#cdac)
+   - [Decoder](#decoder)
+   - [Capacitor](#capacitor)
+   - [Current Source](#current-source)
 4. [Utilities](#utilities)
    - [Signal Generation](#signal-generation)
    - [FFT Analysis](#fft-analysis)
@@ -25,6 +31,7 @@
    - [DAC Plots](#dac-plots)
    - [FFT Plots](#fft-plots)
    - [Flash ADC Visualization](#flash-adc-visualization)
+   - [SAR ADC Visualization](#sar-adc-visualization)
 
 ---
 
@@ -2413,3 +2420,1165 @@ animate_flash_adc(adc, voltages, interval=0.05)
 
 - `visualize_flash_adc` — static or interactive (slider) visualization
 - `FlashADC` — the Flash ADC architecture this function animates
+
+---
+
+## SARADC
+
+---
+
+### `SARADC`
+
+*`pyDataconverter.architectures.SARADC`*
+
+Successive Approximation Register ADC with C-DAC component and configurable non-idealities.
+
+Models the actual bit-cycling algorithm using a single comparator and a binary-weighted C-DAC.
+The SAR performs N comparison cycles per conversion (one per bit, MSB first): it tentatively
+sets each bit, queries the C-DAC for the corresponding trial voltage, resets the comparator,
+and retains the bit if the comparator output is 1. A custom C-DAC can be injected to study
+non-standard capacitor arrays. This class inherits from `ADCBase`.
+
+**Parameters**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| n_bits | int | — | ADC resolution in bits. |
+| v_ref | float | `1.0` | Reference voltage (V). |
+| input_type | `InputType` | `InputType.SINGLE` | `SINGLE` for single-ended; `DIFFERENTIAL` for differential input. |
+| comparator_type | `Type[ComparatorBase]` | `DifferentialComparator` | Comparator class to instantiate. |
+| comparator_params | dict or None | `None` | Keyword arguments forwarded to the comparator constructor (e.g. `noise_rms`, `offset`, `hysteresis`). |
+| cdac | `CDACBase` or None | `None` | Pre-constructed C-DAC instance. If provided, `cap_mismatch` is ignored. Its `n_bits` and `v_ref` must match the ADC. If `None`, a `SingleEndedCDAC` or `DifferentialCDAC` is auto-created from `input_type`. |
+| cap_mismatch | float | `0.0` | Standard deviation of multiplicative capacitor mismatch (dimensionless, e.g. `0.001` = 0.1 %). Ignored when `cdac` is provided. |
+| noise_rms | float | `0.0` | Input-referred RMS sampling noise (V). Represents kT/C or other front-end noise fixed at the sampling instant. Applied once per conversion before the bit loop. |
+| offset | float | `0.0` | Input-referred DC offset voltage (V). |
+| gain_error | float | `0.0` | Fractional gain error (dimensionless, e.g. `0.01` = +1 %). Scales the sampled input as `v * (1 + gain_error)`. |
+| t_jitter | float | `0.0` | RMS aperture jitter (s). Only active when `dvdt != 0` is passed to `convert()`. |
+
+**Attributes**
+
+| Name | Type | Description |
+|------|------|-------------|
+| comparator | `ComparatorBase` | Single comparator instance used for all N evaluations per conversion. |
+| cdac | `CDACBase` | Capacitive DAC component. Auto-created from `input_type` if not supplied. |
+| noise_rms | float | Input-referred RMS sampling noise / kT/C (V). |
+| offset | float | Input-referred DC offset (V). |
+| gain_error | float | Fractional gain error (dimensionless). |
+| t_jitter | float | RMS aperture jitter (s). |
+
+**Methods**
+
+#### `convert(vin, dvdt=0.0)`
+
+Convert one analog sample to a digital code.
+
+**Parameters**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| vin | float or Tuple[float, float] | — | Voltage for single-ended input, or `(v_pos, v_neg)` tuple for differential input. |
+| dvdt | float | `0.0` | Signal slope at the sampling instant (V/s). Only used when `t_jitter > 0`. |
+
+**Returns**
+
+| Type | Description |
+|------|-------------|
+| int | Output code in [0, 2^n_bits − 1]. |
+
+**Raises**
+
+| Exception | Condition |
+|-----------|-----------|
+| TypeError | Single-ended input is not a number, or differential input is not a 2-tuple. |
+
+#### `convert_with_trace(vin, dvdt=0.0)`
+
+Convert and return the cycle-by-cycle SAR trace for visualisation or debugging.
+
+**Parameters**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| vin | float or Tuple[float, float] | — | Voltage (single-ended) or `(v_pos, v_neg)` tuple (differential). |
+| dvdt | float | `0.0` | Signal slope for aperture jitter modelling (V/s). |
+
+**Returns**
+
+| Type | Description |
+|------|-------------|
+| dict | Dictionary with keys: `'code'` (int) — final output code; `'sampled_voltage'` (float) — held input after non-idealities; `'dac_voltages'` (list[float]) — N effective trial thresholds, one per bit cycle; `'bit_decisions'` (list[int]) — N comparator outputs (0 or 1); `'register_states'` (list[int]) — N + 1 register values, initial 0 followed by the register after each bit decision. |
+
+**Raises**
+
+| Exception | Condition |
+|-----------|-----------|
+| TypeError | Single-ended input is not a number, or differential input is not a 2-tuple. |
+
+#### `reset()`
+
+Reset comparator state (hysteresis history, bandwidth filter).
+
+#### `dac_voltages` *(property)*
+
+Effective DAC threshold for every code (`v_refp − v_refn`). Analogous to `FlashADC.reference_voltages`. Delegates to `cdac.voltages`.
+
+**Returns**
+
+| Type | Description |
+|------|-------------|
+| np.ndarray | Shape `(2^n_bits,)`. Entry k is the effective DAC threshold for code k. |
+
+**Notes**
+
+- Non-idealities are applied to the sampled voltage in this order: gain error (multiplicative) → offset (additive) → sampling noise / kT/C (additive) → aperture jitter (additive).
+- The SAR binary search naturally implements FLOOR quantisation: `code = floor(vin * 2^N / v_ref)` for single-ended, `code = floor((v_diff + v_ref/2) * 2^N / v_ref)` for differential.
+- In single-ended mode, `v_sampled` is a voltage in [0, v_ref]; in differential mode it is the differential voltage `v_pos − v_neg` in [−v_ref/2, +v_ref/2].
+- When `cdac` is injected, `cap_mismatch` is ignored and the caller is responsible for ensuring the C-DAC's `n_bits` and `v_ref` match the ADC.
+- The comparator is reset before every individual bit comparison to clear hysteresis and latch state.
+
+**Examples**
+
+```python
+from pyDataconverter.architectures.SARADC import SARADC
+from pyDataconverter.dataconverter import InputType
+
+# Ideal 4-bit single-ended SAR ADC
+adc = SARADC(n_bits=4, v_ref=1.0)
+code = adc.convert(0.37)
+print(code)  # 5
+
+# Cycle-by-cycle trace
+trace = adc.convert_with_trace(0.37)
+print(trace['bit_decisions'])   # e.g. [0, 1, 0, 1]
+print(trace['code'])            # 5
+```
+
+**Raises**
+
+| Exception | Condition |
+|-----------|-----------|
+| ValueError | `noise_rms < 0`, `t_jitter < 0`, or `cap_mismatch < 0`. |
+| TypeError | `cdac` is provided but is not a `CDACBase` instance. |
+| ValueError | Injected `cdac.n_bits` or `cdac.v_ref` does not match the ADC. |
+
+**See Also**
+
+- `ADCBase` — abstract base class providing the `convert()` / `_convert_input()` contract
+- `CDACBase` / `SingleEndedCDAC` / `DifferentialCDAC` — capacitive DAC components
+- `ComparatorBase` / `DifferentialComparator` — comparator used in each bit cycle
+- `InputType` — enum selecting single-ended vs. differential input mode
+- `visualize_sar_adc` — static and interactive visualisation of SAR operation
+- `animate_sar_conversion` — bit-by-bit animation of a single conversion
+
+---
+
+## CurrentSteeringDAC
+
+---
+
+### `CurrentSteeringDAC`
+
+*`pyDataconverter.architectures.CurrentSteeringDAC`*
+
+Current-steering DAC with configurable binary, thermometer, or segmented topology.
+
+`CurrentSteeringDAC` inherits from `DACBase` and models a current-steering architecture
+where all current sources are always conducting and are steered between positive and negative
+output rails rather than switched on and off. Segmentation is controlled by `n_therm_bits`:
+setting it to `0` gives a fully binary-weighted DAC, setting it equal to `n_bits` gives a
+full thermometer DAC, and any value in between gives a segmented DAC with thermometer MSBs
+and binary LSBs. A custom decoder or current source array can be injected at construction
+time for advanced use cases.
+
+**Parameters**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `n_bits` | `int` | — | DAC resolution in bits (1–32). |
+| `v_ref` | `float` | `1.0` | Reference voltage (V, > 0). Stored for compatibility with `DACBase`; output voltage is determined by `i_unit` and `r_load`. |
+| `n_therm_bits` | `int` | `0` | Number of MSBs decoded as thermometer (0 = fully binary, `n_bits` = fully thermometer). |
+| `i_unit` | `float` | `100e-6` | Nominal unit current source value (A, > 0). |
+| `r_load` | `float` | `1000.0` | Load resistance (Ω, > 0) for I→V conversion. |
+| `current_mismatch` | `float` | `0.0` | Standard deviation of multiplicative mismatch per source (≥ 0). Each source draws independently at construction. |
+| `output_type` | `OutputType` | `OutputType.DIFFERENTIAL` | `OutputType.SINGLE` or `OutputType.DIFFERENTIAL`. |
+| `decoder` | `DecoderBase` or `None` | `None` | Optional pre-built `DecoderBase` instance. If `None`, a `SegmentedDecoder` is created from `n_bits` and `n_therm_bits`. |
+| `current_array` | `CurrentSourceArray` or `None` | `None` | Optional pre-built `CurrentSourceArray`. If `None`, one is created automatically. |
+| `source_class` | `Type[UnitCurrentSourceBase]` | `IdealCurrentSource` | `UnitCurrentSourceBase` subclass to use when building the current array automatically. |
+
+**Attributes**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `n_therm_bits` | `int` | Number of MSBs decoded as thermometer. |
+| `n_binary_bits` | `int` | Number of LSBs remaining as binary (`n_bits − n_therm_bits`). |
+| `i_unit` | `float` | Nominal unit current (A). |
+| `r_load` | `float` | Load resistance (Ω). |
+| `current_mismatch` | `float` | Standard deviation of multiplicative mismatch used at construction. |
+| `i_total` | `float` | Total current from all sources (A). Constant regardless of code. |
+| `dac_currents` | `np.ndarray` | Shape `(2^n_bits,)`. Ideal positive-rail output current for every code. |
+| `decoder` | `DecoderBase` | Decoder instance used for code splitting. |
+| `current_array` | `CurrentSourceArray` | Element array instance. |
+
+**Methods**
+
+#### `convert(digital_input)`
+
+Convert a digital code to an analog output voltage (inherited from `DACBase`).
+
+| Name | Type | Description |
+|------|------|-------------|
+| `digital_input` | `int` | Input code in [0, 2^n_bits − 1]. |
+
+**Returns**
+
+| Type | Description |
+|------|-------------|
+| `float` | Output voltage `i_selected * r_load` in single-ended mode. |
+| `Tuple[float, float]` | `(v_pos, v_neg)` = `(i_pos * r_load, i_neg * r_load)` in differential mode. |
+
+**Raises**
+
+| Exception | Condition |
+|-----------|-----------|
+| `ValueError` | `n_bits` is not in [1, 32], or any numeric parameter is out of range. |
+| `ValueError` | `n_therm_bits` is not in [0, `n_bits`]. |
+| `ValueError` | `decoder.n_bits` or `current_array.n_bits` does not match `n_bits`. |
+| `TypeError` | `decoder` is not a `DecoderBase` instance. |
+| `TypeError` | `current_array` is not a `CurrentSourceArray` instance. |
+
+**Notes**
+
+- All sources always conduct; they are steered between rails rather than switched off. This keeps `i_total` constant regardless of code.
+- Single-ended output: `v_out = i_selected * r_load`.
+- Differential output: `v_pos = i_pos * r_load`, `v_neg = i_neg * r_load`, where `i_neg = i_total − i_selected`. The differential voltage is `v_diff = (2 * i_selected − i_total) * r_load`.
+- The thermometer segment nominal current is scaled to `2^n_binary_bits * i_unit` to guarantee monotonicity at every segment boundary rollover.
+- Mismatch is static (drawn once at construction) and independent per source.
+
+**Examples**
+
+```python
+from pyDataconverter.architectures.CurrentSteeringDAC import CurrentSteeringDAC
+from pyDataconverter.dataconverter import OutputType
+
+# 6-bit segmented DAC: 4 thermometer MSBs, 2 binary LSBs
+dac = CurrentSteeringDAC(n_bits=6, n_therm_bits=4, i_unit=100e-6, r_load=1000.0)
+v_pos, v_neg = dac.convert(32)  # midscale code
+print(v_pos - v_neg)  # ≈ 0.0 V differential
+
+# Single-ended binary DAC
+dac = CurrentSteeringDAC(n_bits=8, n_therm_bits=0, output_type=OutputType.SINGLE)
+v_out = dac.convert(128)
+print(f"{v_out:.4f}")  # positive rail voltage
+```
+
+**See Also**
+
+- `DACBase` — abstract base class providing the `convert()` / `_convert_input()` contract
+- `DecoderBase` / `SegmentedDecoder` — decoder used to split codes into thermometer and binary signals
+- `CurrentSourceArray` — element array holding thermometer and binary current sources
+- `UnitCurrentSourceBase` / `IdealCurrentSource` — unit current source models
+- `OutputType` — enum selecting single-ended vs. differential output
+
+---
+
+## CDAC
+
+---
+
+### `CDACBase`
+
+*`pyDataconverter.components.cdac`*
+
+Abstract base class defining the interface for all capacitive DAC models.
+
+A C-DAC owns a set of capacitor weights and converts a digital code to a pair of reference
+voltages `(v_refp, v_refn)` that the comparator evaluates against the held input signal. The
+effective decision threshold for the comparator is `v_refp − v_refn`. This class cannot be
+instantiated directly; subclasses must implement `n_bits`, `v_ref`, `cap_weights`, `cap_total`,
+and `get_voltage`.
+
+**Methods and Properties**
+
+| Name | Description |
+|------|-------------|
+| `n_bits` *(abstract property)* | ADC resolution; number of bit capacitors. |
+| `v_ref` *(abstract property)* | Reference voltage (V). |
+| `cap_weights` *(abstract property)* | Actual capacitor weights (with mismatch applied), MSB first. Length equals `n_bits`. |
+| `cap_total` *(abstract property)* | Total effective capacitance including the termination cap. For `DifferentialCDAC` this refers to the positive array. |
+| `get_voltage(code)` *(abstract)* | Return `(v_refp, v_refn)` for the given integer code. The pair maps directly onto the `DifferentialComparator` 4-input signature. |
+| `voltages` *(property)* | `np.ndarray` of shape `(2^n_bits,)`. Effective output voltage `v_refp − v_refn` for every code. |
+
+**Notes**
+
+- The termination capacitor of 1.0 unit is included in `cap_total`, giving `cap_total = (2^N − 1) + 1 = 2^N` for ideal binary weights. This ensures `get_voltage(code)` returns exactly `code / 2^N * v_ref` (FLOOR quantisation) with no mismatch.
+- `voltages` iterates over all codes and is primarily used by `SARADC.dac_voltages`.
+
+**See Also**
+
+- `SingleEndedCDAC` — concrete C-DAC for single-ended SAR ADCs
+- `DifferentialCDAC` — concrete C-DAC with complementary arrays for differential SAR ADCs
+- `SARADC` — the architecture that uses a C-DAC instance internally
+
+---
+
+### `SingleEndedCDAC`
+
+*`pyDataconverter.components.cdac`*
+
+Binary-weighted capacitive DAC for single-ended SAR ADCs.
+
+The positive reference output (`v_refp`) is the weighted sum of selected capacitors normalised
+to `v_ref`. The negative reference output (`v_refn`) is always 0 V (ground). Capacitor mismatch
+is drawn once at construction from a multiplicative Gaussian distribution and held fixed,
+producing static DNL/INL errors.
+
+Ideal output (no mismatch): `v_dac = code / 2^n_bits * v_ref`.
+Output range: [0, `v_ref − LSB`] where `LSB = v_ref / 2^n_bits`.
+
+**Parameters**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| n_bits | int | — | Resolution in bits. Must be in [1, 32]. |
+| v_ref | float | `1.0` | Reference voltage (V). Must be positive. |
+| cap_weights | np.ndarray or None | `None` | Nominal capacitor weights, MSB first. Length must equal `n_bits`; all values must be positive. If `None`, binary weights `[2^(N-1), …, 2, 1]` are used. |
+| cap_mismatch | float | `0.0` | Standard deviation of multiplicative capacitor mismatch (dimensionless, e.g. `0.001` = 0.1 %). Each capacitor instance draws its own mismatch independently at construction. |
+| cap_class | `Type[UnitCapacitorBase]` | `IdealCapacitor` | `UnitCapacitorBase` subclass to instantiate for each capacitor in the array. |
+
+**Attributes**
+
+| Name | Type | Description |
+|------|------|-------------|
+| cap_weights | np.ndarray | Actual capacitor values (with mismatch applied), MSB first, in units of C_unit. |
+| cap_total | float | `sum(cap_weights)` + termination cap (1.0). |
+| cap_mismatch | float | Standard deviation of multiplicative mismatch used at construction. |
+| cap_instances | `List[UnitCapacitorBase]` | Individual capacitor objects, MSB first. Length equals `n_bits`. Allows per-element inspection or replacement. |
+
+**Methods**
+
+#### `get_voltage(code)`
+
+Return `(v_dac, 0.0)` for the given code.
+
+Formula: `v_dac = dot(bits, cap_weights) / cap_total * v_ref`
+
+**Parameters**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| code | int | — | Integer in [0, 2^n_bits − 1]. |
+
+**Returns**
+
+| Type | Description |
+|------|-------------|
+| Tuple[float, float] | `(v_dac, 0.0)` — positive DAC voltage and ground reference. |
+
+**Raises**
+
+| Exception | Condition |
+|-----------|-----------|
+| ValueError | `n_bits` is not an integer in [1, 32]. |
+| ValueError | `v_ref` is not a positive number. |
+| ValueError | `cap_mismatch < 0`. |
+| ValueError | `cap_weights` has wrong length or contains non-positive values. |
+
+**Notes**
+
+- The termination capacitor (1.0 unit) is added to `cap_total` so ideal binary weights give `v_dac = code / 2^N * v_ref`.
+- Mismatch is applied multiplicatively: `actual_weight = nominal_weight * (1 + N(0, cap_mismatch))`.
+- A copy of `cap_weights` is returned by the property to prevent external mutation.
+
+**Examples**
+
+```python
+from pyDataconverter.components.cdac import SingleEndedCDAC
+
+cdac = SingleEndedCDAC(n_bits=4, v_ref=1.0)
+v_refp, v_refn = cdac.get_voltage(8)  # code 8 → midscale
+print(v_refp)   # 0.5
+print(v_refn)   # 0.0
+```
+
+**See Also**
+
+- `CDACBase` — abstract base class defining the C-DAC interface
+- `DifferentialCDAC` — complementary differential C-DAC
+- `SARADC` — uses `SingleEndedCDAC` when `input_type=InputType.SINGLE`
+- `UnitCapacitorBase` / `IdealCapacitor` — unit capacitor models used inside the array
+
+---
+
+### `DifferentialCDAC`
+
+*`pyDataconverter.components.cdac`*
+
+Binary-weighted capacitive DAC with complementary arrays for differential SAR ADCs.
+
+Both a positive and a negative capacitor array are modelled. They switch complementarily:
+a bit set to 1 connects the positive capacitor to `v_ref/2` and the negative capacitor to
+0 V; a bit set to 0 does the opposite. The effective differential threshold is
+`v_dacp − v_dacn`. Independent mismatch is drawn for each array at construction, which is
+required to model realistic differential nonlinearity (correlated mismatch would cancel).
+
+Ideal outputs (no mismatch):
+- `v_dacp = code / 2^n_bits * v_ref / 2`
+- `v_dacn = (1 − code / 2^n_bits) * v_ref / 2`
+- `v_dac_diff = (2 * code / 2^n_bits − 1) * v_ref / 2`
+
+Output range of `v_dac_diff`: [−v_ref/2, ≈ +v_ref/2].
+
+**Parameters**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| n_bits | int | — | Resolution in bits. Must be in [1, 32]. |
+| v_ref | float | `1.0` | Reference voltage (V). Must be positive. |
+| cap_weights | np.ndarray or None | `None` | Nominal capacitor weights applied to both arrays before mismatch, MSB first, all positive. If `None`, binary weights `[2^(N-1), …, 2, 1]` are used. |
+| cap_mismatch | float | `0.0` | Standard deviation of multiplicative mismatch (dimensionless). Each capacitor in both arrays draws its own mismatch independently at construction. |
+| cap_class | `Type[UnitCapacitorBase]` | `IdealCapacitor` | `UnitCapacitorBase` subclass to instantiate for each capacitor in both arrays. |
+
+**Attributes**
+
+| Name | Type | Description |
+|------|------|-------------|
+| cap_weights | np.ndarray | Positive-side capacitor weights (with mismatch), MSB first. |
+| cap_weights_neg | np.ndarray | Negative-side capacitor weights (with mismatch), MSB first. |
+| cap_total | float | Positive-side total capacitance including the termination cap. |
+| cap_total_neg | float | Negative-side total capacitance including the termination cap. |
+| cap_mismatch | float | Standard deviation of multiplicative mismatch used at construction. |
+| cap_instances | `List[UnitCapacitorBase]` | Positive-side capacitor objects, MSB first. Length equals `n_bits`. |
+| cap_instances_neg | `List[UnitCapacitorBase]` | Negative-side capacitor objects, MSB first. Length equals `n_bits`. |
+
+**Methods**
+
+#### `get_voltage(code)`
+
+Return `(v_dacp, v_dacn)` for the given code.
+
+Formulas:
+- `v_dacp = dot(bits, cap_weights_pos) / cap_total_pos * v_ref / 2`
+- `v_dacn = (cap_total_neg − dot(bits, cap_weights_neg)) / cap_total_neg * v_ref / 2`
+
+**Parameters**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| code | int | — | Integer in [0, 2^n_bits − 1]. |
+
+**Returns**
+
+| Type | Description |
+|------|-------------|
+| Tuple[float, float] | `(v_dacp, v_dacn)` — positive and negative rail DAC voltages. |
+
+**Raises**
+
+| Exception | Condition |
+|-----------|-----------|
+| ValueError | `n_bits` is not an integer in [1, 32]. |
+| ValueError | `v_ref` is not a positive number. |
+| ValueError | `cap_mismatch < 0`. |
+| ValueError | `cap_weights` has wrong length or contains non-positive values. |
+
+**Notes**
+
+- Independent mismatch draws for the positive and negative arrays are essential for modelling realistic differential DNL/INL. Correlated (identical) mismatch cancels in the differential output.
+- `cap_total` and `cap_total_neg` include a termination capacitor of 1.0 unit each.
+- Copies are returned by the `cap_weights` and `cap_weights_neg` properties to prevent external mutation.
+
+**Examples**
+
+```python
+from pyDataconverter.components.cdac import DifferentialCDAC
+
+cdac = DifferentialCDAC(n_bits=4, v_ref=1.0)
+v_dacp, v_dacn = cdac.get_voltage(8)  # code 8 → midscale
+print(v_dacp - v_dacn)  # ≈ 0.0 (midscale differential)
+```
+
+**See Also**
+
+- `CDACBase` — abstract base class defining the C-DAC interface
+- `SingleEndedCDAC` — single-ended variant
+- `SARADC` — uses `DifferentialCDAC` when `input_type=InputType.DIFFERENTIAL`
+- `UnitCapacitorBase` / `IdealCapacitor` — unit capacitor models used inside both arrays
+
+---
+
+## Decoder
+
+---
+
+### `DecoderBase`
+
+*`pyDataconverter.components.decoder`*
+
+Abstract base class for all DAC decoders.
+
+A decoder translates a compact N-bit digital code into control signals that drive a physical
+DAC element array. All subclasses must implement `decode()` and expose `n_bits` and
+`n_therm_bits`. The `n_binary_bits` property is derived and need not be overridden. This class
+cannot be instantiated directly.
+
+The uniform return convention from `decode()` is:
+
+```
+(therm_index: int, binary_bits: np.ndarray)
+```
+
+- `therm_index` — integer in [0, 2^n_therm_bits − 1]; number of thermometer unit elements to switch on.
+- `binary_bits` — float array of length `n_binary_bits`, MSB first; empty when `n_binary_bits == 0`.
+
+**Properties**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `n_bits` *(abstract)* | `int` | Total DAC resolution in bits. |
+| `n_therm_bits` *(abstract)* | `int` | Number of MSBs decoded to thermometer (unary) control signals. |
+| `n_binary_bits` | `int` | Number of LSBs that remain as binary control signals (`n_bits − n_therm_bits`). |
+
+**Methods**
+
+#### `decode(code)`
+
+Decode a digital code into thermometer and binary control signals.
+
+| Name | Type | Description |
+|------|------|-------------|
+| `code` | `int` | Integer in [0, 2^n_bits − 1]. |
+
+**Returns**
+
+| Type | Description |
+|------|-------------|
+| `Tuple[int, np.ndarray]` | `(therm_index, binary_bits)` — thermometer index integer and binary bit array. |
+
+**Raises**
+
+| Exception | Condition |
+|-----------|-----------|
+| `ValueError` | `code` is outside [0, 2^n_bits − 1]. |
+| `TypeError` | `code` is not an integer. |
+
+**Notes**
+
+- The uniform return type means a DAC never needs to know which decoder variant it holds — it always unpacks the same `(therm_index, binary_bits)` pair.
+
+**See Also**
+
+- `BinaryDecoder` — passthrough; all bits drive a binary-weighted array
+- `ThermometerDecoder` — full unary decode; code drives 2^N − 1 unit elements
+- `SegmentedDecoder` — MSBs thermometer-decoded, LSBs binary (general case)
+
+---
+
+### `BinaryDecoder`
+
+*`pyDataconverter.components.decoder`*
+
+Binary (passthrough) decoder; all bits drive a binary-weighted element array directly.
+
+The input code is returned as a bit array with no thermometer expansion. `n_therm_bits` is
+fixed at 0 and `n_binary_bits` equals `n_bits`. This is the degenerate case of
+`SegmentedDecoder` with `n_therm_bits=0`.
+
+**Parameters**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `n_bits` | `int` | — | DAC resolution in bits (1–32). |
+
+**Raises**
+
+| Exception | Condition |
+|-----------|-----------|
+| `ValueError` | `n_bits` is not an integer in [1, 32]. |
+
+**Methods**
+
+#### `decode(code)`
+
+Return `(0, binary_bits)` for the given code.
+
+| Name | Type | Description |
+|------|------|-------------|
+| `code` | `int` | Integer in [0, 2^n_bits − 1]. |
+
+**Returns**
+
+| Type | Description |
+|------|-------------|
+| `Tuple[int, np.ndarray]` | `(0, bit_array)` — therm_index is always 0; `bit_array` has length `n_bits`, MSB first. |
+
+**Examples**
+
+```python
+from pyDataconverter.components.decoder import BinaryDecoder
+
+dec = BinaryDecoder(n_bits=4)
+therm_idx, bits = dec.decode(11)  # 0b1011
+print(therm_idx)   # 0
+print(bits)        # [1. 0. 1. 1.]
+```
+
+**See Also**
+
+- `DecoderBase` — abstract base class
+- `SegmentedDecoder` — general case; `BinaryDecoder` is equivalent to `SegmentedDecoder(n_bits, 0)`
+
+---
+
+### `ThermometerDecoder`
+
+*`pyDataconverter.components.decoder`*
+
+Full thermometer (unary) decoder; the N-bit input code selects how many of the 2^N − 1 unit elements are switched on.
+
+No binary sub-array exists: `n_therm_bits` equals `n_bits` and `n_binary_bits` is 0. This is
+the degenerate case of `SegmentedDecoder` with `n_therm_bits=n_bits`. The maximum `n_bits` is
+16, limiting the element count to 65535.
+
+**Parameters**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `n_bits` | `int` | — | DAC resolution in bits (1–16). Limited to 16 to keep element counts tractable (2^16 − 1 = 65535 unit elements). |
+
+**Attributes**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `n_elements` | `int` | Number of unit thermometer elements (2^n_bits − 1). |
+
+**Raises**
+
+| Exception | Condition |
+|-----------|-----------|
+| `ValueError` | `n_bits` is not an integer in [1, 16]. |
+
+**Methods**
+
+#### `decode(code)`
+
+Return `(code, [])` for the given code.
+
+| Name | Type | Description |
+|------|------|-------------|
+| `code` | `int` | Integer in [0, 2^n_bits − 1]. |
+
+**Returns**
+
+| Type | Description |
+|------|-------------|
+| `Tuple[int, np.ndarray]` | `(code, empty_array)` — therm_index equals the input code; binary_bits is an empty array. |
+
+**Examples**
+
+```python
+from pyDataconverter.components.decoder import ThermometerDecoder
+
+dec = ThermometerDecoder(n_bits=3)
+print(dec.n_elements)         # 7
+therm_idx, bits = dec.decode(5)
+print(therm_idx)  # 5
+print(bits)       # []
+```
+
+**See Also**
+
+- `DecoderBase` — abstract base class
+- `SegmentedDecoder` — general case; `ThermometerDecoder` is equivalent to `SegmentedDecoder(n_bits, n_bits)`
+
+---
+
+### `SegmentedDecoder`
+
+*`pyDataconverter.components.decoder`*
+
+Segmented decoder — thermometer MSBs, binary LSBs; the most general decoder form.
+
+Splits the N-bit code into an upper `n_therm_bits` portion decoded as a thermometer index and
+a lower `n_binary_bits = n_bits − n_therm_bits` portion kept as a binary bit array. When
+`n_therm_bits=0` this reduces to `BinaryDecoder`; when `n_therm_bits=n_bits` it reduces to
+`ThermometerDecoder`. Typical segmented DAC usage applies 4–6 thermometer bits to the MSBs.
+
+**Parameters**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `n_bits` | `int` | — | Total DAC resolution (1–32). |
+| `n_therm_bits` | `int` | — | Number of MSBs decoded as thermometer (0–`n_bits`). The thermometer segment creates 2^n_therm_bits − 1 unit elements; limited to ≤ 16 for tractability. |
+
+**Attributes**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `n_therm_elements` | `int` | Number of thermometer unit elements (2^n_therm_bits − 1). |
+
+**Raises**
+
+| Exception | Condition |
+|-----------|-----------|
+| `ValueError` | `n_bits` is not an integer in [1, 32]. |
+| `ValueError` | `n_therm_bits` is not in [0, `n_bits`] or exceeds 16. |
+
+**Methods**
+
+#### `decode(code)`
+
+Split code into thermometer index and binary bit array.
+
+| Name | Type | Description |
+|------|------|-------------|
+| `code` | `int` | Integer in [0, 2^n_bits − 1]. |
+
+**Returns**
+
+| Type | Description |
+|------|-------------|
+| `Tuple[int, np.ndarray]` | `(therm_index, binary_bits)` — upper `n_therm_bits` as integer; lower `n_binary_bits` as float bit array, MSB first. Empty array when `n_binary_bits == 0`. |
+
+**Examples**
+
+```python
+from pyDataconverter.components.decoder import SegmentedDecoder
+
+# 6-bit code, 4 thermometer MSBs, 2 binary LSBs
+dec = SegmentedDecoder(n_bits=6, n_therm_bits=4)
+therm_idx, bits = dec.decode(45)  # 0b101101
+print(therm_idx)  # 11  (upper 4 bits = 0b1011)
+print(bits)       # [0. 1.]  (lower 2 bits = 0b01)
+```
+
+**See Also**
+
+- `DecoderBase` — abstract base class
+- `BinaryDecoder` — degenerate case with `n_therm_bits=0`
+- `ThermometerDecoder` — degenerate case with `n_therm_bits=n_bits`
+- `CurrentSteeringDAC` — uses `SegmentedDecoder` internally
+
+---
+
+## Capacitor
+
+---
+
+### `UnitCapacitorBase`
+
+*`pyDataconverter.components.capacitor`*
+
+Abstract base class for unit capacitor models used in capacitive DAC arrays.
+
+Defines the interface used by C-DAC arrays. Each instance represents a single physical
+capacitor. Subclasses model different physical effects (leakage, voltage dependence, etc.)
+while keeping the array and DAC code unchanged. This class cannot be instantiated directly.
+
+**Properties**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `c_nominal` *(abstract)* | `float` | Designed (nominal) capacitance in farads or normalised units. |
+| `capacitance` *(abstract)* | `float` | Actual capacitance used in simulation. For ideal capacitors this equals `c_nominal * (1 + mismatch_draw)`. |
+
+**See Also**
+
+- `IdealCapacitor` — concrete implementation with static Gaussian mismatch
+- `SingleEndedCDAC` / `DifferentialCDAC` — hold arrays of `UnitCapacitorBase` instances
+
+---
+
+### `IdealCapacitor`
+
+*`pyDataconverter.components.capacitor`*
+
+Ideal capacitor with static Gaussian mismatch drawn once at construction.
+
+The actual capacitance is `capacitance = c_nominal * (1 + ε)` where `ε ~ N(0, mismatch)` is
+drawn once and held fixed for the lifetime of the object, modelling process-induced static
+spread. The mismatch draw is zero when `mismatch=0.0` (default), giving an exactly ideal
+capacitor.
+
+**Parameters**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `c_nominal` | `float` | `1.0` | Designed capacitance (> 0). May be in any consistent unit (F, fF, or normalised to a unit cap). |
+| `mismatch` | `float` | `0.0` | Standard deviation of multiplicative mismatch (≥ 0). A single draw `ε ~ N(0, mismatch)` is applied at construction: `actual = c_nominal * (1 + ε)`. |
+
+**Attributes**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `c_nominal` | `float` | Designed (nominal) capacitance. |
+| `mismatch` | `float` | Standard deviation of mismatch used at construction. |
+| `capacitance` | `float` | Actual capacitance after mismatch draw. Fixed for the lifetime of the instance. |
+
+**Raises**
+
+| Exception | Condition |
+|-----------|-----------|
+| `ValueError` | `c_nominal` is not a positive number. |
+| `ValueError` | `mismatch` is negative. |
+
+**Notes**
+
+- Mismatch is static: the draw happens once at `__init__` and `capacitance` never changes.
+- To simulate a fresh mismatch draw, create a new `IdealCapacitor` instance.
+- Passing `mismatch=0.0` (default) gives `capacitance == c_nominal` exactly, with no random draw.
+
+**Examples**
+
+```python
+from pyDataconverter.components.capacitor import IdealCapacitor
+
+# Ideal capacitor (no mismatch)
+cap = IdealCapacitor(c_nominal=1.0)
+print(cap.capacitance)  # 1.0
+
+# Capacitor with 1 % mismatch
+cap = IdealCapacitor(c_nominal=1.0, mismatch=0.01)
+print(abs(cap.capacitance - 1.0) < 0.1)  # True (within several sigma)
+```
+
+**See Also**
+
+- `UnitCapacitorBase` — abstract base class defining the interface
+- `SingleEndedCDAC` / `DifferentialCDAC` — pass `cap_class=IdealCapacitor` by default
+
+---
+
+## Current Source
+
+---
+
+### `UnitCurrentSourceBase`
+
+*`pyDataconverter.components.current_source`*
+
+Abstract base class for unit current source models used in current-steering DAC arrays.
+
+Defines the interface used by `CurrentSourceArray`. Each instance represents one physical
+current source cell. Subclasses model different physical implementations (ideal, cascode,
+regulated cascode) while keeping the array and DAC code unchanged. This class cannot be
+instantiated directly.
+
+**Properties**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `i_nominal` *(abstract)* | `float` | Designed (nominal) current in amperes. |
+| `current` *(abstract)* | `float` | Actual current used in simulation. For ideal sources this equals `i_nominal * (1 + mismatch_draw)`. |
+
+**See Also**
+
+- `IdealCurrentSource` — concrete implementation with static Gaussian mismatch
+- `CurrentSourceArray` — holds arrays of `UnitCurrentSourceBase` instances
+
+---
+
+### `IdealCurrentSource`
+
+*`pyDataconverter.components.current_source`*
+
+Ideal current source with static Gaussian mismatch drawn once at construction.
+
+The actual current is `current = i_nominal * (1 + ε)` where `ε ~ N(0, mismatch)` is drawn
+once and held fixed, modelling process-induced static spread (threshold voltage variation,
+etc.). The mismatch draw is zero when `mismatch=0.0` (default).
+
+**Parameters**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `i_nominal` | `float` | `100e-6` | Designed current in amperes (> 0). |
+| `mismatch` | `float` | `0.0` | Standard deviation of multiplicative mismatch (≥ 0). A single draw `ε ~ N(0, mismatch)` is applied at construction: `actual = i_nominal * (1 + ε)`. |
+
+**Attributes**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `i_nominal` | `float` | Designed (nominal) current (A). |
+| `mismatch` | `float` | Standard deviation of mismatch used at construction. |
+| `current` | `float` | Actual current after mismatch draw. Fixed for the lifetime of the instance. |
+
+**Raises**
+
+| Exception | Condition |
+|-----------|-----------|
+| `ValueError` | `i_nominal` is not a positive number. |
+| `ValueError` | `mismatch` is negative. |
+
+**Notes**
+
+- Mismatch is static: the draw happens once at `__init__` and `current` never changes.
+- Passing `mismatch=0.0` (default) gives `current == i_nominal` exactly.
+
+**Examples**
+
+```python
+from pyDataconverter.components.current_source import IdealCurrentSource
+
+src = IdealCurrentSource(i_nominal=100e-6)
+print(src.current)  # 0.0001 A
+
+src_mm = IdealCurrentSource(i_nominal=100e-6, mismatch=0.01)
+print(abs(src_mm.current - 100e-6) < 10e-6)  # True (within several sigma)
+```
+
+**See Also**
+
+- `UnitCurrentSourceBase` — abstract base class
+- `CurrentSourceArray` — creates and holds arrays of `IdealCurrentSource` by default
+
+---
+
+### `CurrentSourceArray`
+
+*`pyDataconverter.components.current_source`*
+
+Array of current sources for a current-steering DAC, comprising a thermometer segment and a binary segment.
+
+Holds two segments that mirror the decoder output. The thermometer segment contains
+`2^n_therm_bits − 1` unit sources each with nominal current `2^n_binary_bits * i_unit`
+(scaled to guarantee monotonicity at segment boundaries). The binary segment contains
+`n_binary_bits` sources with binary-weighted nominals: source `j` has
+`i_nominal = 2^j * i_unit` where `j=0` is the LSB.
+
+All sources always conduct and are steered between positive and negative output rails,
+keeping `i_total` constant regardless of code. `get_current()` returns `(i_selected, i_total)`
+so the DAC can compute differential or single-ended output voltages.
+
+**Parameters**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `n_therm_bits` | `int` | — | Number of thermometer MSBs. Creates `2^n_therm_bits − 1` unit sources. May be 0. |
+| `n_binary_bits` | `int` | — | Number of binary LSBs. Creates `n_binary_bits` binary-weighted sources. May be 0. |
+| `i_unit` | `float` | `100e-6` | Nominal unit current (A, > 0). |
+| `current_mismatch` | `float` | `0.0` | Standard deviation of multiplicative mismatch for every source (≥ 0). Each source draws independently. |
+| `source_class` | `Type[UnitCurrentSourceBase]` | `IdealCurrentSource` | `UnitCurrentSourceBase` subclass to instantiate. |
+
+**Attributes**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `therm_sources` | `List[UnitCurrentSourceBase]` | Thermometer unit sources in switching order (index 0 switches on first for code = 1). |
+| `binary_sources` | `List[UnitCurrentSourceBase]` | Binary-weighted sources; index 0 = LSB weight (1×i_unit), index `n_binary_bits−1` = MSB weight. |
+| `i_unit` | `float` | Nominal unit current (A). |
+| `current_mismatch` | `float` | Standard deviation of multiplicative mismatch used at construction. |
+| `n_therm_bits` | `int` | Number of thermometer MSB bits. |
+| `n_binary_bits` | `int` | Number of binary LSB bits. |
+| `n_bits` | `int` | Total DAC resolution (`n_therm_bits + n_binary_bits`). |
+| `i_total` | `float` | Total current conducted by all sources (A). Constant regardless of code. |
+
+**Raises**
+
+| Exception | Condition |
+|-----------|-----------|
+| `ValueError` | `n_therm_bits` or `n_binary_bits` is negative, or both are 0. |
+| `ValueError` | `i_unit` is not positive or `current_mismatch` is negative. |
+| `TypeError` | `source_class` is not a `UnitCurrentSourceBase` subclass. |
+
+**Methods**
+
+#### `get_current(therm_index, binary_bits)`
+
+Compute DAC output current for given decoder control signals.
+
+Sums the currents of the selected thermometer elements and the asserted binary-weighted
+elements. Thermometer elements 0 through `therm_index − 1` are steered to the positive rail.
+Binary elements are steered to the positive rail when the corresponding bit is 1.
+
+| Name | Type | Description |
+|------|------|-------------|
+| `therm_index` | `int` | Number of thermometer unit elements steered to the positive output (integer in [0, n_therm_elements]). |
+| `binary_bits` | `np.ndarray` | Bit array for the binary segment, MSB first (length `n_binary_bits`). Bit = 1 steers source to positive output. |
+
+**Returns**
+
+| Type | Description |
+|------|-------------|
+| `Tuple[float, float]` | `(i_selected, i_total)` — current steered to positive rail and total current from all sources. |
+
+**Raises**
+
+| Exception | Condition |
+|-----------|-----------|
+| `ValueError` | `therm_index` is outside [0, n_therm_elements] or `binary_bits` has wrong length. |
+
+**Notes**
+
+- `i_total` is constant (precomputed at construction) because all sources always conduct.
+- The DAC computes single-ended or differential output: `v_se = i_selected * r_load`; `v_diff = (2 * i_selected − i_total) * r_load`.
+
+**Examples**
+
+```python
+from pyDataconverter.components.current_source import CurrentSourceArray
+
+arr = CurrentSourceArray(n_therm_bits=3, n_binary_bits=2, i_unit=100e-6)
+import numpy as np
+i_sel, i_total = arr.get_current(therm_index=4, binary_bits=np.array([1., 0.]))
+print(f"i_selected={i_sel*1e6:.1f} uA, i_total={i_total*1e6:.1f} uA")
+```
+
+**See Also**
+
+- `UnitCurrentSourceBase` / `IdealCurrentSource` — unit current source models
+- `DecoderBase` — produces `(therm_index, binary_bits)` consumed by `get_current()`
+- `CurrentSteeringDAC` — owns a `CurrentSourceArray` and a `DecoderBase`
+
+---
+
+## SAR ADC Visualization
+
+---
+
+### `visualize_sar_adc`
+
+*`pyDataconverter.utils.visualizations.visualize_SARADC`*
+
+Visualise SAR ADC operation for a given input voltage with a two-panel static or interactive plot.
+
+The left panel shows the binary search funnel: a narrowing voltage interval one bar per bit cycle
+(MSB to LSB), with green shading for the kept half, red for the discarded half, an orange tick for
+the trial DAC voltage, and a blue dashed line for the held input. The right panel shows the C-DAC
+capacitor state: each bit's voltage contribution as a bar coloured by decision (green = 1, grey = 0,
+blue = undecided) with an orange dashed line for the running DAC output.
+
+**Parameters**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| adc | `SARADC` | — | SARADC instance to visualise. |
+| input_voltage | float, Tuple, or None | `None` | Input voltage. Scalar for single-ended; `(v_pos, v_neg)` tuple for differential. Ignored when `interactive=True`. |
+| interactive | bool | `False` | When `True`, adds a Matplotlib slider for real-time exploration of the full input range. |
+| fig | `matplotlib.figure.Figure` or None | `None` | Existing figure to draw into. If `None`, a new figure is created. |
+| axes | Tuple or None | `None` | Existing `(ax_funnel, ax_cdac)` axes pair. If `None`, new axes are created. |
+
+**Returns**
+
+| Type | Description |
+|------|-------------|
+| Tuple[Figure, Tuple[Axes, Axes]] | `(fig, (ax_funnel, ax_cdac))` — the figure and its two axes. |
+
+**Notes**
+
+- When `interactive=True`, a `matplotlib.widgets.Slider` is added and `plt.show()` is called internally.
+- When `interactive=False` and new axes are created, `plt.tight_layout()` and `plt.show()` are called automatically.
+- When `fig` and `axes` are both supplied, neither `tight_layout` nor `show` is called, allowing the caller to manage the figure lifecycle.
+- For a differential SARADC, a scalar `input_voltage` is interpreted as the differential voltage `v_diff`; internally it is split into `(v_diff/2, -v_diff/2)`.
+
+**Examples**
+
+```python
+from pyDataconverter.architectures.SARADC import SARADC
+from pyDataconverter.utils.visualizations.visualize_SARADC import visualize_sar_adc
+
+adc = SARADC(n_bits=4, v_ref=1.0)
+fig, axes = visualize_sar_adc(adc, input_voltage=0.37)
+```
+
+**See Also**
+
+- `animate_sar_conversion` — bit-by-bit animation of a single conversion
+- `animate_sar_adc` — sweep animation across a sequence of input voltages
+- `SARADC` — the SAR ADC architecture being visualised
+
+---
+
+### `animate_sar_conversion`
+
+*`pyDataconverter.utils.visualizations.visualize_SARADC`*
+
+Animate a single SAR conversion, revealing one bit cycle per frame.
+
+Frame k shows the first k bit decisions; remaining cycles appear as placeholder blocks.
+The most recently decided bit is highlighted in orange so the viewer can follow the binary
+search step by step. Both panels (funnel and C-DAC state) update each frame.
+
+**Parameters**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| adc | `SARADC` | — | SARADC instance. |
+| input_voltage | float or Tuple | — | Input voltage. Scalar for single-ended; `(v_pos, v_neg)` tuple for differential. |
+| interval | float | `0.7` | Seconds between frames. |
+
+**Returns**
+
+| Type | Description |
+|------|-------------|
+| `FuncAnimation` | Animation object. Keep a reference to prevent garbage collection. |
+
+**Notes**
+
+- The animation loops with `repeat=True`. Close the window to stop.
+- `plt.show()` is called internally; the function blocks until the window is closed.
+- The animation runs for exactly `n_bits` frames (one per bit decision).
+
+**Examples**
+
+```python
+from pyDataconverter.architectures.SARADC import SARADC
+from pyDataconverter.utils.visualizations.visualize_SARADC import animate_sar_conversion
+
+adc = SARADC(n_bits=4, v_ref=1.0)
+anim = animate_sar_conversion(adc, input_voltage=0.62, interval=0.8)
+```
+
+**See Also**
+
+- `visualize_sar_adc` — static or interactive snapshot
+- `animate_sar_adc` — sweep animation across multiple input voltages
+
+---
+
+### `animate_sar_adc`
+
+*`pyDataconverter.utils.visualizations.visualize_SARADC`*
+
+Animate SAR ADC operation across a sequence of input voltages.
+
+Each frame shows the complete binary search trace for one input voltage, making it easy to
+observe how the search pattern shifts as the input sweeps. Both panels (funnel and C-DAC
+state) are redrawn fully on each frame.
+
+**Parameters**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| adc | `SARADC` | — | SARADC instance. |
+| input_voltages | array-like | — | 1-D array of scalars for single-ended input, or list of `(v_pos, v_neg)` tuples for differential input. |
+| interval | float | `0.12` | Seconds between frames. |
+
+**Returns**
+
+| Type | Description |
+|------|-------------|
+| `FuncAnimation` | Animation object. Keep a reference to prevent garbage collection. |
+
+**Notes**
+
+- The animation loops with `repeat=True`. Close the window to stop.
+- `plt.show()` is called internally; the function blocks until the window is closed.
+- The number of frames equals `len(input_voltages)`.
+
+**Examples**
+
+```python
+import numpy as np
+from pyDataconverter.architectures.SARADC import SARADC
+from pyDataconverter.utils.visualizations.visualize_SARADC import animate_sar_adc
+
+adc = SARADC(n_bits=4, v_ref=1.0)
+voltages = 0.5 + 0.45 * np.sin(np.linspace(0, 2 * np.pi, 40))
+anim = animate_sar_adc(adc, input_voltages=voltages, interval=0.1)
+```
+
+**See Also**
+
+- `visualize_sar_adc` — static or interactive snapshot
+- `animate_sar_conversion` — bit-by-bit animation of a single conversion
+- `SARADC` — the SAR ADC architecture being animated

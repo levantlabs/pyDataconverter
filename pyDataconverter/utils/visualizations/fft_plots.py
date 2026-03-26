@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 def plot_fft(freqs: np.ndarray,
              mags: np.ndarray,
              title: str = "FFT Spectrum",
+             min_freq: float = None,
              max_freq: float = None,
              min_db: float = None,
              max_db: float = None,
@@ -34,6 +35,7 @@ def plot_fft(freqs: np.ndarray,
         freqs: Frequency array in Hz
         mags: Magnitude array in dB
         title: Plot title
+        min_freq: Minimum frequency to display in Hz. If None, starts at 0.
         max_freq: Maximum frequency to display in Hz. If None, shows full spectrum.
         min_db: Floor of the y-axis in dB. If None, defaults to max_db - 120 (i.e. -120 dBFS).
         max_db: Ceiling of the y-axis in dB. If None, defaults to 0 dBFS.
@@ -53,7 +55,9 @@ def plot_fft(freqs: np.ndarray,
     if fig is None and ax is None:
         fig, ax = plt.subplots(figsize=(12, 5))
 
-    # Apply frequency limit
+    n_fft = len(freqs) * 2
+
+    # Apply frequency limits
     if max_freq:
         mask = freqs <= max_freq
         freqs = freqs[mask]
@@ -61,7 +65,12 @@ def plot_fft(freqs: np.ndarray,
     else:
         max_freq = np.max(freqs)
 
-    # Auto-select frequency unit
+    if min_freq:
+        mask = freqs >= min_freq
+        freqs = freqs[mask]
+        mags = mags[mask]
+
+    # Auto-select frequency unit based on the upper limit
     if max_freq >= 1e9:
         freq_scale, freq_unit = 1e9, 'GHz'
     elif max_freq >= 1e6:
@@ -71,8 +80,9 @@ def plot_fft(freqs: np.ndarray,
     else:
         freq_scale, freq_unit = 1, 'Hz'
 
+    plot_min = 0 if min_freq is None else min_freq / freq_scale
     scaled_max = max_freq / freq_scale
-    plot_max = 1 if scaled_max <= 1 else np.ceil(scaled_max)
+    plot_max = scaled_max if scaled_max > 1 else 1.0
 
     # Determine y-axis bounds — top is always 0 dBFS unless overridden
     if max_db is None:
@@ -92,11 +102,11 @@ def plot_fft(freqs: np.ndarray,
             color='steelblue', linewidth=0.8)
 
     # Styling
-    ax.set_xlim(0, plot_max)
+    ax.set_xlim(plot_min, plot_max)
     ax.set_ylim(min_db, max_db)
     ax.set_xlabel(f'Frequency ({freq_unit})', fontsize=11)
     ax.set_ylabel('Magnitude (dBFS)', fontsize=11)
-    ax.set_title(title, fontsize=12, fontweight='bold')
+    ax.set_title(f'{title} (NFFT={n_fft})', fontsize=12, fontweight='bold')
 
     # Horizontal gridlines only, at every 20 dB
     ax.yaxis.set_major_locator(plt.MultipleLocator(20))

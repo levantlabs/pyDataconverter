@@ -52,16 +52,17 @@ def test_dbfs_values_correct_formulas():
     Verify the dBFS variants use the correct formulas relative to fund_mag_dBFS.
 
     - SFDR_dBFS = SFDR - fund_mag_dBFS   (spur distance from full scale)
-    - SNR/SNDR/THD_dBFS = metric + fund_mag_dBFS  (referenced to full scale)
+    - SNR/SNDR/THD_dBFS = metric - fund_mag_dBFS  (fund_mag_dBFS is negative, so result > metric)
 
-    For the time_data path, fund_mag_dBFS = fund_mag - 20*log10(full_scale) - 20*log10(N/2).
+    For the time_data path, fund_mag_dBFS = fund_mag - 20*log10(full_scale/2) - 20*log10(N/2).
+    The full_scale/2 factor accounts for a sine wave having peak amplitude = full_scale/2.
     """
     signal, fs, f0 = _make_clean_signal()
     NFFT = 1024
     full_scale = 2.0
     result = calculate_adc_dynamic_metrics(signal, fs, f0, full_scale=full_scale)
 
-    level_correction = 20 * np.log10(full_scale) + 20 * np.log10(NFFT / 2)
+    level_correction = 20 * np.log10(full_scale / 2) + 20 * np.log10(NFFT / 2)
     fund_mag_dBFS = result["FundamentalMagnitude"] - level_correction
 
     assert abs(result["FundamentalMagnitude_dBFS"] - fund_mag_dBFS) < 1e-9
@@ -69,12 +70,12 @@ def test_dbfs_values_correct_formulas():
     # SFDR: spur below full scale
     assert abs(result["SFDR_dBFS"] - (result["SFDR"] - fund_mag_dBFS)) < 1e-9
 
-    # SNR / SNDR / THD: referenced to full scale
+    # SNR / SNDR / THD: fund_mag_dBFS is negative, subtracting it increases the value
     for k in ['SNR', 'SNDR', 'THD']:
-        expected = result[k] + fund_mag_dBFS
+        expected = result[k] - fund_mag_dBFS
         actual   = result[k + '_dBFS']
         assert abs(actual - expected) < 1e-9, (
-            f"{k}_dBFS ({actual:.4f}) != {k} + fund_mag_dBFS ({expected:.4f})"
+            f"{k}_dBFS ({actual:.4f}) != {k} - fund_mag_dBFS ({expected:.4f})"
         )
 
 

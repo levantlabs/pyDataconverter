@@ -8,11 +8,10 @@ Demonstrates the SimpleDAC with various configurations:
   3. INL / DNL — static linearity with and without non-idealities
   4. Output spectrum — FFT of a sinusoidal code sequence (ideal vs noisy)
   5. Non-ideality sweep — SNR vs noise_rms for different resolutions
+  6. ZOH oversampling — time-domain staircase, full multi-zone spectrum, first and third Nyquist zones
 """
 
 import numpy as np
-import matplotlib
-matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 from pyDataconverter.architectures.SimpleDAC import SimpleDAC
@@ -69,8 +68,7 @@ def demo_ideal_transfer():
     ax2.grid(True, alpha=0.4)
 
     plt.tight_layout()
-    fig.savefig('simple_dac_01_ideal_transfer.png', dpi=150)
-    print("  Saved: simple_dac_01_ideal_transfer.png")
+    plt.show()
     plt.close(fig)
 
 
@@ -143,8 +141,7 @@ def demo_nonideality_transfer():
     axes[-1, 0].set_xlabel('Input Code')
     axes[-1, 1].set_xlabel('Input Code')
     plt.tight_layout()
-    fig.savefig('simple_dac_02_nonideality_transfer.png', dpi=150)
-    print("  Saved: simple_dac_02_nonideality_transfer.png")
+    plt.show()
     plt.close(fig)
 
 
@@ -162,8 +159,7 @@ def demo_inl_dnl():
     # Ideal
     dac_ideal = SimpleDAC(n_bits=n_bits, v_ref=v_ref)
     fig_ideal, _ = plot_inl_dnl(dac_ideal, title='Ideal 8-bit DAC')
-    fig_ideal.savefig('simple_dac_03a_inl_dnl_ideal.png', dpi=150)
-    print("  Saved: simple_dac_03a_inl_dnl_ideal.png")
+    plt.show()
     plt.close(fig_ideal)
 
     # With gain error and offset
@@ -171,8 +167,7 @@ def demo_inl_dnl():
                              gain_error=0.005, offset=2e-3)
     fig_ni, _ = plot_inl_dnl(dac_nonideal,
                              title='8-bit DAC (gain_error=0.5 %, offset=2 mV)')
-    fig_ni.savefig('simple_dac_03b_inl_dnl_nonideal.png', dpi=150)
-    print("  Saved: simple_dac_03b_inl_dnl_nonideal.png")
+    plt.show()
     plt.close(fig_ni)
 
 
@@ -188,30 +183,37 @@ def demo_output_spectrum():
     print("--- 4. Output spectrum (10-bit DAC) ---")
 
     n_bits = 10
-    v_ref = 1.0
-    fs = 1e6       # 1 MHz update rate
-    f_sig = 50e3   # 50 kHz signal
-    n_fft = 4096
+    v_ref  = 1.0
+    fs     = 1e6     # DAC update rate
+    f_sig  = 50e3
+    n_fft  = 4096
+
+    n_fin    = max(1, round(f_sig * n_fft / fs))
+    f_actual = n_fin / n_fft * fs
+    codes    = generate_digital_sine(n_bits, f_actual, fs,
+                                     amplitude=0.9, offset=0.5, duration=n_fft / fs)
 
     # --- Ideal ---
-    dac_ideal = SimpleDAC(n_bits=n_bits, v_ref=v_ref)
-    ax1 = plot_output_spectrum(dac_ideal, fs, f_sig, n_fft=n_fft,
+    dac_ideal = SimpleDAC(n_bits=n_bits, v_ref=v_ref, fs=fs)
+    _, voltages1 = dac_ideal.convert_sequence(codes)
+    freqs1, mags1 = compute_fft(voltages1, fs, normalization=FFTNormalization.DBFS,
+                                 full_scale=v_ref)
+    ax1 = plot_output_spectrum(freqs1, mags1, fs,
                                title='Ideal 10-bit DAC — Output Spectrum')
-    fig1 = ax1.get_figure()
-    fig1.savefig('simple_dac_04a_spectrum_ideal.png', dpi=150)
-    print("  Saved: simple_dac_04a_spectrum_ideal.png")
-    plt.close(fig1)
+    plt.show()
+    plt.close(ax1.get_figure())
 
     # --- With non-idealities ---
     np.random.seed(0)
-    dac_noisy = SimpleDAC(n_bits=n_bits, v_ref=v_ref,
+    dac_noisy = SimpleDAC(n_bits=n_bits, v_ref=v_ref, fs=fs,
                           noise_rms=0.5e-3, offset=5e-3, gain_error=0.01)
-    ax2 = plot_output_spectrum(dac_noisy, fs, f_sig, n_fft=n_fft,
+    _, voltages2 = dac_noisy.convert_sequence(codes)
+    freqs2, mags2 = compute_fft(voltages2, fs, normalization=FFTNormalization.DBFS,
+                                 full_scale=v_ref)
+    ax2 = plot_output_spectrum(freqs2, mags2, fs,
                                title='10-bit DAC (noise=0.5mV, offset=5mV, gain=+1%) — Spectrum')
-    fig2 = ax2.get_figure()
-    fig2.savefig('simple_dac_04b_spectrum_nonideal.png', dpi=150)
-    print("  Saved: simple_dac_04b_spectrum_nonideal.png")
-    plt.close(fig2)
+    plt.show()
+    plt.close(ax2.get_figure())
 
 
 # ---------------------------------------------------------------------------
@@ -282,9 +284,92 @@ def demo_snr_vs_noise():
     ax.spines['right'].set_visible(False)
 
     plt.tight_layout()
-    fig.savefig('simple_dac_05_snr_vs_noise.png', dpi=150)
-    print("  Saved: simple_dac_05_snr_vs_noise.png")
+    plt.show()
     plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# 6. ZOH oversampling
+# ---------------------------------------------------------------------------
+
+def demo_zoh_oversampling():
+    """
+    Demonstrates ZOH (zero-order hold) oversampling with four plots:
+      1. Zoomed time-domain staircase vs ideal analog sine (with ZOH sample markers)
+      2. Full oversampled spectrum — all Nyquist zones with sinc envelope
+      3. First Nyquist zone only (clipped at fs/2, with metrics)
+      4. Third Nyquist zone — shows attenuated image beyond 2× update rate
+    """
+    print("--- 6. ZOH oversampling (10-bit, 8× ZOH) ---")
+
+    n_bits     = 10
+    v_ref      = 1.0
+    fs         = 1e6
+    oversample = 8
+    f_sig      = 50e3
+    n_fft      = 1024
+
+    dac = SimpleDAC(n_bits=n_bits, v_ref=v_ref, fs=fs, oversample=oversample)
+
+    # Snap to a coherent FFT bin and generate the ZOH waveform
+    n_fin    = max(1, round(f_sig * n_fft / fs))
+    f_actual = n_fin / n_fft * fs
+    codes    = generate_digital_sine(n_bits, f_actual, fs,
+                                     amplitude=0.9, offset=0.5, duration=n_fft / fs)
+    t, voltages = dac.convert_sequence(codes)
+
+    # --- Plot 1: zoomed time-domain staircase ---
+    n_cycles  = 2
+    t_zoom    = n_cycles / f_actual
+    zoom      = t <= t_zoom
+    t_fine    = np.linspace(0, t_zoom, 4000)
+    v_ideal   = (0.9 / 2 * np.sin(2 * np.pi * f_actual * t_fine) + 0.5) * v_ref
+    n_updates = int(t_zoom * fs) + 1
+    t_updates = np.arange(n_updates) / fs
+    v_updates = np.array([dac.convert(int(codes[k])) for k in range(n_updates)])
+
+    fig, ax = plt.subplots(figsize=(12, 4))
+    ax.plot(t_fine * 1e6, v_ideal, color='gray', linewidth=1.2,
+            linestyle='--', label='Ideal analog')
+    ax.plot(t[zoom] * 1e6, voltages[zoom], color='steelblue', linewidth=1.5,
+            drawstyle='steps-post', label=f'ZOH output (×{oversample})')
+    ax.scatter(t[zoom] * 1e6, voltages[zoom], color='steelblue', s=10,
+               zorder=4, alpha=0.6, label=f'ZOH samples (×{oversample})')
+    ax.scatter(t_updates * 1e6, v_updates, color='tomato', s=40, zorder=5,
+               label='DAC update')
+    ax.set_xlabel('Time (µs)')
+    ax.set_ylabel('Output Voltage (V)')
+    ax.set_title(f'{n_bits}-bit DAC — ZOH Time Domain  '
+                 f'({n_cycles} cycles, f={f_actual/1e3:.1f} kHz, '
+                 f'fs={fs/1e6:.0f} MHz, ×{oversample} ZOH)')
+    ax.legend()
+    ax.grid(True, alpha=0.4)
+    plt.tight_layout()
+    plt.show()
+    plt.close(fig)
+
+    # compute_fft at the oversampled rate — voltages has oversample * n_fft points
+    fs_out = fs * oversample
+    freqs, mags = compute_fft(voltages, fs_out, normalization=FFTNormalization.DBFS,
+                               full_scale=v_ref)
+
+    # --- Plot 2: full spectrum — all Nyquist zones with sinc envelope ---
+    ax2 = plot_output_spectrum(freqs, mags, fs, nyquist_zone=None,
+                               title=f'{n_bits}-bit DAC ZOH Spectrum')
+    plt.show()
+    plt.close(ax2.get_figure())
+
+    # --- Plot 3: first Nyquist zone with metrics ---
+    ax3 = plot_output_spectrum(freqs, mags, fs,
+                               title=f'{n_bits}-bit DAC ZOH — First Nyquist Zone')
+    plt.show()
+    plt.close(ax3.get_figure())
+
+    # --- Plot 4: third Nyquist zone (image at fs + f_sig, attenuated by ZOH sinc) ---
+    ax4 = plot_output_spectrum(freqs, mags, fs, nyquist_zone=3,
+                               title=f'{n_bits}-bit DAC ZOH — Third Nyquist Zone')
+    plt.show()
+    plt.close(ax4.get_figure())
 
 
 # ---------------------------------------------------------------------------
@@ -297,6 +382,7 @@ def main():
     demo_inl_dnl()
     demo_output_spectrum()
     demo_snr_vs_noise()
+    demo_zoh_oversampling()
     print("\nAll examples complete.")
 
 
