@@ -69,11 +69,10 @@ class ADCBase(ABC):
         if not isinstance(input_type, InputType):
                 raise TypeError("input_type must be of an InputType enum")
         self.input_type = input_type
+        self._dvdt = 0.0
 
-    def convert(self, vin: Union[float, Tuple[float, float]]):
-        """Convert analog input to digital output
-        Can either be a single value, if single ended, or a tuple if differential.
-        Check input type validation before running conversion"""
+    def _validate_input(self, vin: Union[float, Tuple[float, float]]) -> None:
+        """Validate vin against the configured input_type."""
         if self.input_type == InputType.SINGLE:
             if not isinstance(vin, (int, float)):
                 raise TypeError("Single-ended input must be a number.")
@@ -81,6 +80,17 @@ class ADCBase(ABC):
             if not isinstance(vin, tuple) or len(vin) != 2:
                 raise TypeError("Differential input must be a tuple of (positive, negative).")
 
+    def convert(self, vin: Union[float, Tuple[float, float]], dvdt: float = 0.0):
+        """Convert analog input to digital output
+        Can either be a single value, if single ended, or a tuple if differential.
+        Check input type validation before running conversion.
+
+        Args:
+            vin:  Voltage (single-ended) or (v_pos, v_neg) tuple (differential).
+            dvdt: Signal slope at the sampling instant (V/s). Used by
+                  subclasses that model aperture jitter."""
+        self._validate_input(vin)
+        self._dvdt = float(dvdt)
         return self._convert_input(vin) #Pass this on to a abstract function
 
     @abstractmethod
@@ -99,7 +109,7 @@ class ADCBase(ABC):
 class OutputType(Enum):
     """Defines single or differential output for DAC"""
     SINGLE = 'single'
-    DIFFERENTIAL = 'diff'
+    DIFFERENTIAL = 'differential'
 
 
 class DACBase(ABC):
@@ -117,7 +127,7 @@ class DACBase(ABC):
         # Validate n_bits
         if not isinstance(n_bits, int):
             raise TypeError("n_bits must be an integer")
-        if n_bits <= 0 or n_bits > 32:
+        if n_bits < 1 or n_bits > 32:
             raise ValueError("n_bits must be between 1 and 32")
 
         # Validate v_ref

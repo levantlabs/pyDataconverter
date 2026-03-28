@@ -152,7 +152,7 @@ class SARADC(ADCBase):
         self.offset     = offset
         self.gain_error = gain_error
         self.t_jitter   = t_jitter
-        self._dvdt      = 0.0
+        # self._dvdt is inherited from ADCBase
 
         # Comparator
         if comparator_params is None:
@@ -208,13 +208,7 @@ class SARADC(ADCBase):
         Returns:
             int: Output code in [0, 2^n_bits − 1].
         """
-        if self.input_type == InputType.SINGLE:
-            if not isinstance(vin, (int, float)):
-                raise TypeError("Single-ended input must be a number.")
-        else:
-            if not isinstance(vin, tuple) or len(vin) != 2:
-                raise TypeError("Differential input must be a tuple of (positive, negative).")
-
+        self._validate_input(vin)
         self._dvdt = float(dvdt)
         return self._convert_input(vin)
 
@@ -249,13 +243,7 @@ class SARADC(ADCBase):
                     N + 1 register values — initial 0 followed by the register
                     value after each bit decision.
         """
-        if self.input_type == InputType.SINGLE:
-            if not isinstance(vin, (int, float)):
-                raise TypeError("Single-ended input must be a number.")
-        else:
-            if not isinstance(vin, tuple) or len(vin) != 2:
-                raise TypeError("Differential input must be a tuple of (positive, negative).")
-
+        self._validate_input(vin)
         self._dvdt = float(dvdt)
         v_sampled = self._sample_input(vin)
         code, dac_vs, decisions, reg_states = self._run_sar(v_sampled)

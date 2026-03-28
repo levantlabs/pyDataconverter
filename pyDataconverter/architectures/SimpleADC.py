@@ -72,7 +72,7 @@ class SimpleADC(ADCBase):
         self.offset      = offset
         self.gain_error  = gain_error
         self.t_jitter    = t_jitter
-        self._dvdt       = 0.0  # set by convert() before each sample
+        # self._dvdt is inherited from ADCBase
 
     # ------------------------------------------------------------------
     # Public interface
@@ -93,16 +93,7 @@ class SimpleADC(ADCBase):
         Returns:
             int: Output code in [0, 2^n_bits - 1].
         """
-        # Input validation (mirrors ADCBase.convert)
-        if self.input_type == InputType.SINGLE:
-            if not isinstance(vin, (int, float)):
-                raise TypeError("Single-ended input must be a number.")
-        elif self.input_type == InputType.DIFFERENTIAL:
-            if not isinstance(vin, tuple) or len(vin) != 2:
-                raise TypeError("Differential input must be a tuple of (positive, negative).")
-
-        self._dvdt = float(dvdt)
-        return self._convert_input(vin)
+        return super().convert(vin, dvdt)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -147,9 +138,9 @@ class SimpleADC(ADCBase):
         v = np.clip(voltage, v_min, v_max) - v_min  # shift to [0, v_range]
 
         if self.quant_mode == QuantizationMode.FLOOR:
-            code = int(v * 2**self.n_bits / v_range)
+            code = int(np.floor(v * 2**self.n_bits / v_range))
         else:  # SYMMETRIC
-            code = int(v * (2**self.n_bits - 1) / v_range + 0.5)
+            code = int(np.floor(v * (2**self.n_bits - 1) / v_range + 0.5))
 
         return int(np.clip(code, 0, 2**self.n_bits - 1))
 
