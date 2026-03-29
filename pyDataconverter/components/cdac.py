@@ -123,8 +123,8 @@ class CDACBase(ABC):
             code k, i.e. the value the SAR compares the signal against.
         """
         n_codes = 2 ** self.n_bits
-        return np.array([self.get_voltage(c)[0] - self.get_voltage(c)[1]
-                         for c in range(n_codes)])
+        return np.array([vp - vn
+                         for vp, vn in (self.get_voltage(c) for c in range(n_codes))])
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(n_bits={self.n_bits}, v_ref={self.v_ref})"

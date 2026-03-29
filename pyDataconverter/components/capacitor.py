@@ -94,7 +94,7 @@ class IdealCapacitor(UnitCapacitorBase):
         self._mismatch  = float(mismatch)
 
         if mismatch > 0:
-            self._capacitance = self._c_nominal * (1.0 + np.random.normal(0.0, mismatch))
+            self._capacitance = max(0.0, self._c_nominal * (1.0 + np.random.normal(0.0, mismatch)))
         else:
             self._capacitance = self._c_nominal
 

@@ -100,7 +100,7 @@ class IdealCurrentSource(UnitCurrentSourceBase):
         self._mismatch  = float(mismatch)
 
         if mismatch > 0:
-            self._current = self._i_nominal * (1.0 + np.random.normal(0.0, mismatch))
+            self._current = max(0.0, self._i_nominal * (1.0 + np.random.normal(0.0, mismatch)))
         else:
             self._current = self._i_nominal
 

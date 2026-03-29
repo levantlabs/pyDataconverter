@@ -127,7 +127,7 @@ class DifferentialComparator(ComparatorBase):
         self._last_output  = 0
 
         if bandwidth is not None:
-            self._last_input = 0.0
+            self._filtered_state = 0.0
             self._tau = 1.0 / (2.0 * np.pi * bandwidth)
 
     def compare(self,
@@ -159,8 +159,8 @@ class DifferentialComparator(ComparatorBase):
             if time_step is None:
                 raise ValueError("time_step must be provided when bandwidth is specified")
             alpha  = time_step / (time_step + self._tau)
-            v_diff = (1 - alpha) * self._last_input + alpha * v_diff
-            self._last_input = v_diff
+            v_diff = (1 - alpha) * self._filtered_state + alpha * v_diff
+            self._filtered_state = v_diff
 
         # Input-referred noise
         if self.noise_rms > 0:
@@ -180,7 +180,7 @@ class DifferentialComparator(ComparatorBase):
         """Reset hysteresis history and bandwidth filter state."""
         self._last_output = 0
         if self.bandwidth is not None:
-            self._last_input = 0.0
+            self._filtered_state = 0.0
 
     def __repr__(self) -> str:
         params = [f"offset={self.offset:.2e}V",

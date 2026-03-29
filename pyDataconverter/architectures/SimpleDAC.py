@@ -31,13 +31,24 @@ class SimpleDAC(DACBase):
     All non-ideality parameters default to 0 (disabled). Set any of them to
     model a realistic converter.
 
+    Unlike SimpleADC (which converts one sample at a time and has no time
+    axis), SimpleDAC supports sequence output via convert_sequence(), which
+    requires a sample rate and optional oversampling factor.  These are set
+    at construction because they define the DAC operating point.
+
     Attributes:
-        noise_rms (float): Output-referred RMS noise voltage (V).
-                           Adds N(0, noise_rms) to the output each conversion.
-        offset (float): Output DC offset voltage (V).
-                        Shifts every output by this fixed amount.
-        gain_error (float): Fractional gain error (dimensionless).
-                            0.01 = +1 %. Scales the output as v*(1+gain_error).
+        noise_rms (float):   Output-referred RMS noise voltage (V).
+                             Adds N(0, noise_rms) to the output each conversion.
+        offset (float):      Output DC offset voltage (V).
+                             Shifts every output by this fixed amount.
+        gain_error (float):  Fractional gain error (dimensionless).
+                             0.01 = +1 %. Scales the output as v*(1+gain_error).
+        fs (float):          DAC update rate in Hz. Used by convert_sequence()
+                             to compute the time axis. Default 1.0 Hz.
+        oversample (int):    Number of output samples per input code (zero-order
+                             hold factor). Used by convert_sequence() to
+                             upsample the output waveform. Default 1 (no
+                             oversampling).
     """
 
     def __init__(self,

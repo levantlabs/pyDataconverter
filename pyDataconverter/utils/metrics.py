@@ -9,8 +9,9 @@ call it and can add converter-specific metrics on top.
 """
 
 import numpy as np
-from typing import Dict, List
+from typing import Dict, List, Optional
 from .fft_analysis import compute_fft, find_harmonics, find_fundamental
+from pyDataconverter.dataconverter import QuantizationMode
 
 
 def _calculate_dynamic_metrics(freqs: np.ndarray,
@@ -196,7 +197,8 @@ def _calculate_code_edges(input_voltages: np.ndarray,
 def calculate_adc_static_metrics(input_voltages: np.ndarray,
                              output_codes: np.ndarray,
                              n_bits: int,
-                             v_ref: float = 1.0) -> Dict[str, float]:
+                             v_ref: float = 1.0,
+                             quant_mode: QuantizationMode = QuantizationMode.FLOOR) -> Dict[str, float]:
     """
     Calculate static ADC metrics from ramp test data.
 
@@ -205,6 +207,9 @@ def calculate_adc_static_metrics(input_voltages: np.ndarray,
         output_codes: Array of output codes from ADC
         n_bits: ADC resolution
         v_ref: Reference voltage
+        quant_mode: Quantization mode (FLOOR or SYMMETRIC). Determines the
+                    ideal LSB size and first/last transition positions used
+                    for offset, gain error, and INL calculation.
 
     Returns:
         Dictionary of metrics including DNL, INL, offset, gain error
@@ -212,26 +217,37 @@ def calculate_adc_static_metrics(input_voltages: np.ndarray,
     Notes:
         Assumes input_voltages is a monotonic ramp
         Assumes output_codes are sorted
+        INL is computed directly from transition positions vs. ideal (not
+        via cumsum of DNL) so that missing codes do not accumulate error.
     """
     # Calculate transition levels
     transitions = _calculate_code_edges(input_voltages, output_codes, n_bits)
 
-    # Ideal LSB size
-    ideal_lsb = v_ref / (2 ** n_bits)
+    if quant_mode == QuantizationMode.FLOOR:
+        ideal_lsb    = v_ref / (2 ** n_bits)
+        ideal_first  = ideal_lsb / 2
+        ideal_last   = v_ref - ideal_lsb / 2
+        # Ideal transition k is at (k + 0.5) * ideal_lsb (FLOOR convention)
+        ideal_transitions = (np.arange(len(transitions)) + 0.5) * ideal_lsb
+    else:  # SYMMETRIC
+        ideal_lsb    = v_ref / (2 ** n_bits - 1)
+        ideal_first  = ideal_lsb / 2
+        ideal_last   = v_ref - ideal_lsb / 2
+        ideal_transitions = (np.arange(len(transitions)) + 0.5) * ideal_lsb
 
-    # Calculate DNL
+    # Calculate DNL from actual bin widths
     actual_widths = np.diff(transitions)
     dnl = actual_widths / ideal_lsb - 1
 
-    # Calculate INL
-    inl = np.cumsum(dnl)
+    # Calculate INL directly from transition positions vs. ideal.
+    # Using cumsum(DNL) causes missing-code -1 LSB entries to accumulate,
+    # producing a monotonically drifting INL that does not reflect linearity.
+    inl = (transitions[:-1] - ideal_transitions[:-1]) / ideal_lsb
 
     # Calculate offset (difference from ideal first transition)
-    ideal_first = ideal_lsb / 2
     offset = transitions[0] - ideal_first
 
     # Calculate gain error
-    ideal_last = v_ref - ideal_lsb / 2
     gain_error = ((transitions[-1] - transitions[0]) -
                   (ideal_last - ideal_first)) / (ideal_last - ideal_first)
 
