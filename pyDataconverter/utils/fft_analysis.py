@@ -68,20 +68,19 @@ def compute_fft(time_data: np.ndarray,
     fft_data = np.fft.fft(time_data)
     freqs = np.fft.fftfreq(len(time_data), 1 / fs)
 
-    # Convert to dB
-    magnitudes_db = 20 * np.log10(np.abs(fft_data) + 1e-20)
+    # Convert to dB, always normalizing by FFT length N so that magnitude
+    # is independent of the number of samples captured.
+    magnitudes_db = 20 * np.log10(np.abs(fft_data) + 1e-20) - 20 * np.log10(N)
 
-    # Apply normalization
+    # Apply additional normalization on top of the length correction
     if normalization == FFTNormalization.POWER:
-        # Normalize by FFT length
-
-        magnitudes_db = magnitudes_db - 20 * np.log10(N)
+        pass  # Length normalization already applied above
 
     elif normalization == FFTNormalization.DBFS:
         if full_scale is None:
             raise ValueError("full_scale must be provided for dBFS normalization")
-        # Normalize to full scale
-        magnitudes_db = magnitudes_db - 20 * np.log10(full_scale/2) - 20 * np.log10(N/2)
+        # Normalize to full scale (subtract the full-scale reference level)
+        magnitudes_db = magnitudes_db - 20 * np.log10(full_scale / 2)
 
     # Return positive frequencies only
     pos_mask = freqs >= 0
@@ -117,7 +116,12 @@ def _get_harmonic(freqs: np.ndarray,
     # True harmonic frequency
     f_harm = n * f0
 
-    # Calculate where this harmonic would appear due to aliasing
+    # Calculate where this harmonic would appear due to aliasing.
+    # Each time a frequency crosses fs/2 (Nyquist) it reflects back;
+    # crossing fs wraps it to baseband. An even number of folds lands
+    # on f % fs; an odd number mirrors it to fs - (f % fs).
+    # The final check handles the edge case where the mirrored result
+    # still exceeds Nyquist (e.g. f_harm is a multiple of fs).
     if f_harm <= nyquist:
         target_freq = f_harm
     else:

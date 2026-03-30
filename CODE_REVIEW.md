@@ -85,7 +85,7 @@ My comment: no change, this is correct. We are not using windows.
 ---
 
 ## 14. `pyDataconverter/utils/dac_metrics.py`
-
+MY COMMENT:  this is interesting.  We should discuss.  What does the function receive as inputs?  I agree we shouldn't blindly use dac.v_ref for this.  
 ### 14.1 Logic: `calculate_dac_static_metrics` gain error formula
 - **File:** `dac_metrics.py`, line 232
 - **Type:** Logic error
@@ -93,6 +93,7 @@ My comment: no change, this is correct. We are not using windows.
 - **Suggested fix:** Ensure the sweep always starts at code 0 and ends at `max_code`, or adjust the formula to account for the actual code range.
 
 ### 14.2 Naming: `calculate_dac_dynamic_metrics` defined in both `metrics.py` and `dac_metrics.py`
+My comment:  let's discuss.  Is the metrics one used in any of the files?  If yes, I would like to know why and what the difference is
 - **File:** `dac_metrics.py`, line 247
 - **Type:** Naming
 - **Description:** Both files define `calculate_dac_dynamic_metrics` with different signatures. The `metrics.py` version takes pre-computed `freqs`/`mags`; the `dac_metrics.py` version takes raw `voltages` and handles Nyquist zone selection. Creates import confusion.
@@ -101,7 +102,7 @@ My comment: no change, this is correct. We are not using windows.
 ---
 
 ## 15. `pyDataconverter/utils/fft_analysis.py`
-
+My comment:  this isn't complex.  leave as is.  But maybe add a comment to explain what this equation does
 ### 15.1 Bug: `_get_harmonic` aliasing logic is unnecessarily complex
 - **File:** `fft_analysis.py`, lines 124-131
 - **Type:** Bug / complexity
@@ -109,12 +110,14 @@ My comment: no change, this is correct. We are not using windows.
 - **Suggested fix:** Simplify the aliasing computation.
 
 ### 15.2 Logic: `compute_fft` default normalization is length-dependent
+My comment:  Hmm, interesting.  We should at least normalize to fft length right?
 - **File:** `fft_analysis.py`, lines 68-88
 - **Type:** Logic
 - **Description:** Default `FFTNormalization.NONE` returns `20*log10(|FFT|)` without normalizing for FFT length. Two signals of equal amplitude but different lengths produce different dB values.
 - **Suggested fix:** Document clearly or change the default to `POWER`.
 
 ### 15.3 Bug: `demo_fft_analysis` references undefined variable `duration`
+My comment:  why will this cause an error in demo_fft_analysis?  please confirm first, and then we can look at the code
 - **File:** `fft_analysis.py`, lines 233, 257, 276
 - **Type:** Bug
 - **Description:** `duration` is passed to `generate_two_tone()` but never defined in `demo_fft_analysis`. Will raise `NameError` at runtime.
@@ -125,6 +128,7 @@ My comment: no change, this is correct. We are not using windows.
 ## 16. `pyDataconverter/utils/signal_gen.py`
 
 ### 16.1 Bug: `generate_step` ignores `levels[0]`
+My comment:  where is this?  I don't get the issue
 - **File:** `signal_gen.py`, lines 81-88
 - **Type:** Bug
 - **Description:** `signal` is initialized to `np.zeros(samples)`. The first level `levels[0]` is stored in `current_level` but never applied. Samples before the first step point remain 0.
@@ -136,18 +140,21 @@ My comment: no change, this is correct. We are not using windows.
   ```
 
 ### 16.2 Bug: `generate_digital_step` has the same initial-level bug
+My comment:  where is this? and where is it used?  I don't get the issue
 - **File:** `signal_gen.py`, lines 256-263
 - **Type:** Bug
 - **Description:** Same issue as 16.1 — `levels[0]` is never applied; signal starts as all zeros.
 - **Suggested fix:** Same as 16.1.
 
 ### 16.3 Bug: `generate_digital_step` signal length truncates the final step
+My comment:  where is this, I  don't get the issue.  Did I create it or did you?
 - **File:** `signal_gen.py`, line 256
 - **Type:** Bug
 - **Description:** `signal = np.zeros(step_points[-1], dtype=int)` — length equals the last step point index. `signal[point:]` on the last step sets nothing if `point == len(signal)`. The final level never appears in the output.
 - **Suggested fix:** Accept a `samples` parameter (like `generate_step`) instead of inferring length from `step_points[-1]`.
 
 ### 16.4 Logic: `generate_digital_ramp` uses `np.linspace(..., dtype=int)`
+My comment:  will the fix actually fix things?
 - **File:** `signal_gen.py`, line 232
 - **Type:** Logic
 - **Description:** `dtype=int` on `np.linspace` truncates floating-point values, producing non-uniform spacing and duplicate codes. E.g. `np.linspace(0, 7, 5, dtype=int)` gives `[0, 1, 3, 5, 7]`.
@@ -158,6 +165,7 @@ My comment: no change, this is correct. We are not using windows.
 ## 18. `pyDataconverter/utils/visualizations/dac_plots.py`
 
 ### 18.1 Logic: `plot_output_spectrum` uses simplified metrics path for zone > 1
+My comment:  what happens if we use the dac_metrics one?  And why do we have a dac_metrics file, do we have an adc_metrics file?
 - **File:** `dac_plots.py`, line 252
 - **Type:** Informational
 - **Description:** Calls `metrics.calculate_dac_dynamic_metrics` (the `metrics.py` version, pre-computed spectrum) rather than the zone-aware `dac_metrics.py` version. For Nyquist zone > 1, metrics are computed on an already-filtered spectrum so this is intentional — but worth documenting clearly.
@@ -167,12 +175,14 @@ My comment: no change, this is correct. We are not using windows.
 ## 20. `pyDataconverter/utils/visualizations/visualize_FlashADC.py`
 
 ### 20.1 Bug: `_eval_comparators` uses `reference_voltages` (doubled) instead of raw taps
+My comment:  no change, this is ok for now
 - **File:** `visualize_FlashADC.py`, lines 46-55
 - **Type:** Bug (cross-reference with 3.2)
 - **Description:** Uses `adc.reference_voltages` which returns `voltages * 2` for differential mode. Comparator evaluations in the visualization will differ from actual `FlashADC._convert_input` results. Visualization dots may not match the true output code for differential Flash ADCs.
 - **Suggested fix:** Use `adc.reference.get_voltages()` and follow the same `comp_refs[i]`, `comp_refs[n-1-i]` pattern as `_convert_input`.
 
 ### 20.2 Logic: `_effective_thresholds` quadruples differential tap values
+My comment: no change, this is ok for now.  Visually it is correct
 - **File:** `visualize_FlashADC.py`, line 23
 - **Type:** Logic
 - **Description:** For differential mode: `refs = adc.reference_voltages` (already `*2`), then `refs - refs[::-1]` doubles again, producing `4 * tap_voltage`. Incorrect for display.

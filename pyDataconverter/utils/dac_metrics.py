@@ -229,7 +229,10 @@ def calculate_dac_static_metrics(dac: DACBase,
     offset = voltages[0] - 0.0
 
     # Step 9: Gain error (fractional)
-    gain_error = (voltages[-1] - voltages[0] - dac.v_ref) / dac.v_ref
+    # Use the ideal span based on the actual code range swept, not dac.v_ref
+    # directly, so the formula remains correct for any subset of codes.
+    ideal_span = (codes[-1] - codes[0]) * lsb
+    gain_error = (voltages[-1] - voltages[0] - ideal_span) / ideal_span
 
     # Step 10: Return results
     return {
