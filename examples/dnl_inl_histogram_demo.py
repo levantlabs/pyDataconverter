@@ -32,6 +32,7 @@ from pyDataconverter.utils.metrics import (
     calculate_adc_static_metrics,
     calculate_adc_static_metrics_histogram,
 )
+from pyDataconverter.utils.signal_gen import generate_sine
 
 # ---------------------------------------------------------------------------
 # Parameters
@@ -43,6 +44,7 @@ OFFSET_STD  = 0.12          # comparator offset σ in LSB units
 N_MC        = 25            # Monte Carlo runs per method
 N_RAMP      = 5_000         # ramp points for transition-voltage method
 N_SINE      = 300_000       # sine samples for histogram method
+N_CYCLES    = 25            # sine cycles per histogram measurement
 RNG_SEED    = 0
 
 IDEAL_LSB       = V_REF / (2 ** N_BITS)
@@ -85,18 +87,6 @@ def _plot_mc(ax, x, curves, ylabel, title):
 
 
 # ---------------------------------------------------------------------------
-# Helper: generate sine codes for a given ADC instance
-# ---------------------------------------------------------------------------
-
-def _sine_codes(adc, n_samples, rng):
-    """Drive ADC with a full-scale sine and return the output code array."""
-    phase = rng.uniform(0, 2 * np.pi)
-    t     = np.linspace(0, 50 * np.pi, n_samples)
-    vin   = SINE_OFFSET + AMPLITUDE * np.sin(t + phase)
-    return np.array([adc.convert(float(v)) for v in vin])
-
-
-# ---------------------------------------------------------------------------
 # Figure 1 — Monte Carlo: ramp vs histogram
 # ---------------------------------------------------------------------------
 
@@ -119,7 +109,9 @@ def figure_comparison():
         ramp_inl.append(m_ramp['INL'])
 
         # Histogram method (same ADC instance)
-        sine_out = _sine_codes(adc, N_SINE, rng)
+        vin = generate_sine(N_CYCLES / N_SINE, 1.0, AMPLITUDE, SINE_OFFSET,
+                            N_SINE, phase=rng.uniform(0, 2 * np.pi))
+        sine_out = np.array([adc.convert(float(v)) for v in vin])
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', UserWarning)
             m_hist = calculate_adc_static_metrics_histogram(
@@ -190,7 +182,9 @@ def figure_convergence():
 
     print('\nRunning convergence sweeps …')
     for ax, n in zip(axes, sample_counts):
-        codes_subset = _sine_codes(adc, n, rng)
+        vin = generate_sine(N_CYCLES / n, 1.0, AMPLITUDE, SINE_OFFSET,
+                            n, phase=rng.uniform(0, 2 * np.pi))
+        codes_subset = np.array([adc.convert(float(v)) for v in vin])
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', UserWarning)
             m = calculate_adc_static_metrics_histogram(

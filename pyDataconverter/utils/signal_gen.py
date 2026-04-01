@@ -29,7 +29,8 @@ def generate_sine(frequency: float,
                   sampling_rate: float,
                   amplitude: float = 1.0,
                   offset: float = 0.0,
-                  duration: float = 1.0) -> np.ndarray:
+                  duration: float = 1.0,
+                  phase: float = 0.0) -> np.ndarray:
     """
     Generate a sinusoidal test signal.
 
@@ -39,12 +40,13 @@ def generate_sine(frequency: float,
         amplitude: Peak amplitude in volts
         offset: DC offset in volts
         duration: Signal duration in seconds
+        phase: Initial phase in radians (default 0.0)
 
     Returns:
         Signal array
     """
     t = np.arange(0, duration, 1 / sampling_rate)
-    return amplitude * np.sin(2 * np.pi * frequency * t) + offset
+    return amplitude * np.sin(2 * np.pi * frequency * t + phase) + offset
 
 
 def generate_ramp(samples: int,
