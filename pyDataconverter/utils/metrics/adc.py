@@ -5,6 +5,7 @@ ADC Performance Metrics
 Functions for calculating ADC static and dynamic performance metrics.
 """
 
+import warnings
 import numpy as np
 from typing import Dict, List, Optional
 from ..fft_analysis import compute_fft
@@ -274,4 +275,140 @@ def calculate_histogram(codes: np.ndarray,
         "bin_edges": bin_edges[:-1],
         "missing_codes": missing_codes,
         "unused_range": unused_range
+    }
+
+
+def calculate_adc_static_metrics_histogram(
+        codes: np.ndarray,
+        n_bits: int,
+        v_ref: float = 1.0,
+        amplitude: Optional[float] = None,
+        offset: Optional[float] = None,
+        inl_method: str = 'endpoint') -> Dict[str, object]:
+    """
+    Calculate ADC static metrics (DNL, INL) from a sine-wave histogram test.
+
+    Rather than sweeping a ramp and locating transition voltages, this method
+    applies a sine wave and measures how many samples fall in each code bin.
+    After compensating for the sine-wave probability density function (PDF),
+    the normalised bin counts are proportional to bin widths, giving DNL
+    directly.  INL is recovered via cumulative summation of DNL and then
+    corrected with the chosen reference line.
+
+    Compared to the ramp method:
+      - No missing-code problem in the cumsum: every bin receives at least
+        some hits under a full-scale sine, so cumulative errors do not arise
+        from completely absent codes.
+      - Does NOT return Offset, GainError, or Transitions because the method
+        measures relative widths only, not absolute transition positions.
+
+    Args:
+        codes: 1-D array of ADC output codes recorded while a sine wave was
+               applied.  Should contain enough samples (≥ 100 per code bin)
+               for reliable statistics.
+        n_bits: ADC resolution.
+        v_ref: Reference voltage (V).  Defines the full input range [0, v_ref]
+               and the ideal LSB = v_ref / 2^n_bits.
+        amplitude: Peak amplitude of the sine wave (V).  Defaults to v_ref/2
+                   (full-scale single-ended input).  Must be > 0.
+        offset: DC offset of the sine wave (V).  Defaults to v_ref/2 (centred
+                in the input range).
+        inl_method: Reference line used to correct the cumulative INL.
+            'endpoint' (default) — line through the first and last
+                cumulative-sum values; corrected INL is zero at both ends.
+            'best_fit' — least-squares line through all cumulative-sum values;
+                minimises RMS INL.
+
+    Returns:
+        Dictionary with keys:
+            DNL    : np.ndarray, length 2^N.  One entry per code bin.
+                     Codes outside the sine amplitude are set to -1
+                     (missing-code convention).  The two outermost codes
+                     (code 0 and code 2^N-1) have inherently less reliable
+                     DNL estimates due to the open-ended nature of the edge
+                     bins near the PDF singularity.
+            INL    : np.ndarray, length 2^N-1.  One entry per transition,
+                     after endpoint/best_fit correction.
+            MaxDNL : float, max |DNL| in LSB.
+            MaxINL : float, max |INL| in LSB.
+
+    Warns:
+        UserWarning: If amplitude < 90 % of full-scale (v_ref/2).  Codes
+            outside the sine range will be missing and INL estimates near
+            the endpoints will be unreliable.
+
+    Raises:
+        ValueError: If inl_method is not 'endpoint' or 'best_fit'.
+        ValueError: If amplitude <= 0.
+    """
+    codes = np.asarray(codes)
+    n_codes = 2 ** n_bits
+    ideal_lsb = v_ref / n_codes
+
+    if amplitude is None:
+        amplitude = v_ref / 2
+    if amplitude <= 0:
+        raise ValueError("amplitude must be > 0")
+    if offset is None:
+        offset = v_ref / 2
+
+    # --- Amplitude check ---
+    full_scale_amp = v_ref / 2
+    if amplitude < 0.9 * full_scale_amp:
+        warnings.warn(
+            f"Sine amplitude ({amplitude:.4g} V) is less than 90 % of full "
+            f"scale ({full_scale_amp:.4g} V). Codes outside the sine range "
+            "will be reported as missing (DNL = -1) and INL near the "
+            "endpoints will be unreliable.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    # --- Raw histogram (counts per code bin, no PDF compensation) ---
+    raw_counts, _ = np.histogram(codes, bins=n_codes, range=(0, n_codes))
+    raw_counts = raw_counts.astype(float)
+
+    # --- Sine PDF compensation ---
+    # PDF of a sine with amplitude A centred at `offset`, evaluated at the
+    # voltage at the centre of each code bin:
+    #   P(v) = 1 / (π * sqrt(A² - (v - offset)²))
+    # Normalised position u = (v - offset) / A; PDF singularity at |u| = 1.
+    code_centers_v = (np.arange(n_codes) + 0.5) * ideal_lsb
+    u = (code_centers_v - offset) / amplitude
+
+    in_range = np.abs(u) < 0.999          # exclude near-singular edge bins
+    pdf = np.zeros(n_codes)
+    pdf[in_range] = 1.0 / (np.pi * np.sqrt(1.0 - u[in_range] ** 2))
+
+    # Compensate counts; codes outside the amplitude or with zero counts → -1
+    usable = in_range & (raw_counts > 0)
+    comp = np.full(n_codes, np.nan)
+    comp[usable] = raw_counts[usable] / pdf[usable]
+
+    # Exclude the outermost codes from the normalisation reference.
+    # The PDF diverges near the amplitude limits so the two edge bins are
+    # open-ended and systematically over-counted; including them in the mean
+    # biases every interior DNL value by ~0.01 LSB.
+    interior = np.ones(n_codes, dtype=bool)
+    interior[[0, -1]] = False
+    norm_mask = in_range & interior & np.isfinite(comp)
+    mean_comp = (np.nanmean(comp[norm_mask]) if norm_mask.any()
+                 else np.nanmean(comp[in_range]))
+
+    dnl = np.where(np.isfinite(comp), comp / mean_comp - 1.0, -1.0)
+
+    # --- INL via cumulative sum of DNL ---
+    # cumsum(DNL)[k] = INL at transition k (between code k and k+1),
+    # referenced to the absolute ideal position.  Length 2^N-1 (drop last).
+    inl_raw = np.cumsum(dnl)[:-1]
+
+    k = np.arange(len(inl_raw), dtype=float)
+    line = _fit_reference_line(k, inl_raw, inl_method)
+    inl = inl_raw - line
+
+    return {
+        "DNL":    dnl,
+        "INL":    inl,
+        "MaxDNL": float(np.max(np.abs(dnl))),
+        "MaxINL": float(np.max(np.abs(inl))),
     }

@@ -2,10 +2,17 @@
 Test code for ADC metrics calculations
 """
 
+import warnings
 import numpy as np
 import pytest
 from pyDataconverter.utils.signal_gen import generate_sine
-from pyDataconverter.utils.metrics import calculate_adc_dynamic_metrics, calculate_adc_static_metrics, is_monotonic, calculate_histogram
+from pyDataconverter.utils.metrics import (
+    calculate_adc_dynamic_metrics,
+    calculate_adc_static_metrics,
+    calculate_adc_static_metrics_histogram,
+    is_monotonic,
+    calculate_histogram,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +207,103 @@ def test_adc_static_metrics_inl_method_invalid():
     codes = np.arange(100) % 8
     with pytest.raises(ValueError, match="inl_method"):
         calculate_adc_static_metrics(input_voltages, codes, 3, inl_method='bad')
+
+
+# ---------------------------------------------------------------------------
+# calculate_adc_static_metrics_histogram tests
+# ---------------------------------------------------------------------------
+
+def _make_histogram_codes(n_bits=6, n_samples=200_000, amplitude_frac=1.0,
+                           seed=42):
+    """Generate codes from an ideal ADC driven by a sine wave."""
+    rng = np.random.default_rng(seed)
+    n_codes = 2 ** n_bits
+    v_ref = 1.0
+    amplitude = amplitude_frac * v_ref / 2
+    offset    = v_ref / 2
+    phase = rng.uniform(0, 2 * np.pi)
+    t = np.linspace(0, 100 * np.pi, n_samples)
+    vin = offset + amplitude * np.sin(t + phase)
+    ideal_lsb = v_ref / n_codes
+    codes = np.clip(np.floor(vin / ideal_lsb).astype(int), 0, n_codes - 1)
+    return codes, n_bits, v_ref, amplitude
+
+
+def test_histogram_metrics_return_keys():
+    """Result must contain DNL, INL, MaxDNL, MaxINL and no other keys."""
+    codes, n_bits, v_ref, amplitude = _make_histogram_codes()
+    result = calculate_adc_static_metrics_histogram(codes, n_bits, v_ref, amplitude)
+    assert set(result.keys()) == {"DNL", "INL", "MaxDNL", "MaxINL"}
+
+
+def test_histogram_metrics_array_lengths():
+    """DNL has 2^N entries; INL has 2^N-1 entries."""
+    codes, n_bits, v_ref, amplitude = _make_histogram_codes()
+    result = calculate_adc_static_metrics_histogram(codes, n_bits, v_ref, amplitude)
+    assert len(result["DNL"]) == 2 ** n_bits
+    assert len(result["INL"]) == 2 ** n_bits - 1
+
+
+def test_histogram_metrics_ideal_adc_small_dnl_inl():
+    """Ideal ADC with many samples should have small interior DNL and small INL.
+
+    Edge codes (0 and 2^N-1) are excluded from the interior DNL check because
+    the PDF singularity makes their estimates inherently less reliable.
+    """
+    codes, n_bits, v_ref, amplitude = _make_histogram_codes(n_bits=6,
+                                                             n_samples=500_000)
+    result = calculate_adc_static_metrics_histogram(codes, n_bits, v_ref, amplitude)
+    interior_dnl = result["DNL"][1:-1]
+    assert np.max(np.abs(interior_dnl)) < 0.10, \
+        f"Interior MaxDNL={np.max(np.abs(interior_dnl)):.3f}"
+    assert result["MaxINL"] < 0.15, f"MaxINL={result['MaxINL']:.3f}"
+
+
+def test_histogram_metrics_endpoint_inl_zero_at_boundaries():
+    """Endpoint INL must be zero at first and last transitions."""
+    codes, n_bits, v_ref, amplitude = _make_histogram_codes()
+    result = calculate_adc_static_metrics_histogram(codes, n_bits, v_ref,
+                                                    amplitude,
+                                                    inl_method='endpoint')
+    assert abs(result["INL"][0])  < 1e-9
+    assert abs(result["INL"][-1]) < 1e-9
+
+
+def test_histogram_metrics_amplitude_warning():
+    """Amplitude below 90 % of full scale must trigger a UserWarning."""
+    codes, n_bits, v_ref, _ = _make_histogram_codes(amplitude_frac=0.5)
+    low_amplitude = 0.5 * v_ref / 2   # 50 % of full scale — well below threshold
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        calculate_adc_static_metrics_histogram(codes, n_bits, v_ref, low_amplitude)
+    assert any(issubclass(w.category, UserWarning) for w in caught), \
+        "Expected a UserWarning for low amplitude"
+
+
+def test_histogram_metrics_no_warning_at_full_scale():
+    """Full-scale amplitude must not trigger any warning."""
+    codes, n_bits, v_ref, amplitude = _make_histogram_codes()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        calculate_adc_static_metrics_histogram(codes, n_bits, v_ref, amplitude)
+    assert not any(issubclass(w.category, UserWarning) for w in caught), \
+        "Unexpected UserWarning at full-scale amplitude"
+
+
+def test_histogram_metrics_invalid_inl_method():
+    """Unknown inl_method must raise ValueError."""
+    codes, n_bits, v_ref, amplitude = _make_histogram_codes()
+    with pytest.raises(ValueError):
+        calculate_adc_static_metrics_histogram(codes, n_bits, v_ref, amplitude,
+                                               inl_method='bad')
+
+
+def test_histogram_metrics_invalid_amplitude():
+    """amplitude <= 0 must raise ValueError."""
+    codes, n_bits, v_ref, _ = _make_histogram_codes()
+    with pytest.raises(ValueError):
+        calculate_adc_static_metrics_histogram(codes, n_bits, v_ref,
+                                               amplitude=-0.1)
 
 
 def test_is_monotonic_with_skipped_codes():
