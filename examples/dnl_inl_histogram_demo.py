@@ -180,14 +180,6 @@ def figure_convergence():
         input_voltages, out_codes, N_BITS, V_REF, inl_method='endpoint')
     ref_inl = m_ref['INL']
 
-    # Generate a large pool of sine codes once, shuffle, then slice.
-    # Shuffling ensures every subset has uniform code coverage regardless of
-    # size — without it, small subsets only cover the first fraction of a
-    # sine cycle and leave most codes unexercised.
-    max_n = sample_counts[-1]
-    all_sine = _sine_codes(adc, max_n, rng)
-    all_sine = all_sine[rng.permutation(max_n)]
-
     fig, axes = plt.subplots(1, len(sample_counts), figsize=(14, 4), sharey=True)
     fig.suptitle(
         f'Histogram INL convergence  —  {N_BITS}-bit Flash ADC, '
@@ -198,7 +190,7 @@ def figure_convergence():
 
     print('\nRunning convergence sweeps …')
     for ax, n in zip(axes, sample_counts):
-        codes_subset = all_sine[:n]
+        codes_subset = _sine_codes(adc, n, rng)
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', UserWarning)
             m = calculate_adc_static_metrics_histogram(
