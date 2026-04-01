@@ -9,7 +9,8 @@ import numpy as np
 from typing import Dict, List, Optional
 from ..fft_analysis import compute_fft
 from ...dataconverter import QuantizationMode
-from ._shared import _calculate_dynamic_metrics
+from ._dynamic import _calculate_dynamic_metrics
+from ._shared import _fit_reference_line
 
 
 def calculate_adc_dynamic_metrics(time_data: np.ndarray = None,
@@ -154,17 +155,11 @@ def calculate_adc_static_metrics(input_voltages: np.ndarray,
     # --- INL ---
     # Compute directly from transition positions (not cumsum(DNL)) so that
     # missing-code -1 LSB entries do not accumulate into neighbouring codes.
-    if inl_method == 'endpoint':
-        # Line through actual first and last transitions — removes offset and
-        # gain error, leaving only nonlinearity.
-        line = transitions[0] + k * (transitions[-1] - transitions[0]) / (len(transitions) - 1)
-        inl = (transitions - line) / ideal_lsb
-    elif inl_method == 'best_fit':
-        coeffs = np.polyfit(k, transitions, 1)
-        line = np.polyval(coeffs, k)
-        inl = (transitions - line) / ideal_lsb
-    elif inl_method == 'absolute':
+    if inl_method == 'absolute':
         inl = (transitions - ideal_transitions) / ideal_lsb
+    elif inl_method in ('endpoint', 'best_fit'):
+        line = _fit_reference_line(k.astype(float), transitions, inl_method)
+        inl = (transitions - line) / ideal_lsb
     else:
         raise ValueError("inl_method must be 'endpoint', 'best_fit', or 'absolute'")
 

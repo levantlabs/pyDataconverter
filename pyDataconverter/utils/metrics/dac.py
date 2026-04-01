@@ -9,7 +9,8 @@ import numpy as np
 from typing import Dict, Optional
 from ..fft_analysis import compute_fft, find_fundamental, find_harmonics
 from ...dataconverter import DACBase, OutputType
-from ._shared import _calculate_dynamic_metrics
+from ._dynamic import _calculate_dynamic_metrics
+from ._shared import _fit_reference_line
 
 
 def calculate_dac_static_metrics(dac: DACBase,
@@ -109,15 +110,11 @@ def calculate_dac_static_metrics(dac: DACBase,
 
     lsb = dac.v_ref / (2 ** dac.n_bits - 1)
 
-    if inl_method == 'endpoint':
-        ideal = voltages[0] + (voltages[-1] - voltages[0]) * (codes - codes[0]) / (codes[-1] - codes[0])
-    else:  # best_fit
-        coeffs = np.polyfit(codes, voltages, 1)
-        ideal = np.polyval(coeffs, codes)
+    line = _fit_reference_line(codes.astype(float), voltages, inl_method)
 
     step_voltages = np.diff(voltages)
     dnl = step_voltages / (lsb * np.diff(codes)) - 1
-    inl = (voltages - ideal) / lsb
+    inl = (voltages - line) / lsb
     offset = voltages[0] - 0.0
 
     ideal_span = (codes[-1] - codes[0]) * lsb
