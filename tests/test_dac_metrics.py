@@ -7,7 +7,7 @@ import numpy as np
 
 from pyDataconverter.architectures.SimpleDAC import SimpleDAC
 from pyDataconverter.dataconverter import OutputType
-from pyDataconverter.utils.dac_metrics import (
+from pyDataconverter.utils.metrics import (
     calculate_dac_static_metrics,
     calculate_dac_dynamic_metrics,
 )

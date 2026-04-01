@@ -249,8 +249,8 @@ def plot_output_spectrum(freqs: np.ndarray,
         pos_mask  = freqs_z > 0
         f0        = freqs_z[pos_mask][np.argmax(mags_z[pos_mask])]
         plot_metrics = precomputed_metrics if precomputed_metrics is not None else \
-            metrics.calculate_dac_dynamic_metrics(freqs=freqs_z, mags=mags_z,
-                                                  fs=fs_fft, f0=f0, full_scale=None)
+            metrics._calculate_dac_dynamic_metrics_from_fft(freqs=freqs_z, mags=mags_z,
+                                                            fs=fs_fft, f0=f0, full_scale=None)
         zone_title = f'{plot_title} — Nyquist Zone {nyquist_zone}' if nyquist_zone > 1 else plot_title
         ax = plot_fft(freqs, mags, title=zone_title,
                       min_freq=f_lo if nyquist_zone > 1 else None,

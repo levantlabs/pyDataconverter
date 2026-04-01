@@ -186,7 +186,7 @@ class TestPlotOutputSpectrum(unittest.TestCase):
         mz = mags[zone_mask]
         pos = fz > 0
         f0  = fz[pos][np.argmax(mz[pos])]
-        res = m_mod.calculate_dac_dynamic_metrics(freqs=fz, mags=mz, fs=fs, f0=f0)
+        res = m_mod._calculate_dac_dynamic_metrics_from_fft(freqs=fz, mags=mz, fs=fs, f0=f0)
         self.assertGreater(res['ENOB'], 0,
                            f"ENOB should be positive, got {res['ENOB']:.2f}")
 

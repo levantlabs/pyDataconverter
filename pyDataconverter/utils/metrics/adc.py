@@ -1,104 +1,15 @@
 """
-Converter Performance Metrics
-==============================
+ADC Performance Metrics
+=======================
 
-Functions for calculating ADC and DAC performance metrics.
-Shared spectral metrics live in _calculate_dynamic_metrics; the public
-calculate_adc_dynamic_metrics and calculate_dac_dynamic_metrics wrappers
-call it and can add converter-specific metrics on top.
+Functions for calculating ADC static and dynamic performance metrics.
 """
 
 import numpy as np
 from typing import Dict, List, Optional
-from .fft_analysis import compute_fft, find_harmonics, find_fundamental
-from pyDataconverter.dataconverter import QuantizationMode
-
-
-def _calculate_dynamic_metrics(freqs: np.ndarray,
-                                mags: np.ndarray,
-                                fs: float,
-                                f0: float,
-                                full_scale: float,
-                                time_data: np.ndarray) -> Dict[str, float]:
-    """
-    Core FFT-based dynamic metrics shared by ADC and DAC calculations.
-
-    Computes SNR, SNDR, SFDR, THD, ENOB, noise floor, and optional dBFS
-    variants from a pre-computed FFT spectrum.
-
-    Args:
-        freqs: Frequency array in Hz.
-        mags: Magnitude array in dB.
-        fs: Sample/update rate in Hz.
-        f0: Fundamental frequency in Hz (or None to auto-detect).
-        full_scale: Full-scale value for dBFS conversion (or None for plain dB).
-        time_data: Original time-domain data, used only for DC offset when provided.
-
-    Returns:
-        Dictionary of metrics.
-    """
-    bin_width = freqs[1] - freqs[0]
-
-    fund_freq, fund_mag = find_fundamental(freqs, mags, f0, fs)
-    harmonics = find_harmonics(freqs, mags, fund_freq, fs, num_harmonics=7)
-
-    harmonic_pwr = sum(10 ** (h[1] / 10) for h in harmonics)
-    fund_pwr = 10 ** (fund_mag / 10)
-    thd = 10 * np.log10(max(harmonic_pwr, 1e-20) / fund_pwr)
-
-    mask = np.abs(freqs - fund_freq) > bin_width
-    max_spur = np.max(mags[mask])
-    sfdr = fund_mag - max_spur
-
-    exclude_freqs = np.array([fund_freq] + [h[0] for h in harmonics])
-    mask = ~np.any(np.abs(freqs[np.newaxis, :] - exclude_freqs[:, np.newaxis]) <= bin_width, axis=0)
-
-    noise_pwr = sum(10 ** (m / 10) for m in mags[mask])
-    noise_floor = noise_pwr / (fs / 2)
-
-    noise_pwr = max(float(noise_pwr), 1e-20)
-    snr = 10 * np.log10(fund_pwr / noise_pwr)
-
-    total_noise_and_dist_pwr = max(float(noise_pwr + harmonic_pwr), 1e-20)
-    sndr = 10 * np.log10(fund_pwr / total_noise_and_dist_pwr)
-
-    enob = (sndr - 1.76) / 6.02
-
-    if time_data is not None:
-        offset = np.mean(time_data)
-    else:
-        offset = 10 ** (mags[0] / 20)
-
-    results = {
-        "SNR": snr,
-        "SNDR": sndr,
-        "SFDR": sfdr,
-        "THD": thd,
-        "NoiseFloor": noise_floor,
-        "ENOB": enob,
-        "Offset": offset,
-        "FundamentalFrequency": fund_freq,
-        "FundamentalMagnitude": fund_mag,
-        "HarmonicFreqs": [h[0] for h in harmonics],
-        "HarmonicMags": [h[1] for h in harmonics],
-    }
-
-    if full_scale is not None:
-        if time_data is not None:
-            N = len(time_data)
-            level_correction = 20 * np.log10(full_scale / 2) + 20 * np.log10(N / 2)
-        else:
-            level_correction = 0  # mags assumed already in dBFS
-
-        fund_mag_dBFS = fund_mag - level_correction
-        results["FundamentalMagnitude_dBFS"] = fund_mag_dBFS
-        results["HarmonicMags_dBFS"] = [m - level_correction for m in results["HarmonicMags"]]
-        results["SFDR_dBFS"]  = sfdr  - fund_mag_dBFS
-        results["SNR_dBFS"]   = snr   - fund_mag_dBFS
-        results["SNDR_dBFS"]  = sndr  - fund_mag_dBFS
-        results["THD_dBFS"]   = thd   - fund_mag_dBFS
-
-    return results
+from ..fft_analysis import compute_fft
+from ...dataconverter import QuantizationMode
+from ._shared import _calculate_dynamic_metrics
 
 
 def calculate_adc_dynamic_metrics(time_data: np.ndarray = None,
@@ -131,33 +42,6 @@ def calculate_adc_dynamic_metrics(time_data: np.ndarray = None,
         freqs, mags = compute_fft(time_data, fs)
 
     return _calculate_dynamic_metrics(freqs, mags, fs, f0, full_scale, time_data)
-
-
-def calculate_dac_dynamic_metrics(freqs: np.ndarray = None,
-                                   mags: np.ndarray = None,
-                                   fs: float = None,
-                                   f0: float = None,
-                                   full_scale: float = None) -> Dict[str, float]:
-    """
-    Calculate dynamic DAC metrics from FFT data.
-
-    Args:
-        freqs: Frequency array from FFT.
-        mags: Magnitude array from FFT.
-        fs: DAC update rate in Hz.
-        f0: Fundamental frequency (if known).
-        full_scale: Full-scale voltage for dBFS conversion. If None, results are in dB.
-
-    Returns:
-        Dictionary of metrics.
-
-    Raises:
-        ValueError: If freqs or mags are not provided.
-    """
-    if freqs is None or mags is None:
-        raise ValueError("Must provide freqs and mags")
-
-    return _calculate_dynamic_metrics(freqs, mags, fs, f0, full_scale, time_data=None)
 
 
 def _calculate_code_edges(input_voltages: np.ndarray,
@@ -193,6 +77,7 @@ def _calculate_code_edges(input_voltages: np.ndarray,
         transitions.append(transitions[-1])
 
     return np.array(transitions)
+
 
 def calculate_adc_static_metrics(input_voltages: np.ndarray,
                              output_codes: np.ndarray,
@@ -280,10 +165,7 @@ def is_monotonic(input_voltages: np.ndarray,
         ADC is monotonic if code transitions are strictly increasing
         (each transition voltage is higher than the previous one)
     """
-    # Get transition levels
     transitions = _calculate_code_edges(input_voltages, output_codes, n_bits)
-
-    # Check if transitions are strictly increasing
     return np.all(np.diff(transitions) > 0)
 
 
@@ -361,5 +243,3 @@ def calculate_histogram(codes: np.ndarray,
         "missing_codes": missing_codes,
         "unused_range": unused_range
     }
-
-
