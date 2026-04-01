@@ -81,6 +81,26 @@ class TestCalculateDACStaticMetrics(unittest.TestCase):
         self.assertEqual(len(result["Codes"]), 100)
         self.assertEqual(len(result["Voltages"]), 100)
 
+    def test_inl_method_best_fit_ideal_dac(self):
+        """best_fit INL on ideal DAC should also be near zero."""
+        dac = SimpleDAC(n_bits=8, v_ref=1.0, output_type=OutputType.SINGLE)
+        result = calculate_dac_static_metrics(dac, inl_method='best_fit')
+        self.assertLess(result["MaxINL"], 1e-9)
+
+    def test_inl_method_invalid(self):
+        """Unknown inl_method should raise ValueError."""
+        dac = SimpleDAC(n_bits=4, v_ref=1.0)
+        with self.assertRaises(ValueError):
+            calculate_dac_static_metrics(dac, inl_method='bad')
+
+    def test_inl_endpoint_boundaries_always_zero(self):
+        """Endpoint INL is zero at first and last codes by construction."""
+        dac = SimpleDAC(n_bits=8, v_ref=1.0, output_type=OutputType.SINGLE,
+                        gain_error=0.05)
+        result = calculate_dac_static_metrics(dac, inl_method='endpoint')
+        self.assertAlmostEqual(result["INL"][0],  0.0, places=9)
+        self.assertAlmostEqual(result["INL"][-1], 0.0, places=9)
+
 
 class TestCalculateDACDynamicMetrics(unittest.TestCase):
     """Tests for calculate_dac_dynamic_metrics."""

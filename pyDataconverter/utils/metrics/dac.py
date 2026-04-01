@@ -13,7 +13,8 @@ from ._shared import _calculate_dynamic_metrics
 
 
 def calculate_dac_static_metrics(dac: DACBase,
-                                 n_points: Optional[int] = None
+                                 n_points: Optional[int] = None,
+                                 inl_method: str = 'endpoint',
                                  ) -> Dict[str, object]:
     """
     Compute static linearity metrics by sweeping codes through a DAC.
@@ -29,6 +30,13 @@ def calculate_dac_static_metrics(dac: DACBase,
     n_points : int, optional
         Number of evenly-spaced codes to sweep.  When *None* (default),
         all ``2**n_bits`` codes are used.  Must be >= 2 if provided.
+    inl_method : str, optional
+        Method for computing INL (default ``'endpoint'``).
+        ``'endpoint'`` — fit a line through the first and last measured
+            voltages (IEEE 1057).  First and last INL entries are 0 by
+            definition.
+        ``'best_fit'`` — least-squares line through all measured voltages.
+            Minimises RMS INL; first/last entries are not forced to zero.
 
     Returns
     -------
@@ -37,7 +45,7 @@ def calculate_dac_static_metrics(dac: DACBase,
             Differential non-linearity per code step, in LSB units.
             Length is ``len(Codes) - 1``.
         INL : np.ndarray
-            Integral non-linearity (endpoint-fit), in LSB units.
+            Integral non-linearity, in LSB units.
             Length equals ``len(Codes)``.
         MaxDNL : float
             Maximum absolute DNL value (LSB).
@@ -58,13 +66,14 @@ def calculate_dac_static_metrics(dac: DACBase,
         If *dac* is not a ``DACBase`` instance.
     ValueError
         If *n_points* is less than 2.
+    ValueError
+        If *inl_method* is not ``'endpoint'`` or ``'best_fit'``.
 
     Notes
     -----
     - LSB is defined as ``v_ref / (2**n_bits - 1)`` so that the maximum
       code maps exactly to ``v_ref``.
     - For differential DACs the output voltage is ``v_pos - v_neg``.
-    - INL uses an endpoint-fit reference line per IEEE 1057.
 
     Examples
     --------
@@ -80,6 +89,8 @@ def calculate_dac_static_metrics(dac: DACBase,
         raise TypeError("dac must be a DACBase instance")
     if n_points is not None and n_points < 2:
         raise ValueError("n_points must be >= 2")
+    if inl_method not in ('endpoint', 'best_fit'):
+        raise ValueError("inl_method must be 'endpoint' or 'best_fit'")
 
     max_code = 2 ** dac.n_bits - 1
     if n_points is None:
@@ -98,7 +109,11 @@ def calculate_dac_static_metrics(dac: DACBase,
 
     lsb = dac.v_ref / (2 ** dac.n_bits - 1)
 
-    ideal = voltages[0] + (voltages[-1] - voltages[0]) * (codes - codes[0]) / (codes[-1] - codes[0])
+    if inl_method == 'endpoint':
+        ideal = voltages[0] + (voltages[-1] - voltages[0]) * (codes - codes[0]) / (codes[-1] - codes[0])
+    else:  # best_fit
+        coeffs = np.polyfit(codes, voltages, 1)
+        ideal = np.polyval(coeffs, codes)
 
     step_voltages = np.diff(voltages)
     dnl = step_voltages / (lsb * np.diff(codes)) - 1

@@ -83,67 +83,104 @@ def calculate_adc_static_metrics(input_voltages: np.ndarray,
                              output_codes: np.ndarray,
                              n_bits: int,
                              v_ref: float = 1.0,
-                             quant_mode: QuantizationMode = QuantizationMode.FLOOR) -> Dict[str, float]:
+                             quant_mode: QuantizationMode = QuantizationMode.FLOOR,
+                             inl_method: str = 'endpoint') -> Dict[str, float]:
     """
     Calculate static ADC metrics from ramp test data.
 
     Args:
-        input_voltages: Array of input voltages from ramp
-        output_codes: Array of output codes from ADC
-        n_bits: ADC resolution
-        v_ref: Reference voltage
-        quant_mode: Quantization mode (FLOOR or SYMMETRIC). Determines the
-                    ideal LSB size and first/last transition positions used
-                    for offset, gain error, and INL calculation.
+        input_voltages: Array of input voltages from ramp.
+        output_codes: Array of output codes from ADC.
+        n_bits: ADC resolution.
+        v_ref: Reference voltage.
+        quant_mode: Quantization mode (FLOOR or SYMMETRIC).
+            FLOOR: ideal_lsb = v_ref / 2^N, transitions at integer multiples
+            of ideal_lsb.
+            SYMMETRIC: ideal_lsb = v_ref / (2^N - 1), transitions at half-
+            integer multiples of ideal_lsb (midpoints between output levels).
+        inl_method: Method for computing INL ('endpoint', 'best_fit', or
+            'absolute').
+            'endpoint'  — remove gain and offset by fitting a line through
+                          the first and last actual transitions. First and
+                          last INL entries are 0 by definition.
+            'best_fit'  — least-squares line through all transitions.
+                          Minimises RMS INL; first/last entries are not
+                          forced to zero.
+            'absolute'  — compare each transition directly to the
+                          mode-specific ideal position, with no gain or
+                          offset correction.
 
     Returns:
-        Dictionary of metrics including DNL, INL, offset, gain error
+        Dictionary with keys:
+            DNL        : np.ndarray, length 2^N. One entry per code bin.
+                         Code 0 bin spans [0, T[0]]; code 2^N-1 bin spans
+                         [T[-1], v_ref].
+            INL        : np.ndarray, length 2^N-1. One entry per transition.
+            Offset     : float, deviation of T[0] from ideal (V).
+            GainError  : float, fractional gain error.
+            MaxDNL     : float, max |DNL| (LSB).
+            MaxINL     : float, max |INL| (LSB).
+            Transitions: np.ndarray of measured transition voltages.
 
     Notes:
-        Assumes input_voltages is a monotonic ramp
-        Assumes output_codes are sorted
-        INL is computed directly from transition positions vs. ideal (not
-        via cumsum of DNL) so that missing codes do not accumulate error.
+        Assumes input_voltages is a monotonic ramp from 0 to v_ref.
+        Missing codes are represented as duplicate transitions, giving
+        DNL = -1 for the missing code and a wider adjacent bin; INL is
+        computed directly from transition positions so missing-code -1 LSB
+        entries do not accumulate.
     """
-    # Calculate transition levels
     transitions = _calculate_code_edges(input_voltages, output_codes, n_bits)
+    k = np.arange(len(transitions))  # 0 .. 2^N-2
 
     if quant_mode == QuantizationMode.FLOOR:
-        ideal_lsb    = v_ref / (2 ** n_bits)
-        ideal_first  = ideal_lsb / 2
-        ideal_last   = v_ref - ideal_lsb / 2
-        # Ideal transition k is at (k + 0.5) * ideal_lsb (FLOOR convention)
-        ideal_transitions = (np.arange(len(transitions)) + 0.5) * ideal_lsb
+        ideal_lsb = v_ref / (2 ** n_bits)
+        # Transition k is between code k and code k+1, at (k+1)*ideal_lsb
+        ideal_transitions = (k + 1) * ideal_lsb
+        ideal_first = ideal_lsb            # T[0] ideal
+        ideal_last  = (2**n_bits - 1) * ideal_lsb  # T[-1] ideal
     else:  # SYMMETRIC
-        ideal_lsb    = v_ref / (2 ** n_bits - 1)
-        ideal_first  = ideal_lsb / 2
-        ideal_last   = v_ref - ideal_lsb / 2
-        ideal_transitions = (np.arange(len(transitions)) + 0.5) * ideal_lsb
+        ideal_lsb = v_ref / (2 ** n_bits - 1)
+        # Output level for code k is k*ideal_lsb; transition at midpoint
+        ideal_transitions = (k + 0.5) * ideal_lsb
+        ideal_first = 0.5 * ideal_lsb
+        ideal_last  = (2**n_bits - 1.5) * ideal_lsb
 
-    # Calculate DNL from actual bin widths
-    actual_widths = np.diff(transitions)
-    dnl = actual_widths / ideal_lsb - 1
+    # --- DNL ---
+    # Include the first (0→T[0]) and last (T[-1]→v_ref) code bins.
+    # Previously np.diff(transitions) silently dropped both endpoint codes.
+    bin_widths = np.diff(np.concatenate([[0.0], transitions, [v_ref]]))
+    dnl = bin_widths / ideal_lsb - 1  # length 2^N
 
-    # Calculate INL directly from transition positions vs. ideal.
-    # Using cumsum(DNL) causes missing-code -1 LSB entries to accumulate,
-    # producing a monotonically drifting INL that does not reflect linearity.
-    inl = (transitions[:-1] - ideal_transitions[:-1]) / ideal_lsb
+    # --- INL ---
+    # Compute directly from transition positions (not cumsum(DNL)) so that
+    # missing-code -1 LSB entries do not accumulate into neighbouring codes.
+    if inl_method == 'endpoint':
+        # Line through actual first and last transitions — removes offset and
+        # gain error, leaving only nonlinearity.
+        line = transitions[0] + k * (transitions[-1] - transitions[0]) / (len(transitions) - 1)
+        inl = (transitions - line) / ideal_lsb
+    elif inl_method == 'best_fit':
+        coeffs = np.polyfit(k, transitions, 1)
+        line = np.polyval(coeffs, k)
+        inl = (transitions - line) / ideal_lsb
+    elif inl_method == 'absolute':
+        inl = (transitions - ideal_transitions) / ideal_lsb
+    else:
+        raise ValueError("inl_method must be 'endpoint', 'best_fit', or 'absolute'")
 
-    # Calculate offset (difference from ideal first transition)
-    offset = transitions[0] - ideal_first
-
-    # Calculate gain error
-    gain_error = ((transitions[-1] - transitions[0]) -
-                  (ideal_last - ideal_first)) / (ideal_last - ideal_first)
+    # --- Offset and gain error (mode-independent structure) ---
+    ideal_span = ideal_last - ideal_first
+    offset     = transitions[0] - ideal_first
+    gain_error = ((transitions[-1] - transitions[0]) - ideal_span) / ideal_span
 
     return {
         "DNL": dnl,
         "INL": inl,
         "Offset": offset,
         "GainError": gain_error,
-        "MaxDNL": np.max(np.abs(dnl)),
-        "MaxINL": np.max(np.abs(inl)),
-        "Transitions": transitions
+        "MaxDNL": float(np.max(np.abs(dnl))),
+        "MaxINL": float(np.max(np.abs(inl))),
+        "Transitions": transitions,
     }
 
 

@@ -168,6 +168,40 @@ def test_static_metrics_skipped_codes():
     assert metrics['MaxDNL'] > 0
 
 
+def test_adc_static_metrics_array_lengths():
+    """DNL has 2^N entries (one per code bin); INL has 2^N-1 (one per transition)."""
+    n_bits = 4
+    n_points = 2000
+    input_voltages = np.linspace(0, 1, n_points)
+    ideal_codes = np.floor(input_voltages * 2**n_bits).astype(int)
+    ideal_codes = np.clip(ideal_codes, 0, 2**n_bits - 1)
+    metrics = calculate_adc_static_metrics(input_voltages, ideal_codes, n_bits)
+    assert len(metrics['DNL']) == 2**n_bits,   f"DNL length {len(metrics['DNL'])} != {2**n_bits}"
+    assert len(metrics['INL']) == 2**n_bits - 1, f"INL length {len(metrics['INL'])} != {2**n_bits - 1}"
+
+
+def test_adc_static_metrics_ideal_dnl_inl():
+    """Ideal ADC (fine ramp) should have near-zero DNL and INL for all methods."""
+    n_bits = 4
+    n_points = 5000
+    input_voltages = np.linspace(0, 1, n_points)
+    ideal_codes = np.floor(input_voltages * 2**n_bits).astype(int)
+    ideal_codes = np.clip(ideal_codes, 0, 2**n_bits - 1)
+    for method in ('endpoint', 'best_fit', 'absolute'):
+        metrics = calculate_adc_static_metrics(input_voltages, ideal_codes, n_bits,
+                                               inl_method=method)
+        assert metrics['MaxDNL'] < 0.05, f"[{method}] MaxDNL={metrics['MaxDNL']:.4f}"
+        assert metrics['MaxINL'] < 0.05, f"[{method}] MaxINL={metrics['MaxINL']:.4f}"
+
+
+def test_adc_static_metrics_inl_method_invalid():
+    """Unknown inl_method should raise ValueError."""
+    input_voltages = np.linspace(0, 1, 100)
+    codes = np.arange(100) % 8
+    with pytest.raises(ValueError, match="inl_method"):
+        calculate_adc_static_metrics(input_voltages, codes, 3, inl_method='bad')
+
+
 def test_is_monotonic_with_skipped_codes():
     """is_monotonic returns False when a code is completely skipped.
 
