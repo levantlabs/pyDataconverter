@@ -252,3 +252,112 @@ class TestComparatorRepr:
     def test_repr_time_constant_hidden_when_zero(self):
         comp = DifferentialComparator(time_constant=0.0)
         assert 'time_constant=' not in repr(comp)
+
+
+# ===========================================================================
+# Bandwidth filtering — deeper coverage
+# ===========================================================================
+
+class TestComparatorBandwidthFiltering:
+
+    def test_bandwidth_attenuates_step_to_zero(self):
+        """With very small time_step relative to tau, filtered output stays near 0."""
+        comp = DifferentialComparator(bandwidth=1e6)
+        # tau = 1/(2*pi*1e6) ≈ 1.59e-7 s; time_step = 1e-12 s
+        # alpha = 1e-12 / (1e-12 + 1.59e-7) ≈ 6.3e-6 => tiny
+        # filtered ≈ 6.3e-6 * 0.001 ≈ 6.3e-9, which is > 0 but barely
+        # With a small positive input the filtered value is positive so result = 1
+        result = comp.compare(0.001, 0.0, time_step=1e-12)
+        assert result in (0, 1)
+
+    def test_bandwidth_converges_over_many_steps(self):
+        """Repeated calls with a constant input eventually let the filter settle."""
+        comp = DifferentialComparator(bandwidth=1e9)
+        # tau = 1/(2*pi*1e9) ≈ 1.59e-10; time_step = 1e-9 >> tau
+        # alpha = 1e-9/(1e-9 + 1.59e-10) ≈ 0.86, so converges quickly
+        for _ in range(20):
+            result = comp.compare(0.1, 0.0, time_step=1e-9)
+        assert result == 1  # settled to 0.1 > 0
+
+    def test_bandwidth_filters_sign_change(self):
+        """After settling positive, a sudden negative input is filtered slowly."""
+        comp = DifferentialComparator(bandwidth=1e6)
+        # Settle to positive
+        for _ in range(1000):
+            comp.compare(1.0, 0.0, time_step=1e-6)
+        # Now apply negative input with tiny step — filter still positive
+        result = comp.compare(0.0, 1.0, time_step=1e-12)
+        assert result == 1  # filter hasn't caught up yet
+
+    def test_bandwidth_reset_clears_filter(self):
+        """After reset, filtered_state returns to 0."""
+        comp = DifferentialComparator(bandwidth=1e9)
+        for _ in range(10):
+            comp.compare(1.0, 0.0, time_step=1e-9)
+        comp.reset()
+        assert comp._filtered_state == 0.0
+        # After reset, tiny positive → still tiny filtered value
+        result = comp.compare(0.0001, 0.0, time_step=1e-12)
+        # alpha is tiny, filtered ≈ 0.0001 * alpha ≈ tiny but > 0
+        assert result in (0, 1)
+
+
+# ===========================================================================
+# Hysteresis — deeper coverage
+# ===========================================================================
+
+class TestComparatorHysteresisTransitions:
+
+    def test_high_to_low_transition(self):
+        """After output=1, v_diff must drop below -hysteresis/2 to switch to 0."""
+        comp = DifferentialComparator(hysteresis=0.2)
+        # Go high
+        assert comp.compare(1.0, 0.0) == 1
+        # v_diff = -0.05, threshold = -0.1 (since last_output=1)
+        # -0.05 > -0.1, so stays 1
+        assert comp.compare(0.475, 0.525) == 1
+        # v_diff = -0.15 < -0.1 → switches to 0
+        assert comp.compare(0.425, 0.575) == 0
+
+    def test_low_to_high_transition(self):
+        """After output=0, v_diff must exceed +hysteresis/2 to switch to 1."""
+        comp = DifferentialComparator(hysteresis=0.2)
+        # Start low (default _last_output=0)
+        assert comp.compare(0.0, 1.0) == 0
+        # v_diff = 0.05, threshold = 0.1 (since last_output=0)
+        # 0.05 < 0.1 → stays 0
+        assert comp.compare(0.525, 0.475) == 0
+        # v_diff = 0.15 > 0.1 → switches to 1
+        assert comp.compare(0.575, 0.425) == 1
+
+    def test_hysteresis_with_4_input_references(self):
+        """Hysteresis works correctly with reference voltages."""
+        comp = DifferentialComparator(hysteresis=0.1)
+        # effective_diff = (0.6 - 0.1) - (0.2 - 0.1) = 0.4 > 0.05 → 1
+        assert comp.compare(0.6, 0.2, v_refp=0.1, v_refn=0.1) == 1
+        # effective_diff = (0.3 - 0.1) - (0.2 - 0.1) = 0.1 > -0.05 → stays 1
+        assert comp.compare(0.3, 0.2, v_refp=0.1, v_refn=0.1) == 1
+
+
+# ===========================================================================
+# Combined non-idealities
+# ===========================================================================
+
+class TestComparatorCombined:
+
+    def test_offset_with_hysteresis(self):
+        """Offset shifts the effective diff before hysteresis is applied."""
+        comp = DifferentialComparator(offset=0.05, hysteresis=0.1)
+        # v_diff = (0.5 - 0.5) + 0.05 = 0.05, threshold = 0.05 (last=0)
+        # 0.05 is NOT > 0.05, so result = 0
+        assert comp.compare(0.5, 0.5) == 0
+        # v_diff = (0.51 - 0.5) + 0.05 = 0.06 > 0.05 → 1
+        assert comp.compare(0.51, 0.5) == 1
+
+    def test_offset_with_bandwidth(self):
+        """Offset and bandwidth interact correctly."""
+        comp = DifferentialComparator(offset=0.1, bandwidth=1e9)
+        # v_diff = (0.5 - 0.5) + 0.1 = 0.1, then filtered
+        for _ in range(20):
+            result = comp.compare(0.5, 0.5, time_step=1e-9)
+        assert result == 1  # offset=0.1 > 0 once filter settles

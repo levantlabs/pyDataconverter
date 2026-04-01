@@ -378,3 +378,46 @@ class TestRepr:
     def test_repr_contains_n_bits(self):
         adc = FlashADC(n_bits=4)
         assert 'n_bits=4' in repr(adc)
+
+
+# ---------------------------------------------------------------------------
+# __main__ block coverage
+# ---------------------------------------------------------------------------
+
+class TestMainBlock:
+    """Exercise the if __name__ == '__main__' demo script with mocked plt."""
+
+    def test_main_block_runs(self):
+        """Run the module as __main__ with mocked matplotlib and visualizations."""
+        import runpy
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        mock_plt = MagicMock()
+        mock_matplotlib = MagicMock()
+        mock_matplotlib.pyplot = mock_plt
+        mock_viz_module = MagicMock()
+
+        # Remove cached module so runpy re-executes it fully
+        mod_name = 'pyDataconverter.architectures.FlashADC'
+        saved = sys.modules.pop(mod_name, None)
+        try:
+            with patch.dict('sys.modules', {
+                'matplotlib': mock_matplotlib,
+                'matplotlib.pyplot': mock_plt,
+                'pyDataconverter.utils.visualizations.visualize_FlashADC': mock_viz_module,
+            }):
+                runpy.run_module(mod_name, run_name='__main__')
+        finally:
+            # Restore the original module
+            if saved is not None:
+                sys.modules[mod_name] = saved
+
+        # Verify matplotlib was used
+        assert mock_plt.figure.called
+        assert mock_plt.show.called
+        assert mock_plt.plot.called
+
+        # Verify visualization functions were called
+        assert mock_viz_module.visualize_flash_adc.called
+        assert mock_viz_module.animate_flash_adc.called
