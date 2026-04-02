@@ -3,3 +3,4 @@ from .FlashADC import FlashADC
 from .SimpleADC import SimpleADC
 from .SimpleDAC import SimpleDAC
 from .CurrentSteeringDAC import CurrentSteeringDAC
+from .ResistorStringDAC import ResistorStringDAC
