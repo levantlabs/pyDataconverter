@@ -440,28 +440,37 @@ class TestConvertToDifferential:
 # ---- generate_chirp --------------------------------------------------------
 
 def test_chirp_length():
-    sig = generate_chirp(f_start=1e3, f_stop=100e3, sampling_rate=1e6, duration=0.01)
-    assert len(sig) == int(1e6 * 0.01)
+    fs = 1e6
+    n_samples = int(1e6 * 0.01)
+    sig, t = generate_chirp(fs=fs, n_samples=n_samples, f_start=1e3, f_stop=100e3)
+    assert len(sig) == n_samples
 
 def test_chirp_amplitude():
     amp = 0.4
-    sig = generate_chirp(f_start=1e3, f_stop=50e3, sampling_rate=1e6, amplitude=amp, duration=0.005)
+    fs = 1e6
+    n_samples = int(1e6 * 0.005)
+    sig, t = generate_chirp(fs=fs, n_samples=n_samples, f_start=1e3, f_stop=50e3, amplitude=amp)
     assert abs(np.max(np.abs(sig)) - amp) < 0.01
 
 def test_chirp_offset():
     offset = 0.5
-    sig = generate_chirp(f_start=1e3, f_stop=50e3, sampling_rate=1e6, amplitude=0.1, offset=offset, duration=0.005)
+    fs = 1e6
+    n_samples = int(1e6 * 0.005)
+    sig, t = generate_chirp(fs=fs, n_samples=n_samples, f_start=1e3, f_stop=50e3, amplitude=0.1, offset=offset)
     assert abs(np.mean(sig) - offset) < 0.05
 
 def test_chirp_default_amplitude():
-    sig = generate_chirp(1e3, 10e3, 1e6, duration=0.001)
+    fs = 1e6
+    n_samples = int(1e6 * 0.001)
+    sig, t = generate_chirp(fs=fs, n_samples=n_samples, f_start=1e3, f_stop=10e3)
     assert abs(np.max(np.abs(sig)) - 1.0) < 0.01
 
 def test_chirp_start_end_freqs():
     fs = 1e6
     duration = 0.01
     f_start, f_stop = 1e3, 100e3
-    sig = generate_chirp(f_start, f_stop, fs, duration=duration)
+    n_samples = int(fs * duration)
+    sig, t = generate_chirp(fs=fs, n_samples=n_samples, f_start=f_start, f_stop=f_stop)
     n_total = len(sig)
     n_slice = n_total // 10  # 10% of signal
 
@@ -477,3 +486,9 @@ def test_chirp_start_end_freqs():
     midpoint = (f_start + f_stop) / 2
     assert f_dom_start < midpoint, f"Start freq {f_dom_start} should be below midpoint {midpoint}"
     assert f_dom_end > midpoint, f"End freq {f_dom_end} should be above midpoint {midpoint}"
+
+def test_chirp_log_method():
+    fs = 1e6
+    n_samples = int(1e6 * 0.01)
+    sig, t = generate_chirp(fs=fs, n_samples=n_samples, f_start=1e3, f_stop=100e3, method='logarithmic')
+    assert len(sig) == n_samples
