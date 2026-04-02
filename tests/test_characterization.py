@@ -60,3 +60,56 @@ def test_measure_dynamic_range_duck_typing():
                                    n_fft=512, n_fin=7, n_amplitudes=8)
     assert 'DR_dB' in result
     assert result['DR_dB'] > 0
+
+
+def test_measure_erbw_returns_dict():
+    from pyDataconverter.utils.characterization import measure_erbw
+    adc = _make_adc(n_bits=8)
+    result = measure_erbw(adc, n_bits=8, v_ref=1.0,
+                          fs=10e6, n_fft=512,
+                          freq_range_hz=(1e3, 4e6), n_frequencies=8)
+    assert isinstance(result, dict)
+    assert 'ERBW_Hz' in result
+    assert 'Frequencies_Hz' in result
+    assert 'ENOB_values' in result
+
+
+def test_measure_erbw_array_lengths():
+    from pyDataconverter.utils.characterization import measure_erbw
+    adc = _make_adc(n_bits=6)
+    n_freq = 7
+    result = measure_erbw(adc, n_bits=6, v_ref=1.0,
+                          fs=10e6, n_fft=512,
+                          freq_range_hz=(1e3, 4e6), n_frequencies=n_freq)
+    assert len(result['Frequencies_Hz']) == n_freq
+    assert len(result['ENOB_values']) == n_freq
+
+
+def test_measure_erbw_positive():
+    """ERBW is a positive finite frequency."""
+    from pyDataconverter.utils.characterization import measure_erbw
+    adc = _make_adc(n_bits=8)
+    result = measure_erbw(adc, n_bits=8, v_ref=1.0,
+                          fs=10e6, n_fft=512,
+                          freq_range_hz=(1e3, 4e6), n_frequencies=8)
+    assert np.isfinite(result['ERBW_Hz'])
+    assert result['ERBW_Hz'] > 0
+
+
+def test_measure_erbw_duck_typing():
+    """measure_erbw works with any object having .convert(float)->int."""
+    from pyDataconverter.utils.characterization import measure_erbw
+
+    class SimpleQuantizer:
+        def __init__(self, n_bits, v_ref):
+            self.n_bits = n_bits
+            self.v_ref  = v_ref
+        def convert(self, v):
+            code = int(v / self.v_ref * 2**self.n_bits)
+            return max(0, min(2**self.n_bits - 1, code))
+
+    adc = SimpleQuantizer(n_bits=6, v_ref=1.0)
+    result = measure_erbw(adc, n_bits=6, v_ref=1.0,
+                          fs=10e6, n_fft=512,
+                          freq_range_hz=(1e3, 4e6), n_frequencies=6)
+    assert 'ERBW_Hz' in result
