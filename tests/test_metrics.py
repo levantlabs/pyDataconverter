@@ -547,6 +547,35 @@ def test_histogram():
     plt.show()
 
 
+def test_missing_codes_ideal_adc():
+    """Ideal ADC has no missing codes."""
+    from pyDataconverter.architectures.FlashADC import FlashADC
+    import numpy as np
+    adc = FlashADC(n_bits=6, v_ref=1.0, offset_std=0.0)
+    vin = np.linspace(0, 1.0, 10000)
+    codes = np.array([adc.convert(float(v)) for v in vin])
+    m = calculate_adc_static_metrics(vin, codes, 6, 1.0)
+    assert 'MissingCodes' in m
+    assert len(m['MissingCodes']) == 0
+
+def test_missing_codes_detected():
+    """DNL <= -1 codes appear in MissingCodes."""
+    import numpy as np
+    n_bits = 4
+    v_ref = 1.0
+    ideal_lsb = v_ref / 2**n_bits
+    # Build a ramp where code 3 is missing (transition 2 == transition 3)
+    transitions = np.arange(1, 2**n_bits, dtype=float) * ideal_lsb
+    transitions[2] = transitions[3]  # code 3 missing
+    vin = np.linspace(0, v_ref, 20000)
+    codes = np.zeros(len(vin), dtype=int)
+    for k, t in enumerate(transitions):
+        codes[vin >= t] = k + 1
+    m = calculate_adc_static_metrics(vin, codes, n_bits, v_ref)
+    assert 'MissingCodes' in m
+    assert len(m['MissingCodes']) > 0
+
+
 def main():
     """Run all tests"""
     test_dynamic_metrics()

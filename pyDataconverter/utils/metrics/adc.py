@@ -204,11 +204,14 @@ def calculate_adc_static_metrics(input_voltages: np.ndarray,
     offset     = _go['OffsetError']
     gain_error = _go['GainError']
 
+    missing_codes = list(np.where(dnl <= -1.0)[0])
+
     return {
         "DNL": dnl,
         "INL": inl,
         "Offset": offset,
         "GainError": gain_error,
+        "MissingCodes": missing_codes,
         "MaxDNL": float(np.max(np.abs(dnl))),
         "MaxINL": float(np.max(np.abs(inl))),
         "Transitions": transitions,
