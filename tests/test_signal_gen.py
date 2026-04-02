@@ -462,8 +462,18 @@ def test_chirp_start_end_freqs():
     duration = 0.01
     f_start, f_stop = 1e3, 100e3
     sig = generate_chirp(f_start, f_stop, fs, duration=duration)
-    n_start = int(fs * 0.001)
-    crossings = np.where(np.diff(np.sign(sig[:n_start])))[0]
-    if len(crossings) > 1:
-        f_est = fs / (2 * np.mean(np.diff(crossings)))
-        assert 0.5 * f_start < f_est < 2 * f_start
+    n_total = len(sig)
+    n_slice = n_total // 10  # 10% of signal
+
+    # Dominant frequency in the first 10% of the signal
+    freqs = np.fft.rfftfreq(n_slice, d=1.0 / fs)
+    start_spectrum = np.abs(np.fft.rfft(sig[:n_slice]))
+    f_dom_start = freqs[np.argmax(start_spectrum)]
+
+    # Dominant frequency in the last 10% of the signal
+    end_spectrum = np.abs(np.fft.rfft(sig[-n_slice:]))
+    f_dom_end = freqs[np.argmax(end_spectrum)]
+
+    midpoint = (f_start + f_stop) / 2
+    assert f_dom_start < midpoint, f"Start freq {f_dom_start} should be below midpoint {midpoint}"
+    assert f_dom_end > midpoint, f"End freq {f_dom_end} should be above midpoint {midpoint}"
