@@ -659,6 +659,34 @@ def test_calculate_adc_iip3_nonlinear():
     assert m_hires['IIP3_dB'] > m_lores['IIP3_dB']
 
 
+def test_dynamic_range_from_curve_basic():
+    from pyDataconverter.utils.metrics import calculate_dynamic_range_from_curve
+    import numpy as np
+    amplitudes_db = np.linspace(-60, 0, 61)
+    snr_values    = amplitudes_db + 50   # SNR = 0 at -50 dBFS
+    m = calculate_dynamic_range_from_curve(amplitudes_db, snr_values)
+    assert 'DR_dB' in m
+    assert abs(m['DR_dB'] - 50.0) < 1.0
+
+def test_erbw_from_curve_basic():
+    from pyDataconverter.utils.metrics import calculate_erbw_from_curve
+    import numpy as np
+    freqs = np.array([1e3, 10e3, 100e3, 1e6, 10e6])
+    enob  = np.array([8.0, 8.0, 7.8, 7.4, 6.9])
+    m = calculate_erbw_from_curve(freqs, enob)
+    assert 'ERBW_Hz' in m
+    assert 100e3 < m['ERBW_Hz'] < 1e6
+
+def test_erbw_custom_reference():
+    from pyDataconverter.utils.metrics import calculate_erbw_from_curve
+    import numpy as np
+    freqs = np.linspace(1e3, 10e6, 50)
+    enob  = 8.0 - np.linspace(0, 3.0, 50)
+    m_default = calculate_erbw_from_curve(freqs, enob)
+    m_custom  = calculate_erbw_from_curve(freqs, enob, enob_ref=7.0)
+    assert m_custom['ERBW_Hz'] > m_default['ERBW_Hz']
+
+
 def main():
     """Run all tests"""
     test_dynamic_metrics()

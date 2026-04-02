@@ -512,3 +512,83 @@ def calculate_adc_iip3(
         'P_in_dB':  p_in,
         'P_im3_dB': p_im3,
     }
+
+
+def calculate_dynamic_range_from_curve(
+        amplitudes_db: np.ndarray,
+        snr_values: np.ndarray,
+) -> Dict[str, float]:
+    """
+    Estimate dynamic range from a measured SNR vs amplitude curve.
+
+    Dynamic range is the span (dB) from full-scale amplitude to the
+    amplitude where SNR interpolates to 0 dB.
+
+    Args:
+        amplitudes_db: Input amplitude sweep (dBFS or dB), any order.
+            The largest value is taken as full scale.
+        snr_values: SNR (dB) at each amplitude.  Same length.
+
+    Returns:
+        Dict with keys:
+            DR_dB              : Dynamic range (dB).
+            AmplitudeAtSNR0_dB : Amplitude where SNR = 0 dB.
+    """
+    from scipy.interpolate import interp1d
+    amplitudes_db = np.asarray(amplitudes_db, dtype=float)
+    snr_values    = np.asarray(snr_values,    dtype=float)
+
+    idx = np.argsort(amplitudes_db)
+    amp = amplitudes_db[idx]
+    snr = snr_values[idx]
+
+    f = interp1d(snr, amp, kind='linear', bounds_error=False,
+                 fill_value=(amp[0], amp[-1]))
+    amp_at_snr0 = float(f(0.0))
+    dr = float(amp[-1] - amp_at_snr0)
+
+    return {
+        'DR_dB':              dr,
+        'AmplitudeAtSNR0_dB': amp_at_snr0,
+    }
+
+
+def calculate_erbw_from_curve(
+        frequencies: np.ndarray,
+        enob_values: np.ndarray,
+        enob_ref: float = None,
+) -> Dict[str, float]:
+    """
+    Estimate effective resolution bandwidth (ERBW) from ENOB vs frequency.
+
+    ERBW is the frequency at which ENOB drops 0.5 bits below the
+    low-frequency reference.
+
+    Args:
+        frequencies: Frequency array (Hz), sorted ascending.
+        enob_values: ENOB at each frequency.  Same length.
+        enob_ref: Reference ENOB.  Defaults to enob_values[0].
+
+    Returns:
+        Dict with keys:
+            ERBW_Hz  : Effective resolution bandwidth (Hz).
+            ENOB_ref : Reference ENOB used.
+    """
+    from scipy.interpolate import interp1d
+    frequencies = np.asarray(frequencies, dtype=float)
+    enob_values = np.asarray(enob_values, dtype=float)
+
+    if enob_ref is None:
+        enob_ref = float(enob_values[0])
+
+    target = enob_ref - 0.5
+
+    # ENOB is generally decreasing; flip so interp1d sees monotone increasing input
+    f = interp1d(enob_values[::-1], frequencies[::-1], kind='linear',
+                 bounds_error=False, fill_value=(frequencies[0], frequencies[-1]))
+    erbw = float(f(target))
+
+    return {
+        'ERBW_Hz':  erbw,
+        'ENOB_ref': enob_ref,
+    }

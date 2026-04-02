@@ -28,6 +28,8 @@ from .adc import (
     is_monotonic,
     calculate_histogram,
     calculate_adc_iip3,
+    calculate_dynamic_range_from_curve,
+    calculate_erbw_from_curve,
 )
 from .dac import (
     calculate_dac_static_metrics,
@@ -43,6 +45,8 @@ __all__ = [
     "is_monotonic",
     "calculate_histogram",
     "calculate_adc_iip3",
+    "calculate_dynamic_range_from_curve",
+    "calculate_erbw_from_curve",
     "calculate_dac_static_metrics",
     "calculate_dac_dynamic_metrics",
     "_calculate_dac_dynamic_metrics_from_fft",
