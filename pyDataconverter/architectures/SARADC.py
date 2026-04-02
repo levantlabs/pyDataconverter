@@ -451,6 +451,69 @@ class MultibitSARADC(SARADC):
         return f"{self.__class__.__name__}({', '.join(parts)})"
 
 
+class NoiseshapingSARADC(SARADC):
+    """
+    First-order noise-shaping SAR ADC.
+
+    After each conversion the quantisation residue (v_sampled − v_reconstructed)
+    is accumulated in an integrator.  The integrated residue is added to the
+    sampled input on the next conversion, shaping quantisation noise to higher
+    frequencies at the cost of an increased noise floor near Nyquist.
+
+    For an oversampling ratio OSR the in-band SNR improvement over a standard
+    SAR is approximately 9 dB per octave of OSR (first-order shaping, −20 dB/decade).
+
+    Attributes:
+        integrator_state (float): Current integrator output (V).  Reset to 0
+            by calling .reset().
+    """
+
+    def __init__(self, n_bits: int, v_ref: float = 1.0, **kwargs):
+        super().__init__(n_bits, v_ref, **kwargs)
+        self.integrator_state: float = 0.0
+
+    def reset(self):
+        """Reset comparator state and integrator."""
+        super().reset()
+        self.integrator_state = 0.0
+
+    def _convert_input(self, analog_input) -> int:
+        """Sample, add integrator, run SAR, update integrator."""
+        v_sampled = self._sample_input(analog_input)
+        v_input   = v_sampled + self.integrator_state
+
+        code, _, _, _ = self._run_sar(v_input)
+
+        # Reconstruct analog value from output code
+        v_reconstructed = (code + 0.5) / (2 ** self.n_bits) * self.v_ref
+
+        # Update integrator: residue = clipped error
+        residue = v_input - v_reconstructed
+        # Clip integrator to ±0.5 v_ref to prevent runaway
+        self.integrator_state = float(
+            np.clip(residue, -self.v_ref / 2, self.v_ref / 2)
+        )
+
+        return code
+
+    def __repr__(self) -> str:
+        parts = [
+            f"n_bits={self.n_bits}",
+            f"v_ref={self.v_ref}",
+            f"input_type={self.input_type.name}",
+            f"integrator_state={self.integrator_state:.6f}",
+        ]
+        if self.noise_rms:
+            parts.append(f"noise_rms={self.noise_rms}")
+        if self.offset:
+            parts.append(f"offset={self.offset}")
+        if self.gain_error:
+            parts.append(f"gain_error={self.gain_error}")
+        if self.t_jitter:
+            parts.append(f"t_jitter={self.t_jitter}")
+        return f"{self.__class__.__name__}({', '.join(parts)})"
+
+
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
 

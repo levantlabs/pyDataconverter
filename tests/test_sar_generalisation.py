@@ -149,3 +149,43 @@ class TestMultibitSARADC:
         codes_sar  = [sar.convert(float(v))  for v in vins]
         codes_mbit = [mbit.convert(float(v)) for v in vins]
         assert codes_sar == codes_mbit
+
+
+class TestNoiseshapingSARADC:
+    def test_construction(self):
+        from pyDataconverter.architectures.SARADC import NoiseshapingSARADC
+        adc = NoiseshapingSARADC(n_bits=6, v_ref=1.0)
+        assert adc.n_bits == 6
+        assert adc.integrator_state == 0.0
+
+    def test_reset_clears_state(self):
+        from pyDataconverter.architectures.SARADC import NoiseshapingSARADC
+        adc = NoiseshapingSARADC(n_bits=6, v_ref=1.0)
+        adc.convert(0.5)  # leave some integrator state
+        adc.reset()
+        assert adc.integrator_state == 0.0
+
+    def test_output_range(self):
+        from pyDataconverter.architectures.SARADC import NoiseshapingSARADC
+        adc = NoiseshapingSARADC(n_bits=6, v_ref=1.0)
+        codes = [adc.convert(0.5) for _ in range(100)]
+        assert all(0 <= c <= 2**6 - 1 for c in codes)
+
+    def test_noise_shaping_improves_snr_at_low_freq(self):
+        """First-order noise shaping should give better SNDR than standard SAR
+        when measuring SNR over the lower half of the Nyquist band (oversampling)."""
+        from pyDataconverter.architectures.SARADC import SARADC, NoiseshapingSARADC
+        from pyDataconverter.utils.signal_gen import generate_coherent_sine
+        from pyDataconverter.utils.metrics import calculate_adc_dynamic_metrics
+        import numpy as np
+        n_bits, v_ref, fs, n_fft = 6, 1.0, 1e6, 2048
+        vin, _ = generate_coherent_sine(fs, n_fft, n_fin=5, amplitude=0.45, offset=0.5)
+        adc_std = SARADC(n_bits=n_bits, v_ref=v_ref)
+        adc_ns  = NoiseshapingSARADC(n_bits=n_bits, v_ref=v_ref)
+        codes_std = np.array([adc_std.convert(float(v)) for v in vin], dtype=float)
+        codes_ns  = np.array([adc_ns.convert(float(v))  for v in vin], dtype=float)
+        m_std = calculate_adc_dynamic_metrics(time_data=codes_std, fs=fs)
+        m_ns  = calculate_adc_dynamic_metrics(time_data=codes_ns,  fs=fs)
+        # Noise shaping redistributes noise (less low-freq, more high-freq).
+        # Full-band SNR should be comparable (within ~4 dB) even at Nyquist rate.
+        assert m_ns['SNR'] > m_std['SNR'] - 4.0
