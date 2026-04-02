@@ -203,3 +203,75 @@ class TestR2RDAC:
         dac = R2RDAC(n_bits=4, v_ref=1.0)
         with pytest.raises((ValueError, TypeError)):
             dac.convert(2**4)
+
+
+class TestSegmentedResistorDAC:
+    def test_construction(self):
+        from pyDataconverter.architectures.SegmentedResistorDAC import SegmentedResistorDAC
+        dac = SegmentedResistorDAC(n_bits=8, v_ref=1.0, n_therm=4)
+        assert dac.n_bits == 8
+        assert dac.v_ref == 1.0
+
+    def test_ideal_output_zero(self):
+        from pyDataconverter.architectures.SegmentedResistorDAC import SegmentedResistorDAC
+        dac = SegmentedResistorDAC(n_bits=8, v_ref=1.0, n_therm=4)
+        assert abs(dac.convert(0)) < 1e-6
+
+    def test_ideal_monotone(self):
+        from pyDataconverter.architectures.SegmentedResistorDAC import SegmentedResistorDAC
+        dac = SegmentedResistorDAC(n_bits=8, v_ref=1.0, n_therm=4)
+        voltages = [dac.convert(c) for c in range(2**8)]
+        assert all(b >= a - 1e-9 for a, b in zip(voltages, voltages[1:]))
+
+    def test_ideal_dnl_inl_small(self):
+        from pyDataconverter.architectures.SegmentedResistorDAC import SegmentedResistorDAC
+        from pyDataconverter.utils.metrics import calculate_dac_static_metrics
+        dac = SegmentedResistorDAC(n_bits=8, v_ref=1.0, n_therm=4)
+        m = calculate_dac_static_metrics(dac)
+        assert m['MaxDNL'] < 0.01
+        assert m['MaxINL'] < 0.01
+
+    def test_output_range(self):
+        from pyDataconverter.architectures.SegmentedResistorDAC import SegmentedResistorDAC
+        dac = SegmentedResistorDAC(n_bits=8, v_ref=1.0, n_therm=4)
+        max_code = 2**8 - 1
+        assert abs(dac.convert(max_code) - max_code / 2**8) < 0.005
+
+    def test_repr(self):
+        from pyDataconverter.architectures.SegmentedResistorDAC import SegmentedResistorDAC
+        dac = SegmentedResistorDAC(n_bits=8, v_ref=1.0, n_therm=4)
+        r = repr(dac)
+        assert 'SegmentedResistorDAC' in r
+        assert 'n_bits=8' in r
+
+    def test_out_of_range_code_raises(self):
+        from pyDataconverter.architectures.SegmentedResistorDAC import SegmentedResistorDAC
+        dac = SegmentedResistorDAC(n_bits=8, v_ref=1.0, n_therm=4)
+        with pytest.raises((ValueError, TypeError)):
+            dac.convert(2**8)
+
+    def test_invalid_n_therm_raises(self):
+        from pyDataconverter.architectures.SegmentedResistorDAC import SegmentedResistorDAC
+        with pytest.raises(ValueError):
+            SegmentedResistorDAC(n_bits=8, v_ref=1.0, n_therm=0)
+        with pytest.raises(ValueError):
+            SegmentedResistorDAC(n_bits=8, v_ref=1.0, n_therm=8)
+
+    def test_seed_reproducible(self):
+        """Same seed gives identical outputs."""
+        from pyDataconverter.architectures.SegmentedResistorDAC import SegmentedResistorDAC
+        dac1 = SegmentedResistorDAC(n_bits=8, v_ref=1.0, n_therm=4, r_mismatch=0.05, seed=42)
+        dac2 = SegmentedResistorDAC(n_bits=8, v_ref=1.0, n_therm=4, r_mismatch=0.05, seed=42)
+        for c in [0, 64, 128, 255]:
+            assert dac1.convert(c) == dac2.convert(c)
+
+    def test_mismatch_increases_inl(self):
+        """Non-zero mismatch produces larger INL than ideal."""
+        from pyDataconverter.architectures.SegmentedResistorDAC import SegmentedResistorDAC
+        from pyDataconverter.utils.metrics import calculate_dac_static_metrics
+        dac_ideal    = SegmentedResistorDAC(n_bits=8, v_ref=1.0, n_therm=4, r_mismatch=0.0)
+        dac_mismatch = SegmentedResistorDAC(n_bits=8, v_ref=1.0, n_therm=4,
+                                            r_mismatch=0.05, seed=7)
+        m_ideal    = calculate_dac_static_metrics(dac_ideal)
+        m_mismatch = calculate_dac_static_metrics(dac_mismatch)
+        assert m_mismatch['MaxINL'] > m_ideal['MaxINL']
