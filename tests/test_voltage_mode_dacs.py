@@ -120,3 +120,86 @@ class TestResistorStringDAC:
         dac1 = ResistorStringDAC(n_bits=4, v_ref=1.0, r_mismatch=0.05, seed=7)
         dac2 = ResistorStringDAC(n_bits=4, v_ref=1.0, r_mismatch=0.05, seed=7)
         np.testing.assert_array_equal(dac1.r_values, dac2.r_values)
+
+
+class TestR2RDAC:
+    def test_construction(self):
+        from pyDataconverter.architectures.R2RDAC import R2RDAC
+        dac = R2RDAC(n_bits=4, v_ref=1.0)
+        assert dac.n_bits == 4
+
+    def test_ideal_output_zero(self):
+        """Code 0: all bits low → output 0 V."""
+        from pyDataconverter.architectures.R2RDAC import R2RDAC
+        dac = R2RDAC(n_bits=6, v_ref=1.0)
+        assert abs(dac.convert(0)) < 1e-9
+
+    def test_ideal_output_msb_only(self):
+        """MSB only (code = 2^(N-1)) → V_ref/2."""
+        from pyDataconverter.architectures.R2RDAC import R2RDAC
+        dac = R2RDAC(n_bits=6, v_ref=1.0)
+        assert abs(dac.convert(2**5) - 0.5) < 1e-6
+
+    def test_ideal_monotone(self):
+        from pyDataconverter.architectures.R2RDAC import R2RDAC
+        dac = R2RDAC(n_bits=6, v_ref=1.0)
+        voltages = [dac.convert(c) for c in range(2**6)]
+        assert all(b >= a - 1e-9 for a, b in zip(voltages, voltages[1:]))
+
+    def test_ideal_dnl_inl_small(self):
+        """Ideal (no mismatch) R-2R DAC has uniform steps and near-zero INL.
+
+        Note: DACBase defines lsb = v_ref/(2^N-1) while the R-2R network
+        produces steps of v_ref/2^N.  This causes a systematic DNL offset of
+        ~1/2^N (≈0.016 LSB for N=6).  All steps are identical, so the spread
+        around the mean is zero, and INL is zero.
+        """
+        from pyDataconverter.architectures.R2RDAC import R2RDAC
+        from pyDataconverter.utils.metrics import calculate_dac_static_metrics
+        dac = R2RDAC(n_bits=6, v_ref=1.0)
+        m = calculate_dac_static_metrics(dac)
+        # All steps are identical → DNL spread is zero
+        dnl = m['DNL']
+        assert (dnl.max() - dnl.min()) < 0.001, (
+            "Ideal R-2R DAC should have identical step sizes (zero DNL spread)"
+        )
+        assert m['MaxINL'] < 0.001
+
+    def test_r_mismatch_independent_r_and_2r(self):
+        """Separate R and 2R mismatch parameters can be set."""
+        from pyDataconverter.architectures.R2RDAC import R2RDAC
+        dac = R2RDAC(n_bits=6, v_ref=1.0, r_mismatch=0.02, r2_mismatch=0.03,
+                     seed=0)
+        assert dac.r_mismatch == 0.02
+        assert dac.r2_mismatch == 0.03
+
+    def test_mismatch_increases_inl(self):
+        from pyDataconverter.architectures.R2RDAC import R2RDAC
+        from pyDataconverter.utils.metrics import calculate_dac_static_metrics
+        dac_ideal    = R2RDAC(n_bits=6, v_ref=1.0)
+        dac_mismatch = R2RDAC(n_bits=6, v_ref=1.0, r_mismatch=0.05,
+                              r2_mismatch=0.05, seed=99)
+        m_ideal    = calculate_dac_static_metrics(dac_ideal)
+        m_mismatch = calculate_dac_static_metrics(dac_mismatch)
+        assert m_mismatch['MaxINL'] > m_ideal['MaxINL']
+
+    def test_seed_reproducible(self):
+        """Same seed gives identical r_values and r2_values."""
+        from pyDataconverter.architectures.R2RDAC import R2RDAC
+        dac1 = R2RDAC(n_bits=4, v_ref=1.0, r_mismatch=0.05, r2_mismatch=0.03, seed=42)
+        dac2 = R2RDAC(n_bits=4, v_ref=1.0, r_mismatch=0.05, r2_mismatch=0.03, seed=42)
+        np.testing.assert_array_equal(dac1.r_values, dac2.r_values)
+        np.testing.assert_array_equal(dac1.r2_values, dac2.r2_values)
+
+    def test_repr(self):
+        from pyDataconverter.architectures.R2RDAC import R2RDAC
+        dac = R2RDAC(n_bits=4, v_ref=1.0, r_unit=1e3, r_mismatch=0.01, r2_mismatch=0.02)
+        r = repr(dac)
+        assert 'R2RDAC' in r
+        assert 'n_bits=4' in r
+
+    def test_out_of_range_code_raises(self):
+        from pyDataconverter.architectures.R2RDAC import R2RDAC
+        dac = R2RDAC(n_bits=4, v_ref=1.0)
+        with pytest.raises((ValueError, TypeError)):
+            dac.convert(2**4)
