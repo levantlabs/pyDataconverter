@@ -21,6 +21,7 @@ from pyDataconverter.utils.signal_gen import (
     generate_coherent_sine,
     generate_coherent_two_tone,
 )
+from pyDataconverter.utils.signal_gen import generate_chirp
 
 
 # ---- generate_sine --------------------------------------------------------
@@ -434,3 +435,35 @@ class TestConvertToDifferential:
         v_pos, v_neg = convert_to_differential(sig, vcm=2.0)
         np.testing.assert_allclose(v_pos, 2.0)
         np.testing.assert_allclose(v_neg, 2.0)
+
+
+# ---- generate_chirp --------------------------------------------------------
+
+def test_chirp_length():
+    sig = generate_chirp(f_start=1e3, f_stop=100e3, sampling_rate=1e6, duration=0.01)
+    assert len(sig) == int(1e6 * 0.01)
+
+def test_chirp_amplitude():
+    amp = 0.4
+    sig = generate_chirp(f_start=1e3, f_stop=50e3, sampling_rate=1e6, amplitude=amp, duration=0.005)
+    assert abs(np.max(np.abs(sig)) - amp) < 0.01
+
+def test_chirp_offset():
+    offset = 0.5
+    sig = generate_chirp(f_start=1e3, f_stop=50e3, sampling_rate=1e6, amplitude=0.1, offset=offset, duration=0.005)
+    assert abs(np.mean(sig) - offset) < 0.05
+
+def test_chirp_default_amplitude():
+    sig = generate_chirp(1e3, 10e3, 1e6, duration=0.001)
+    assert abs(np.max(np.abs(sig)) - 1.0) < 0.01
+
+def test_chirp_start_end_freqs():
+    fs = 1e6
+    duration = 0.01
+    f_start, f_stop = 1e3, 100e3
+    sig = generate_chirp(f_start, f_stop, fs, duration=duration)
+    n_start = int(fs * 0.001)
+    crossings = np.where(np.diff(np.sign(sig[:n_start])))[0]
+    if len(crossings) > 1:
+        f_est = fs / (2 * np.mean(np.diff(crossings)))
+        assert 0.5 * f_start < f_est < 2 * f_start

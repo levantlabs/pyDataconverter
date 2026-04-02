@@ -49,6 +49,34 @@ def generate_sine(frequency: float,
     return amplitude * np.sin(2 * np.pi * frequency * t + phase) + offset
 
 
+def generate_chirp(f_start: float,
+                   f_stop: float,
+                   sampling_rate: float,
+                   amplitude: float = 1.0,
+                   offset: float = 0.0,
+                   duration: float = 1.0,
+                   method: str = 'linear') -> np.ndarray:
+    """
+    Generate a swept-frequency (chirp) signal.
+
+    Args:
+        f_start: Start frequency in Hz.
+        f_stop: Stop frequency in Hz.
+        sampling_rate: Sampling rate in Hz.
+        amplitude: Peak amplitude in volts (default 1.0).
+        offset: DC offset in volts (default 0.0).
+        duration: Signal duration in seconds (default 1.0).
+        method: Frequency sweep method — 'linear' (default) or 'logarithmic'.
+
+    Returns:
+        Signal array of length int(sampling_rate * duration).
+    """
+    from scipy.signal import chirp as scipy_chirp
+    t = np.arange(0, duration, 1 / sampling_rate)
+    sig = scipy_chirp(t, f0=f_start, f1=f_stop, t1=duration, method=method)
+    return amplitude * sig + offset
+
+
 def generate_ramp(samples: int,
                   v_min: float = 0.0,
                   v_max: float = 1.0) -> np.ndarray:
