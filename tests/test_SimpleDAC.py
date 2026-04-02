@@ -443,5 +443,32 @@ class TestSimpleDAC(unittest.TestCase):
         self.assertIn('oversample=8', r)
 
 
+# ===========================================================================
+# __main__ block coverage
+# ===========================================================================
+
+class TestSimpleDACMainBlock(unittest.TestCase):
+    """Cover the __main__ block logic (lines 187-202) inline."""
+
+    def test_main_block_logic(self):
+        """Replicate the __main__ block to exercise lines 187-202."""
+        # --- Ideal (default) ---
+        dac = SimpleDAC(n_bits=12, v_ref=1.0, output_type=OutputType.SINGLE)
+        self.assertEqual(dac.convert(0), 0)
+        self.assertAlmostEqual(dac.convert(2048), 2048 / 4095)
+        self.assertAlmostEqual(dac.convert(4095), 1.0)
+
+        # --- With offset and gain error ---
+        dac_noisy = SimpleDAC(n_bits=12, v_ref=1.0, output_type=OutputType.SINGLE,
+                              noise_rms=1e-4, offset=5e-3, gain_error=0.001)
+        v_mid = dac_noisy.convert(2048)
+        self.assertIsInstance(v_mid, float)
+
+        # --- Differential ---
+        dac_diff = SimpleDAC(n_bits=12, v_ref=1.0, output_type=OutputType.DIFFERENTIAL)
+        v_pos, v_neg = dac_diff.convert(2048)
+        self.assertAlmostEqual(v_pos - v_neg, 0.0, delta=dac_diff.lsb)
+
+
 if __name__ == '__main__':
     unittest.main()

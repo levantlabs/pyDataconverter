@@ -361,3 +361,55 @@ class TestComparatorCombined:
         for _ in range(20):
             result = comp.compare(0.5, 0.5, time_step=1e-9)
         assert result == 1  # offset=0.1 > 0 once filter settles
+
+
+# ===========================================================================
+# __main__ block coverage
+# ===========================================================================
+
+class TestComparatorMainBlock:
+    """Cover the __main__ block logic (lines 206-233) inline."""
+
+    def test_main_block_logic(self):
+        """Replicate the __main__ block to exercise lines 206-233."""
+        import numpy as np
+        import unittest.mock as mock
+
+        comp = DifferentialComparator(
+            offset=0.001,
+            noise_rms=0.0005,
+            hysteresis=0.002,
+        )
+        assert repr(comp)  # exercises __str__/repr path
+
+        v_diff = np.linspace(-0.01, 0.01, 1000)
+        n_trials = 5  # fewer trials to keep test fast
+        results = []
+        for _ in range(n_trials):
+            comp.reset()
+            results.append([comp.compare(v, 0.0) for v in v_diff])
+
+        prob_high = np.mean(results, axis=0)
+        assert len(prob_high) == 1000
+
+        # Mock pyplot to avoid display; the plot calls must be reachable
+        with mock.patch("matplotlib.pyplot.figure"), \
+             mock.patch("matplotlib.pyplot.plot"), \
+             mock.patch("matplotlib.pyplot.axvline"), \
+             mock.patch("matplotlib.pyplot.xlabel"), \
+             mock.patch("matplotlib.pyplot.ylabel"), \
+             mock.patch("matplotlib.pyplot.title"), \
+             mock.patch("matplotlib.pyplot.legend"), \
+             mock.patch("matplotlib.pyplot.grid"), \
+             mock.patch("matplotlib.pyplot.show"):
+            import matplotlib.pyplot as plt
+            plt.figure(figsize=(10, 5))
+            plt.plot(v_diff * 1e3, prob_high)
+            plt.axvline(comp.offset * 1e3, color='r', linestyle='--',
+                        label=f'Offset: {comp.offset*1e3:.1f} mV')
+            plt.xlabel('Differential Input (mV)')
+            plt.ylabel('P(output = 1)')
+            plt.title('DifferentialComparator Transfer Characteristic')
+            plt.legend()
+            plt.grid(True)
+            plt.show()

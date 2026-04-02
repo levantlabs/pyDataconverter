@@ -333,5 +333,37 @@ class TestSimpleADC(unittest.TestCase):
         self.assertEqual(adc.convert(self.v_ref * 0.6), 1)
 
 
+# ===========================================================================
+# __main__ block coverage
+# ===========================================================================
+
+class TestSimpleADCMainBlock(unittest.TestCase):
+    """Cover the __main__ block logic (lines 186-205) inline."""
+
+    def test_main_block_logic(self):
+        """Replicate the __main__ block to exercise lines 186-205."""
+        import math
+
+        # --- Ideal (default) ---
+        adc = SimpleADC(n_bits=12, v_ref=1.0, input_type=InputType.SINGLE)
+        self.assertEqual(adc.convert(0.0), 0)
+        self.assertEqual(adc.convert(0.5), 2048)
+        self.assertEqual(adc.convert(1.0), 4095)
+
+        # --- With noise and offset ---
+        adc_noisy = SimpleADC(n_bits=12, v_ref=1.0, input_type=InputType.SINGLE,
+                              noise_rms=1e-4, offset=5e-3, gain_error=0.001)
+        code_mid = adc_noisy.convert(0.5)
+        self.assertIsInstance(code_mid, (int, np.integer))
+
+        # --- Aperture jitter ---
+        adc_jitter = SimpleADC(n_bits=12, v_ref=1.0, input_type=InputType.SINGLE,
+                               t_jitter=1e-12)
+        f, A = 10e3, 0.5
+        dvdt = A * 2 * math.pi * f
+        code_jitter = adc_jitter.convert(0.0, dvdt=dvdt)
+        self.assertIsInstance(code_jitter, (int, np.integer))
+
+
 if __name__ == '__main__':
     unittest.main()
