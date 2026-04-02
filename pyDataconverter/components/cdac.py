@@ -260,6 +260,81 @@ class SingleEndedCDAC(CDACBase):
                 f"cap_mismatch={self.cap_mismatch})")
 
 
+class RedundantSARCDAC(SingleEndedCDAC):
+    """
+    Redundant-radix C-DAC for SAR ADCs with digital error correction.
+
+    Uses capacitor weights proportional to r^(N-1-k) for k=0..N-1 (MSB
+    first), where r < 2.  The overlap between adjacent bit weights means
+    that a wrong comparator decision on cycle k can be corrected by the
+    remaining cycles, at the cost of requiring a digital error correction
+    (DEC) step to map the raw binary register to the correct output code.
+
+    The DEC lookup table is built at construction by computing the
+    weighted sum for every possible raw code and sorting to produce a
+    monotone mapping.
+
+    Attributes:
+        radix (float): The radix r used for weight generation (1.5 <= r < 2).
+        _dec_table (np.ndarray): DEC lookup: dec_table[raw_code] -> output_code.
+    """
+
+    def __init__(
+        self,
+        n_bits: int,
+        v_ref: float = 1.0,
+        radix: float = 1.85,
+        cap_mismatch: float = 0.0,
+    ):
+        """
+        Args:
+            n_bits: ADC resolution.
+            v_ref: Reference voltage (V).
+            radix: Sub-binary radix (1.0 < radix < 2.0).  Typical: 1.8-1.9.
+            cap_mismatch: Capacitor mismatch std (dimensionless).
+        """
+        if not (1.0 < radix < 2.0):
+            raise ValueError("radix must be in (1.0, 2.0)")
+        self.radix = radix
+
+        # Compute nominal weights: r^(N-1), r^(N-2), ..., r^0  (MSB first)
+        exponents = np.arange(n_bits - 1, -1, -1, dtype=float)
+        nominal_weights = radix ** exponents
+
+        super().__init__(n_bits, v_ref,
+                         cap_weights=nominal_weights,
+                         cap_mismatch=cap_mismatch)
+
+        # Build DEC lookup table
+        n_codes = 2 ** n_bits
+        # For each raw code, compute weighted sum using nominal weights
+        raw_voltages = np.array([
+            float(np.dot(self._code_to_bits(c), nominal_weights))
+            for c in range(n_codes)
+        ])
+        # Sort raw codes by their voltage -> monotone mapping
+        sorted_idx = np.argsort(raw_voltages, kind='stable')
+        self._dec_table = np.empty(n_codes, dtype=int)
+        for out_code, raw in enumerate(sorted_idx):
+            self._dec_table[raw] = out_code
+
+    def decode(self, raw_code: int) -> int:
+        """
+        Apply digital error correction to a raw SAR register value.
+
+        Args:
+            raw_code: The raw binary register output of the SAR bit loop.
+
+        Returns:
+            int: Corrected output code in [0, 2^n_bits - 1].
+        """
+        return int(self._dec_table[raw_code])
+
+    def __repr__(self) -> str:
+        return (f"RedundantSARCDAC(n_bits={self._n_bits}, v_ref={self._v_ref}, "
+                f"radix={self.radix}, cap_mismatch={self.cap_mismatch})")
+
+
 class DifferentialCDAC(CDACBase):
     """
     Binary-weighted capacitive DAC with complementary arrays for differential
