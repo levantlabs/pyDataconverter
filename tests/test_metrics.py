@@ -622,6 +622,43 @@ def test_dynamic_metrics_spurious():
     assert isinstance(m['Spurious'], float)
 
 
+def test_calculate_adc_iip3_ideal():
+    from pyDataconverter.architectures.FlashADC import FlashADC
+    from pyDataconverter.utils.signal_gen import generate_two_tone
+    from pyDataconverter.utils.metrics import calculate_adc_iip3
+    import numpy as np
+    fs = 10e6
+    adc = FlashADC(n_bits=8, v_ref=1.0, offset_std=0.0)
+    f1, f2 = 1e6, 1.1e6
+    vin = generate_two_tone(f1, f2, fs, amplitude1=0.2, amplitude2=0.2,
+                            duration=512/fs) + 0.5
+    codes = np.array([adc.convert(float(v)) for v in vin])
+    m = calculate_adc_iip3(codes.astype(float), fs, f1, f2)
+    assert 'IIP3_dB' in m
+    assert 'OIP3_dB' in m
+    assert 'IM3_dB' in m
+    assert np.isfinite(m['IIP3_dB'])
+
+def test_calculate_adc_iip3_nonlinear():
+    from pyDataconverter.architectures.FlashADC import FlashADC
+    from pyDataconverter.utils.signal_gen import generate_two_tone
+    from pyDataconverter.utils.metrics import calculate_adc_iip3
+    import numpy as np
+    fs = 10e6
+    # 8-bit ADC has much lower quantization nonlinearity than 4-bit ADC;
+    # coarser quantization deterministically raises IM3 and lowers IIP3.
+    adc_hires = FlashADC(n_bits=8, v_ref=1.0, offset_std=0.0)
+    adc_lores = FlashADC(n_bits=4, v_ref=1.0, offset_std=0.0)
+    f1, f2 = 1e6, 1.1e6
+    vin = generate_two_tone(f1, f2, fs, amplitude1=0.15, amplitude2=0.15,
+                            duration=512/fs) + 0.5
+    codes_hires = np.array([adc_hires.convert(float(v)) for v in vin])
+    codes_lores = np.array([adc_lores.convert(float(v)) for v in vin])
+    m_hires = calculate_adc_iip3(codes_hires.astype(float), fs, f1, f2)
+    m_lores = calculate_adc_iip3(codes_lores.astype(float), fs, f1, f2)
+    assert m_hires['IIP3_dB'] > m_lores['IIP3_dB']
+
+
 def main():
     """Run all tests"""
     test_dynamic_metrics()

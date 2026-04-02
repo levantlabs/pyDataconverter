@@ -450,3 +450,65 @@ def calculate_adc_static_metrics_histogram(
         "MaxDNL": float(np.max(np.abs(dnl))),
         "MaxINL": float(np.max(np.abs(inl))),
     }
+
+
+def calculate_adc_iip3(
+        time_data: np.ndarray,
+        fs: float,
+        f1: float,
+        f2: float,
+        full_scale: float = None,
+) -> Dict[str, float]:
+    """
+    Calculate IIP3 and OIP3 from a two-tone ADC output.
+
+    Uses the standard IIP3 formula:
+        IIP3 = P_in + (P_in - P_im3) / 2
+
+    where P_in is the average power of the two input tones and P_im3 is
+    the average power of the two third-order IM products (2f1-f2, 2f2-f1).
+    All powers are in dB (or dBFS if full_scale is provided).
+
+    Args:
+        time_data: ADC output codes (or voltages) as a 1-D float array.
+        fs: Sampling rate (Hz).
+        f1: First tone frequency (Hz).
+        f2: Second tone frequency (Hz).
+        full_scale: Full-scale value for dBFS (optional).
+
+    Returns:
+        Dict with keys:
+            IIP3_dB  : Input-referred third-order intercept point (dB).
+            OIP3_dB  : Output-referred third-order intercept point (dB).
+            IM3_dB   : Average IM3 product level relative to input tones (dBc).
+            P_in_dB  : Average input tone power (dB).
+            P_im3_dB : Average IM3 product power (dB).
+    """
+    freqs, mags = compute_fft(time_data, fs)
+
+    def _peak_mag(f_target):
+        idx = np.argmin(np.abs(freqs - f_target))
+        lo = max(0, idx - 2)
+        hi = min(len(mags) - 1, idx + 2)
+        return float(np.max(mags[lo:hi + 1]))
+
+    p1 = _peak_mag(f1)
+    p2 = _peak_mag(f2)
+    p_in = (p1 + p2) / 2.0
+
+    f_im3_low  = abs(2 * f1 - f2)
+    f_im3_high = abs(2 * f2 - f1)
+    im3_low  = _peak_mag(f_im3_low)
+    im3_high = _peak_mag(f_im3_high)
+    p_im3 = (im3_low + im3_high) / 2.0
+
+    iip3 = p_in + (p_in - p_im3) / 2.0
+    oip3 = iip3 + p_in
+
+    return {
+        'IIP3_dB':  iip3,
+        'OIP3_dB':  oip3,
+        'IM3_dB':   p_im3 - p_in,
+        'P_in_dB':  p_in,
+        'P_im3_dB': p_im3,
+    }
