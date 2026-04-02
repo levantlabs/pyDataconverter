@@ -373,6 +373,84 @@ class SARADC(ADCBase):
         return f"{self.__class__.__name__}({', '.join(parts)})"
 
 
+class MultibitSARADC(SARADC):
+    """
+    SAR ADC that resolves multiple bits per cycle using a flash sub-ADC.
+
+    Each cycle uses a (2^bits_per_cycle − 1)-comparator flash to determine
+    the next bits_per_cycle bits simultaneously.  With N total bits and M
+    bits per cycle, the conversion requires ceil(N / M) cycles.
+
+    The flash sub-ADC is idealised (no offset, no noise) unless a comparator
+    with non-idealities is injected via comparator_params.
+
+    Args:
+        n_bits: Total resolution.
+        v_ref: Reference voltage (V).
+        bits_per_cycle: Number of bits resolved per SAR cycle (default 2).
+        All other args forwarded to SARADC.__init__.
+    """
+
+    def __init__(self, n_bits: int, v_ref: float = 1.0,
+                 bits_per_cycle: int = 2, **kwargs):
+        if bits_per_cycle < 1 or bits_per_cycle > n_bits:
+            raise ValueError("bits_per_cycle must be in [1, n_bits]")
+        self.bits_per_cycle = bits_per_cycle
+        super().__init__(n_bits, v_ref, **kwargs)
+
+    def _run_sar(
+        self, v_sampled: float
+    ) -> Tuple[int, List[float], List[int], List[int]]:
+        """Override: use flash sub-ADC to resolve bits_per_cycle bits at once."""
+        import math
+        register        = 0
+        dac_voltages:    List[float] = []
+        bit_decisions:   List[int]   = []
+        register_states: List[int]   = [0]
+
+        n_cycles = math.ceil(self.n_bits / self.bits_per_cycle)
+
+        for cycle in range(n_cycles):
+            msb_position = self.n_bits - cycle * self.bits_per_cycle
+            lsb_position = max(0, msb_position - self.bits_per_cycle)
+            n_sub = msb_position - lsb_position  # bits to resolve this cycle
+
+            n_levels = 2 ** n_sub
+            best_code = 0
+            for sub_code in range(n_levels - 1, -1, -1):
+                trial_code = register | (sub_code << lsb_position)
+                v_refp, v_refn = self.cdac.get_voltage(trial_code)
+                self.comparator.reset()
+                decision = self.comparator.compare(v_sampled, 0.0, v_refp, v_refn)
+                dac_voltages.append(v_refp - v_refn)
+                bit_decisions.append(decision)
+                if decision:
+                    best_code = sub_code
+                    break
+
+            register = register | (best_code << lsb_position)
+            register_states.append(register)
+
+        return register, dac_voltages, bit_decisions, register_states
+
+    def __repr__(self) -> str:
+        parts = [
+            f"n_bits={self.n_bits}",
+            f"v_ref={self.v_ref}",
+            f"bits_per_cycle={self.bits_per_cycle}",
+            f"input_type={self.input_type.name}",
+        ]
+        if self.noise_rms:
+            parts.append(f"noise_rms={self.noise_rms}")
+        if self.offset:
+            parts.append(f"offset={self.offset}")
+        if self.gain_error:
+            parts.append(f"gain_error={self.gain_error}")
+        if self.t_jitter:
+            parts.append(f"t_jitter={self.t_jitter}")
+        return f"{self.__class__.__name__}({', '.join(parts)})"
+
+
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
 

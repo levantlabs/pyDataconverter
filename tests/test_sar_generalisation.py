@@ -116,3 +116,36 @@ class TestSegmentedCDAC:
         msb_voltages = v[step-1::step][:2**n_therm]
         diffs = np.diff(msb_voltages)
         assert np.allclose(diffs, diffs[0], rtol=0.01)
+
+
+class TestMultibitSARADC:
+    def test_construction(self):
+        from pyDataconverter.architectures.SARADC import MultibitSARADC
+        adc = MultibitSARADC(n_bits=8, v_ref=1.0, bits_per_cycle=2)
+        assert adc.n_bits == 8
+        assert adc.bits_per_cycle == 2
+
+    def test_monotone_ideal(self):
+        from pyDataconverter.architectures.SARADC import MultibitSARADC
+        adc = MultibitSARADC(n_bits=6, v_ref=1.0, bits_per_cycle=2)
+        vin = np.linspace(0.01, 0.99, 200)
+        codes = [adc.convert(float(v)) for v in vin]
+        assert all(b >= a for a, b in zip(codes, codes[1:]))
+
+    def test_output_range(self):
+        from pyDataconverter.architectures.SARADC import MultibitSARADC
+        adc = MultibitSARADC(n_bits=6, v_ref=1.0, bits_per_cycle=3)
+        codes = [adc.convert(float(v)) for v in np.linspace(0, 1, 100)]
+        assert min(codes) >= 0
+        assert max(codes) <= 2**6 - 1
+
+    def test_bits_per_cycle_1_matches_standard_sar(self):
+        """bits_per_cycle=1 should behave identically to standard SARADC."""
+        from pyDataconverter.architectures.SARADC import SARADC, MultibitSARADC
+        np.random.seed(0)
+        sar    = SARADC(n_bits=6, v_ref=1.0)
+        mbit   = MultibitSARADC(n_bits=6, v_ref=1.0, bits_per_cycle=1)
+        vins   = np.linspace(0.01, 0.99, 63)
+        codes_sar  = [sar.convert(float(v))  for v in vins]
+        codes_mbit = [mbit.convert(float(v)) for v in vins]
+        assert codes_sar == codes_mbit
