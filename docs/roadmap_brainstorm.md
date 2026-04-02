@@ -2,37 +2,40 @@
 
 > Draft for discussion. Add comments inline.
 
+My comments are prefaced by MEC: 
+
 ---
 
 ## 1. Additional Metrics
 
 ### ADC Static
-- Gain error and offset error as explicit scalar outputs (currently implicit in INL)
-- Missing codes (codes where DNL ≤ −1 LSB)
-- Transition noise — standard deviation of each transition voltage over repeated sweeps
-- Code width histogram uniformity (chi-squared test against ideal)
+- Gain error and offset error as explicit scalar outputs (currently implicit in INL). MEC: let's do this.  Then the INL code should call this so that we don't have replicated code
+- Missing codes (codes where DNL ≤ −1 LSB).  MEC:  let's do this.  
+- Transition noise — standard deviation of each transition voltage over repeated sweeps:  MEC:  is this a real data converter metric?
+- Code width histogram uniformity (chi-squared test against ideal).  MEC: is this a real data converter metric
 
 ### ADC Dynamic
-- Individual harmonic levels (HD2, HD3, HD4 …) rather than aggregate THD only
-- Two-tone IIP3 / OIP3 — third-order intercept point from an IMD measurement
-- Noise spectral density (NSD) in dBFS/√Hz — useful for oversampling contexts
-- ERBW (effective resolution bandwidth) — frequency at which ENOB degrades by 0.5 bits; requires sweeping input frequency
+- Individual harmonic levels (HD2, HD3, HD4 …) rather than aggregate THD only: MEC:  let's do this.  let's also generalize to tthe nth harmonic, and then have metrics for non-HD23 harmonics
+- Two-tone IIP3 / OIP3 — third-order intercept point from an IMD measurement.  MEC:  let's do this
+- Noise spectral density (NSD) in dBFS/√Hz — useful for oversampling contexts: MEC: let's do this
+- ERBW (effective resolution bandwidth) — frequency at which ENOB degrades by 0.5 bits; requires sweeping input frequency.  MEC:  let's do this
+MEC: we also need dynamic range, which requires and amplitude sweep
 
 ### DAC
-- Settling time — samples to settle within ½ LSB of final code (needs step-response simulation)
-- Glitch energy — glitch impulse area at major-carry transitions (e.g. 0111→1000)
-- Code-dependent output impedance
+- Settling time — samples to settle within ½ LSB of final code (needs step-response simulation).  MEC: let's skip this for now, add it to a later list
+- Glitch energy — glitch impulse area at major-carry transitions (e.g. 0111→1000):  MEC: let's skip this for now, this requires some timing modeling.  Add it to a later list
+- Code-dependent output impedance: MEC:  let's skip this
 
 ---
 
 ## 2. Additional Signal Types
 
-- **Chirp / swept sine** — sweep frequency over time; essential for ERBW measurement
-- **PRBS** (pseudo-random binary sequence) — flat-spectrum broadband stimulus for noise floor and memory-effect testing
-- **Windowed sine** — explicit Hann, Blackman-Harris, flat-top window support in `signal_gen`
-- **Burst / step** — clean single-step between two codes; for settling time measurement
-- **Noise-modulated sine** — sine + additive Gaussian noise; for aperture jitter sensitivity
-- **Incremental staircase** — steps up one LSB at a time; for transition noise measurement
+- **Chirp / swept sine** — sweep frequency over time; essential for ERBW measurement.  MEC:  please add
+- **PRBS** (pseudo-random binary sequence) — flat-spectrum broadband stimulus for noise floor and memory-effect testing.  MEC: let's add.  There should be a way to convolve with a channel too
+- **Windowed sine** — explicit Hann, Blackman-Harris, flat-top window support in `signal_gen`.  MEC: let's add
+- **Burst / step** — clean single-step between two codes; for settling time measurement. MEC: let's skip for now, add it to a later list
+- **Noise-modulated sine** — sine + additive Gaussian noise; for aperture jitter sensitivity. MEC: no need, this is just noise.  But there should be a noise generator available
+- **Incremental staircase** — steps up one LSB at a time; for transition noise measurement.  MEC:  not needed
 
 ---
 
@@ -47,6 +50,8 @@ Replace the binary weight vector `[2^(N−1), …, 2, 1]` with an arbitrary weig
 - **Noise-shaping SAR** — integrates residue voltage and feeds it forward, shaping quantisation noise out of band
 
 The CDAC already accepts a capacitor array; the main work is making the successive-approximation logic weight-aware and adding a digital error correction layer.
+
+MEC:  let's do all of 3
 
 ---
 
@@ -72,6 +77,8 @@ The CDAC already accepts a capacitor array; the main work is making the successi
 ### Shared Infrastructure
 All voltage-mode DACs need a **resistor network solver** (nodal analysis) as the core simulation primitive, analogous to charge redistribution in the CDAC.
 
+MEC:  let's do all of 4
+
 ---
 
 ## 5. Suggested Priorities
@@ -83,6 +90,8 @@ All voltage-mode DACs need a **resistor network solver** (nodal analysis) as the
 | 3 | Redundant SAR | High practical value; contained change to existing SAR |
 | 4 | Settling time + glitch energy metrics | Completes DAC characterisation story |
 | 5 | Chirp + ERBW | Rounds out dynamic metrics |
+
+MEC:  I am good with this order, please feel free to use a full team to implement all.  Don't forget to create additional tests for these, to vet the design decisions, to have a code reviewer, and finally to update the documentation
 
 ---
 
