@@ -12,7 +12,49 @@ from pyDataconverter.utils.metrics import (
     calculate_adc_static_metrics_histogram,
     is_monotonic,
     calculate_histogram,
+    calculate_gain_offset_error,
 )
+from pyDataconverter.dataconverter import QuantizationMode
+
+
+def test_gain_offset_error_ideal():
+    n_bits = 4
+    v_ref = 1.0
+    ideal_lsb = v_ref / 2**n_bits
+    transitions = np.arange(1, 2**n_bits) * ideal_lsb
+    result = calculate_gain_offset_error(transitions, n_bits, v_ref)
+    assert abs(result['OffsetError']) < 1e-12
+    assert abs(result['GainError']) < 1e-12
+
+def test_gain_offset_error_with_offset():
+    n_bits = 4
+    v_ref = 1.0
+    ideal_lsb = v_ref / 2**n_bits
+    shift = 0.01
+    transitions = np.arange(1, 2**n_bits) * ideal_lsb + shift
+    result = calculate_gain_offset_error(transitions, n_bits, v_ref)
+    assert abs(result['OffsetError'] - shift) < 1e-12
+
+def test_gain_offset_error_with_gain():
+    n_bits = 4
+    v_ref = 1.0
+    ideal_lsb = v_ref / 2**n_bits
+    gain = 0.05
+    ideal = np.arange(1, 2**n_bits) * ideal_lsb
+    stretched = ideal[0] + (ideal - ideal[0]) * (1 + gain)
+    result = calculate_gain_offset_error(stretched, n_bits, v_ref)
+    assert abs(result['GainError'] - gain) < 1e-6
+
+def test_static_metrics_uses_gain_offset_helper():
+    import numpy as np
+    from pyDataconverter.architectures.FlashADC import FlashADC
+    adc = FlashADC(n_bits=6, v_ref=1.0, offset_std=0.002)
+    vin = np.linspace(0, 1.0, 10000)
+    codes = np.array([adc.convert(float(v)) for v in vin])
+    m_static = calculate_adc_static_metrics(vin, codes, 6, 1.0)
+    m_go = calculate_gain_offset_error(m_static['Transitions'], 6, 1.0)
+    assert abs(m_static['Offset'] - m_go['OffsetError']) < 1e-12
+    assert abs(m_static['GainError'] - m_go['GainError']) < 1e-12
 
 
 # ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ Public API (import as ``from pyDataconverter.utils import metrics`` then
 call ``metrics.XYZ``):
 
 ADC:
+    calculate_gain_offset_error
     calculate_adc_dynamic_metrics
     calculate_adc_static_metrics
     calculate_adc_static_metrics_histogram
@@ -20,6 +21,7 @@ DAC:
 """
 
 from .adc import (
+    calculate_gain_offset_error,
     calculate_adc_dynamic_metrics,
     calculate_adc_static_metrics,
     calculate_adc_static_metrics_histogram,
@@ -33,6 +35,7 @@ from .dac import (
 )
 
 __all__ = [
+    "calculate_gain_offset_error",
     "calculate_adc_dynamic_metrics",
     "calculate_adc_static_metrics",
     "calculate_adc_static_metrics_histogram",

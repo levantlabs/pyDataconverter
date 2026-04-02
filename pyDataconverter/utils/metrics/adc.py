@@ -14,6 +14,41 @@ from ._dynamic import _calculate_dynamic_metrics
 from ._shared import _fit_reference_line
 
 
+def calculate_gain_offset_error(
+        transitions: np.ndarray,
+        n_bits: int,
+        v_ref: float = 1.0,
+        quant_mode: QuantizationMode = QuantizationMode.FLOOR,
+) -> Dict[str, float]:
+    """
+    Calculate offset error and gain error from measured transition voltages.
+
+    Args:
+        transitions: Measured transition voltages, length 2^n_bits - 1.
+        n_bits: ADC resolution.
+        v_ref: Reference voltage (V).
+        quant_mode: FLOOR or SYMMETRIC.
+
+    Returns:
+        Dict with keys:
+            OffsetError : float — deviation of first transition from ideal (V).
+            GainError   : float — fractional gain error (dimensionless).
+    """
+    if quant_mode == QuantizationMode.FLOOR:
+        ideal_lsb   = v_ref / (2 ** n_bits)
+        ideal_first = ideal_lsb
+        ideal_last  = (2 ** n_bits - 1) * ideal_lsb
+    else:
+        ideal_lsb   = v_ref / (2 ** n_bits - 1)
+        ideal_first = 0.5 * ideal_lsb
+        ideal_last  = (2 ** n_bits - 1.5) * ideal_lsb
+
+    ideal_span   = ideal_last - ideal_first
+    offset_error = float(transitions[0] - ideal_first)
+    gain_error   = float((transitions[-1] - transitions[0] - ideal_span) / ideal_span)
+    return {'OffsetError': offset_error, 'GainError': gain_error}
+
+
 def calculate_adc_dynamic_metrics(time_data: np.ndarray = None,
                                    fs: float = None,
                                    f0: float = None,
@@ -164,10 +199,10 @@ def calculate_adc_static_metrics(input_voltages: np.ndarray,
     else:
         raise ValueError("inl_method must be 'endpoint', 'best_fit', or 'absolute'")
 
-    # --- Offset and gain error (mode-independent structure) ---
-    ideal_span = ideal_last - ideal_first
-    offset     = transitions[0] - ideal_first
-    gain_error = ((transitions[-1] - transitions[0]) - ideal_span) / ideal_span
+    # --- Offset and gain error ---
+    _go        = calculate_gain_offset_error(transitions, n_bits, v_ref, quant_mode)
+    offset     = _go['OffsetError']
+    gain_error = _go['GainError']
 
     return {
         "DNL": dnl,
