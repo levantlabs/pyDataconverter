@@ -32,6 +32,11 @@ def _calculate_dynamic_metrics(freqs: np.ndarray,
     """
     bin_width = freqs[1] - freqs[0]
 
+    if f0 is None:
+        # Auto-detect: use the peak bin (excluding DC at index 0)
+        peak_idx = np.argmax(mags[1:]) + 1
+        f0 = freqs[peak_idx]
+
     fund_freq, fund_mag = find_fundamental(freqs, mags, f0, fs)
     harmonics = find_harmonics(freqs, mags, fund_freq, fs, num_harmonics=7)
 
@@ -62,18 +67,42 @@ def _calculate_dynamic_metrics(freqs: np.ndarray,
     else:
         offset = 10 ** (mags[0] / 20)
 
+    # Individual harmonic levels
+    harmonic_dict = {}
+    for i, (hf, hm) in enumerate(harmonics, start=2):
+        harmonic_dict[f"HD{i}"]      = float(hm)
+        harmonic_dict[f"HD{i}_freq"] = float(hf)
+
+    # Strongest non-harmonic spur (excluding fundamental and all harmonics)
+    exclude_freqs = np.array([fund_freq] + [h[0] for h in harmonics])
+    non_harmonic_mask = ~np.any(
+        np.abs(freqs[np.newaxis, :] - exclude_freqs[:, np.newaxis]) <= bin_width,
+        axis=0,
+    )
+    spurious = float(np.max(mags[non_harmonic_mask])) if non_harmonic_mask.any() else float(fund_mag)
+
+    # NSD: total noise power normalised to 1 Hz bandwidth
+    n_noise_bins = int(np.sum(mask))
+    if n_noise_bins > 0 and bin_width > 0:
+        nsd_dBHz = 10 * np.log10(max(noise_pwr, 1e-20) / n_noise_bins) - 10 * np.log10(bin_width)
+    else:
+        nsd_dBHz = float('-inf')
+
     results = {
         "SNR": snr,
         "SNDR": sndr,
         "SFDR": sfdr,
         "THD": thd,
+        "NSD_dBHz": nsd_dBHz,
         "NoiseFloor": noise_floor,
+        "Spurious": spurious,
         "ENOB": enob,
         "Offset": offset,
         "FundamentalFrequency": fund_freq,
         "FundamentalMagnitude": fund_mag,
         "HarmonicFreqs": [h[0] for h in harmonics],
-        "HarmonicMags": [h[1] for h in harmonics],
+        "HarmonicMags":  [h[1] for h in harmonics],
+        **harmonic_dict,
     }
 
     if full_scale is not None:

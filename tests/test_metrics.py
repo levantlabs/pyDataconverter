@@ -576,6 +576,52 @@ def test_missing_codes_detected():
     assert len(m['MissingCodes']) > 0
 
 
+def test_dynamic_metrics_individual_harmonics():
+    from pyDataconverter.utils.signal_gen import generate_coherent_sine
+    from pyDataconverter.architectures.FlashADC import FlashADC
+    import numpy as np
+    fs = 1e6
+    n_fft = 1024
+    adc = FlashADC(n_bits=8, v_ref=1.0, offset_std=0.001)
+    vin, _ = generate_coherent_sine(fs, n_fft, n_fin=13, amplitude=0.45, offset=0.5)
+    codes = np.array([adc.convert(float(v)) for v in vin])
+    from pyDataconverter.utils.metrics import calculate_adc_dynamic_metrics
+    m = calculate_adc_dynamic_metrics(time_data=codes.astype(float), fs=fs)
+    assert 'HD2' in m
+    assert 'HD3' in m
+    assert isinstance(m['HD2'], float)
+    assert isinstance(m['HD3'], float)
+
+def test_dynamic_metrics_nsd():
+    from pyDataconverter.utils.signal_gen import generate_coherent_sine
+    from pyDataconverter.architectures.FlashADC import FlashADC
+    import numpy as np
+    fs = 1e6
+    n_fft = 1024
+    adc = FlashADC(n_bits=8, v_ref=1.0, offset_std=0.0)
+    vin, _ = generate_coherent_sine(fs, n_fft, n_fin=13, amplitude=0.45, offset=0.5)
+    codes = np.array([adc.convert(float(v)) for v in vin])
+    from pyDataconverter.utils.metrics import calculate_adc_dynamic_metrics
+    m = calculate_adc_dynamic_metrics(time_data=codes.astype(float), fs=fs)
+    assert 'NSD_dBHz' in m
+    assert np.isfinite(m['NSD_dBHz'])
+    assert m['NSD_dBHz'] < 0
+
+def test_dynamic_metrics_spurious():
+    from pyDataconverter.utils.signal_gen import generate_coherent_sine
+    from pyDataconverter.architectures.FlashADC import FlashADC
+    import numpy as np
+    fs = 1e6
+    n_fft = 1024
+    adc = FlashADC(n_bits=6, v_ref=1.0, offset_std=0.001)
+    vin, _ = generate_coherent_sine(fs, n_fft, n_fin=13, amplitude=0.45, offset=0.5)
+    codes = np.array([adc.convert(float(v)) for v in vin])
+    from pyDataconverter.utils.metrics import calculate_adc_dynamic_metrics
+    m = calculate_adc_dynamic_metrics(time_data=codes.astype(float), fs=fs)
+    assert 'Spurious' in m
+    assert isinstance(m['Spurious'], float)
+
+
 def main():
     """Run all tests"""
     test_dynamic_metrics()
