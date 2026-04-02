@@ -420,6 +420,123 @@ class SplitCapCDAC(SingleEndedCDAC):
                 f"n_msb={self._n_msb}, cap_mismatch={self.cap_mismatch})")
 
 
+class SegmentedCDAC(CDACBase):
+    """
+    Segmented C-DAC: thermometer-coded MSBs + binary-weighted LSBs.
+
+    The top n_therm bits are decoded to (2^n_therm − 1) equal-weight unit
+    capacitors (thermometer), and the lower n_bits − n_therm bits are handled
+    by a binary sub-array.  This class wraps both sub-arrays and decodes a
+    full n_bits code into (therm_code, binary_code) before dispatching to
+    each sub-array's voltage.
+
+    The thermometer unit cap is scaled so that one thermometer step equals
+    2^n_binary LSB steps, giving a uniform step size across all codes.
+
+    The total physical cap count is (2^n_therm − 1) + n_binary, plus a
+    termination cap inside the underlying SingleEndedCDAC.
+
+    Args:
+        n_bits: Total ADC resolution.
+        v_ref: Reference voltage (V).
+        n_therm: Number of MSBs implemented as thermometer (1 ≤ n_therm < n_bits).
+        cap_mismatch: Capacitor mismatch std for both sub-arrays.
+    """
+
+    def __init__(
+        self,
+        n_bits: int,
+        v_ref: float = 1.0,
+        n_therm: int = 4,
+        cap_mismatch: float = 0.0,
+    ):
+        n_binary = n_bits - n_therm
+        if not (1 <= n_therm <= n_bits - 1):
+            raise ValueError(f"n_therm must be in [1, {n_bits - 1}]")
+
+        self._n_bits   = n_bits
+        self._v_ref    = v_ref
+        self._n_therm  = n_therm
+        self._n_binary = n_binary
+
+        # One unit cap per thermometer level (2^n_therm − 1 caps)
+        n_therm_caps = 2 ** n_therm - 1
+        therm_weights = np.ones(n_therm_caps)
+
+        # Binary sub-array for the lower bits
+        binary_weights = 2 ** np.arange(n_binary - 1, -1, -1, dtype=float)
+
+        # Scale thermometer unit so that 1 therm step = 2^n_binary binary steps
+        lsb_equiv = 2 ** n_binary
+        therm_weights_scaled = therm_weights * lsb_equiv
+
+        # Combine into one flat weight vector
+        all_weights = np.concatenate([therm_weights_scaled, binary_weights])
+
+        # Instantiate as a single SingleEndedCDAC
+        self._cdac = SingleEndedCDAC(
+            n_bits=len(all_weights),
+            v_ref=v_ref,
+            cap_weights=all_weights,
+            cap_mismatch=cap_mismatch,
+        )
+
+    @property
+    def n_bits(self) -> int:
+        return self._n_bits
+
+    @property
+    def v_ref(self) -> float:
+        return self._v_ref
+
+    @property
+    def cap_weights(self) -> np.ndarray:
+        return self._cdac.cap_weights
+
+    @property
+    def cap_total(self) -> float:
+        return self._cdac.cap_total
+
+    def get_voltage(self, code: int) -> Tuple[float, float]:
+        """
+        Decode code into thermometer + binary parts, return (v_dac, 0.0).
+
+        The upper n_therm bits → thermometer index t (0..2^n_therm − 1).
+        The lower n_binary bits → binary code b.
+        The first t of (2^n_therm − 1) thermometer caps are driven high,
+        plus the standard binary encoding of b for the LSB caps.
+        """
+        if not (0 <= code < 2 ** self._n_bits):
+            raise ValueError(f"code {code} out of range [0, {2 ** self._n_bits - 1}]")
+        # Decompose
+        therm_code  = code >> self._n_binary                    # upper n_therm bits (0..2^n_therm - 1)
+        binary_code = code & ((1 << self._n_binary) - 1)        # lower n_binary bits
+
+        # Build thermometer bits: first therm_code caps are 1, rest are 0
+        n_therm_caps = 2 ** self._n_therm - 1
+        therm_bits = np.zeros(n_therm_caps, dtype=float)
+        therm_bits[:therm_code] = 1.0
+
+        # Build binary bits
+        binary_bits = np.array(
+            [(binary_code >> (self._n_binary - 1 - k)) & 1 for k in range(self._n_binary)],
+            dtype=float,
+        )
+
+        # Concatenate: [therm caps | binary caps]
+        bits = np.concatenate([therm_bits, binary_bits])
+
+        # Compute voltage using the underlying CDAC's weights and total
+        cap_weights = self._cdac._cap_weights
+        cap_total   = self._cdac._cap_total
+        v_dac = float(np.dot(bits, cap_weights) / cap_total * self._v_ref)
+        return (v_dac, 0.0)
+
+    def __repr__(self) -> str:
+        return (f"SegmentedCDAC(n_bits={self._n_bits}, v_ref={self._v_ref}, "
+                f"n_therm={self._n_therm})")
+
+
 class DifferentialCDAC(CDACBase):
     """
     Binary-weighted capacitive DAC with complementary arrays for differential

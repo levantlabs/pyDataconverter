@@ -1,7 +1,7 @@
 """Tests for generalised SAR ADC components."""
 import numpy as np
 import pytest
-from pyDataconverter.components.cdac import RedundantSARCDAC, SplitCapCDAC
+from pyDataconverter.components.cdac import RedundantSARCDAC, SplitCapCDAC, SegmentedCDAC
 
 
 class TestRedundantSARCDAC:
@@ -87,3 +87,32 @@ class TestSplitCapCDAC:
         cdac = SplitCapCDAC(n_bits=8, v_ref=1.0, n_msb=4)
         voltages = cdac.voltages
         assert np.all(np.diff(voltages) >= -1e-9)
+
+
+class TestSegmentedCDAC:
+    def test_construction(self):
+        cdac = SegmentedCDAC(n_bits=8, v_ref=1.0, n_therm=4)
+        assert cdac.n_bits == 8
+
+    def test_monotone_voltages(self):
+        cdac = SegmentedCDAC(n_bits=8, v_ref=1.0, n_therm=4)
+        v = cdac.voltages
+        assert np.all(np.diff(v) >= -1e-9)
+
+    def test_output_range(self):
+        """Max code → v_ref - LSB, code 0 → 0."""
+        cdac = SegmentedCDAC(n_bits=8, v_ref=1.0, n_therm=4)
+        v = cdac.voltages
+        assert abs(v[0]) < 1e-9
+        expected_max = (2**8 - 1) / 2**8
+        assert abs(v[-1] - expected_max) < 0.01
+
+    def test_thermometer_section_equal_steps(self):
+        """The MSB 2^n_therm steps should be equal (thermometer linearity)."""
+        n_bits, n_therm = 8, 4
+        cdac = SegmentedCDAC(n_bits=n_bits, v_ref=1.0, n_therm=n_therm)
+        v = cdac.voltages
+        step = 2**n_bits // 2**n_therm  # codes per thermometer step
+        msb_voltages = v[step-1::step][:2**n_therm]
+        diffs = np.diff(msb_voltages)
+        assert np.allclose(diffs, diffs[0], rtol=0.01)
