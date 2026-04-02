@@ -562,3 +562,69 @@ def test_apply_channel_lowpass():
     assert len(out) == len(sig)
     # High-frequency portion should have lower variance after filtering
     assert np.std(out[-100:]) <= np.std(sig[-100:]) + 0.01
+
+
+# ---- generate_gaussian_noise -----------------------------------------------
+
+from pyDataconverter.utils.signal_gen import generate_gaussian_noise, apply_window
+
+
+def test_gaussian_noise_length():
+    sig = generate_gaussian_noise(n_samples=1000)
+    assert len(sig) == 1000
+
+
+def test_gaussian_noise_statistics():
+    """Zero mean, unit std by default."""
+    rng = np.random.default_rng(0)
+    sig = generate_gaussian_noise(n_samples=10000, std=1.0, rng=rng)
+    assert abs(np.mean(sig)) < 0.05
+    assert abs(np.std(sig) - 1.0) < 0.05
+
+
+def test_gaussian_noise_std_param():
+    rng = np.random.default_rng(1)
+    std = 0.3
+    sig = generate_gaussian_noise(n_samples=5000, std=std, rng=rng)
+    assert abs(np.std(sig) - std) < 0.02
+
+
+def test_gaussian_noise_offset():
+    rng = np.random.default_rng(2)
+    sig = generate_gaussian_noise(n_samples=5000, std=0.1, offset=2.5, rng=rng)
+    assert abs(np.mean(sig) - 2.5) < 0.02
+
+
+def test_gaussian_noise_reproducible():
+    s1 = generate_gaussian_noise(100, std=1.0, rng=np.random.default_rng(7))
+    s2 = generate_gaussian_noise(100, std=1.0, rng=np.random.default_rng(7))
+    np.testing.assert_array_equal(s1, s2)
+
+
+# ---- apply_window ----------------------------------------------------------
+
+
+def test_apply_window_length():
+    sig = np.ones(256)
+    out = apply_window(sig, 'hann')
+    assert len(out) == 256
+
+
+def test_apply_window_hann_ends_zero():
+    """Hann window tapers to zero at both ends."""
+    sig = np.ones(256)
+    out = apply_window(sig, 'hann')
+    assert abs(out[0]) < 0.01
+    assert abs(out[-1]) < 0.01
+
+
+def test_apply_window_invalid_raises():
+    with pytest.raises(ValueError, match="Unknown window"):
+        apply_window(np.ones(64), 'not_a_window')
+
+
+def test_apply_window_blackman():
+    sig = np.ones(128)
+    out = apply_window(sig, 'blackman')
+    assert len(out) == 128
+    assert abs(out[0]) < 0.01

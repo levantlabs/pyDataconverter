@@ -543,6 +543,59 @@ def apply_channel(signal: np.ndarray,
     return out[:len(signal)]
 
 
+def generate_gaussian_noise(n_samples: int,
+                            std: float = 1.0,
+                            offset: float = 0.0,
+                            rng: np.random.Generator = None) -> np.ndarray:
+    """
+    Generate Gaussian white noise.
+
+    Args:
+        n_samples: Number of samples.
+        std: Standard deviation in volts (default 1.0).
+        offset: DC offset in volts (default 0.0).
+        rng: Optional numpy Generator for reproducibility. If None, uses
+             the global numpy random state.
+
+    Returns:
+        Signal array of length n_samples.
+    """
+    if rng is None:
+        return np.random.normal(loc=offset, scale=std, size=n_samples)
+    return rng.normal(loc=offset, scale=std, size=n_samples)
+
+
+def apply_window(signal: np.ndarray, window_type: str) -> np.ndarray:
+    """
+    Apply a window function to a signal.
+
+    Supports the same window names used by ``compute_fft``:
+    'hann', 'hamming', 'blackman', 'bartlett', 'kaiser', 'flattop',
+    'boxcar', 'tukey', 'cosine', 'exponential'.
+
+    Args:
+        signal: Input signal array.
+        window_type: Name of the window (case-sensitive, scipy.signal.windows).
+
+    Returns:
+        Windowed signal array of the same length as ``signal``.
+
+    Raises:
+        ValueError: If window_type is not a recognised window name.
+    """
+    _ALLOWED_WINDOWS = {
+        'hann', 'hamming', 'blackman', 'bartlett', 'kaiser',
+        'flattop', 'boxcar', 'tukey', 'cosine', 'exponential',
+    }
+    if window_type not in _ALLOWED_WINDOWS:
+        raise ValueError(
+            f"Unknown window '{window_type}'. "
+            f"Allowed: {sorted(_ALLOWED_WINDOWS)}")
+    from scipy.signal import windows as sp_windows
+    w = getattr(sp_windows, window_type)(len(signal))
+    return signal * w
+
+
 def generate_coherent_sine(sampling_rate: float,
                            n_fft: int,
                            n_fin: int,
