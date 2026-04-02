@@ -492,3 +492,73 @@ def test_chirp_log_method():
     n_samples = int(1e6 * 0.01)
     sig, t = generate_chirp(fs=fs, n_samples=n_samples, f_start=1e3, f_stop=100e3, method='logarithmic')
     assert len(sig) == n_samples
+
+
+# ---- generate_prbs ---------------------------------------------------------
+
+from pyDataconverter.utils.signal_gen import generate_prbs, apply_channel
+
+
+def test_prbs_length():
+    """Output has exactly n_samples samples."""
+    sig = generate_prbs(order=7, n_samples=1000)
+    assert len(sig) == 1000
+
+
+def test_prbs_binary_values():
+    """Default PRBS has only +amplitude and -amplitude values."""
+    amp = 0.5
+    sig = generate_prbs(order=7, n_samples=500, amplitude=amp)
+    unique = np.unique(sig)
+    assert set(unique).issubset({-amp, amp})
+
+
+def test_prbs_with_offset():
+    """Offset shifts all values."""
+    sig = generate_prbs(order=7, n_samples=500, amplitude=0.5, offset=1.0)
+    assert np.all(sig >= 0.4)
+    assert np.all(sig <= 1.6)
+
+
+def test_prbs_flat_spectrum():
+    """PRBS has a roughly flat power spectrum (no dominant tone)."""
+    sig = generate_prbs(order=10, n_samples=2**10 - 1, amplitude=1.0)
+    fft_mag = np.abs(np.fft.rfft(sig - np.mean(sig)))
+    # No single bin should dominate (no tone > 5x the mean)
+    assert np.max(fft_mag[1:]) < 5 * np.mean(fft_mag[1:])
+
+
+def test_prbs_reproducible_with_seed():
+    """Same seed gives the same sequence."""
+    s1 = generate_prbs(order=7, n_samples=200, seed=42)
+    s2 = generate_prbs(order=7, n_samples=200, seed=42)
+    np.testing.assert_array_equal(s1, s2)
+
+
+# ---- apply_channel ---------------------------------------------------------
+
+
+def test_apply_channel_length():
+    """Output length matches input length (same-length convolution)."""
+    sig = generate_prbs(order=7, n_samples=512)
+    h = np.array([1.0, -0.5, 0.25])
+    out = apply_channel(sig, h)
+    assert len(out) == len(sig)
+
+
+def test_apply_channel_identity():
+    """Convolving with [1] returns the original signal."""
+    sig = generate_prbs(order=7, n_samples=200)
+    out = apply_channel(sig, np.array([1.0]))
+    np.testing.assert_allclose(out, sig)
+
+
+def test_apply_channel_lowpass():
+    """A lowpass FIR reduces high-frequency content."""
+    sig, _ = generate_chirp(fs=1e6, n_samples=int(1e6 * 0.01), f_start=1e3, f_stop=100e3)
+    # Simple 3-tap moving average = lowpass
+    h = np.ones(3) / 3.0
+    out = apply_channel(sig, h)
+    assert len(out) == len(sig)
+    # High-frequency portion should have lower variance after filtering
+    assert np.std(out[-100:]) <= np.std(sig[-100:]) + 0.01

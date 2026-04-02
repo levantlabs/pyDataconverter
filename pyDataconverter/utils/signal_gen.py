@@ -452,6 +452,97 @@ def generate_digital_imd_tones(n_bits: int,
 
     return signal, imd_freqs
 
+def generate_prbs(order: int,
+                  n_samples: int,
+                  amplitude: float = 1.0,
+                  offset: float = 0.0,
+                  seed: int = None) -> np.ndarray:
+    """
+    Generate a Pseudo-Random Binary Sequence (PRBS).
+
+    Uses a maximal-length linear feedback shift register (LFSR) to produce
+    a balanced ±amplitude binary sequence with a flat power spectrum.
+
+    Args:
+        order: LFSR order (2–20). The full period length is 2^order − 1.
+        n_samples: Number of output samples. The PRBS is tiled or truncated
+            to this length.
+        amplitude: Half-range of the output (default 1.0). Output values
+            are +amplitude and −amplitude.
+        offset: DC offset in volts (default 0.0).
+        seed: Optional integer seed for the initial LFSR state. If None a
+            fixed all-ones state is used, giving a deterministic sequence.
+
+    Returns:
+        Signal array of length n_samples with values {offset±amplitude}.
+    """
+    # Standard maximal-length LFSR taps (Fibonacci form, bit positions 1-indexed from LSB)
+    _TAPS = {
+        2:  [1, 2],
+        3:  [1, 2],
+        4:  [1, 2],
+        5:  [1, 3],
+        6:  [1, 2],
+        7:  [1, 2],
+        8:  [1, 2, 3, 8],
+        9:  [1, 5],
+        10: [1, 4],
+        11: [1, 3],
+        12: [1, 2, 3, 9],
+        13: [1, 2, 3, 6],
+        14: [1, 2, 3, 13],
+        15: [1, 2],
+        16: [1, 2, 4, 13],
+        17: [1, 4],
+        18: [1, 8],
+        19: [1, 2, 3, 6],
+        20: [1, 4],
+    }
+    if order not in _TAPS:
+        raise ValueError(f"order must be between 2 and 20, got {order}")
+
+    taps = _TAPS[order]
+    period = 2 ** order - 1
+
+    rng = np.random.default_rng(seed)
+    state = int(rng.integers(1, 2**order)) if seed is not None else (2**order - 1)
+
+    bits = np.zeros(period, dtype=np.int8)
+    for i in range(period):
+        bits[i] = state & 1
+        feedback = 0
+        for tap in taps:
+            feedback ^= (state >> (tap - 1)) & 1
+        state = ((state >> 1) | (feedback << (order - 1))) & ((1 << order) - 1)
+
+    # Tile to n_samples
+    reps = (n_samples + period - 1) // period
+    tiled = np.tile(bits, reps)[:n_samples]
+
+    # Map 0/1 → -amplitude/+amplitude
+    return tiled.astype(float) * 2 * amplitude - amplitude + offset
+
+
+def apply_channel(signal: np.ndarray,
+                  h: np.ndarray) -> np.ndarray:
+    """
+    Apply a channel impulse response to a signal (linear convolution).
+
+    Output is truncated to the same length as the input so the return
+    array can be fed directly to an ADC.
+
+    Args:
+        signal: Input signal array.
+        h: Channel impulse response (FIR filter coefficients).
+
+    Returns:
+        Signal array of the same length as ``signal``.
+    """
+    from scipy.signal import fftconvolve
+    out = fftconvolve(signal, h, mode='full')
+    return out[:len(signal)]
+
+
 def generate_coherent_sine(sampling_rate: float,
                            n_fft: int,
                            n_fin: int,
