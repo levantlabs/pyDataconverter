@@ -335,6 +335,91 @@ class RedundantSARCDAC(SingleEndedCDAC):
                 f"radix={self.radix}, cap_mismatch={self.cap_mismatch})")
 
 
+class SplitCapCDAC(SingleEndedCDAC):
+    """
+    Split-capacitor C-DAC with a bridge capacitor between coarse and fine arrays.
+
+    Divides the n_bits capacitors into n_msb MSB caps and n_lsb = n_bits - n_msb
+    LSB caps, joined by a bridge capacitor.  Total caps = n_bits + 1 vs 2^n_bits
+    for a full binary array.
+
+    The effective weight vector is:
+        MSB weights: 2^(n_lsb), 2^(n_lsb-1), ..., 2, 1  (scaled by 2^n_lsb, MSB first)
+        Bridge cap: 1  (attenuation factor already built into MSB scaling; never driven)
+        LSB weights: 2^(n_lsb-1), ..., 2, 1
+
+    The bridge cap is never actively switched — it acts as a fixed voltage divider.
+    _code_to_bits inserts a 0 at the bridge position automatically.
+
+    Ideal LSB step = v_ref / 2^n_bits.
+
+    Args:
+        n_bits: Total ADC resolution.
+        v_ref: Reference voltage (V).
+        n_msb: Number of MSB capacitors (1 <= n_msb <= n_bits - 1).
+               Defaults to n_bits // 2.
+        cap_mismatch: Capacitor mismatch std (dimensionless).
+    """
+
+    def __init__(
+        self,
+        n_bits: int,
+        v_ref: float = 1.0,
+        n_msb: int = None,
+        cap_mismatch: float = 0.0,
+    ):
+        if n_msb is None:
+            n_msb = n_bits // 2
+        n_lsb = n_bits - n_msb
+        if not (1 <= n_msb <= n_bits - 1):
+            raise ValueError(f"n_msb must be in [1, {n_bits - 1}]")
+
+        self._n_msb = n_msb
+        self._n_lsb = n_lsb
+
+        # MSB weights scaled up by 2^n_lsb so the bridge attenuates them correctly
+        msb_weights = 2 ** np.arange(n_msb - 1, -1, -1, dtype=float) * (2 ** n_lsb)
+        # Bridge cap weight (fixed, never driven)
+        bridge_weight = np.array([1.0])
+        # LSB weights (standard binary)
+        lsb_weights = 2 ** np.arange(n_lsb - 1, -1, -1, dtype=float)
+
+        weights = np.concatenate([msb_weights, bridge_weight, lsb_weights])
+
+        # Pass n_bits+1 to parent (total number of physical caps including bridge)
+        super().__init__(n_bits + 1, v_ref,
+                         cap_weights=weights,
+                         cap_mismatch=cap_mismatch)
+
+        # Override _n_bits so the ADC sees the correct logical resolution
+        self._n_bits = n_bits
+
+    def _code_to_bits(self, code: int) -> np.ndarray:
+        """
+        Convert a logical n_bits code to the n_bits+1 physical bit vector.
+
+        The bridge cap position is always 0 (never driven).
+        MSBs come first, then bridge (0), then LSBs.
+        """
+        n_msb = self._n_msb
+        n_lsb = self._n_lsb
+        msb_code = code >> n_lsb
+        lsb_code = code & ((1 << n_lsb) - 1)
+        msb_bits = np.array(
+            [(msb_code >> (n_msb - 1 - k)) & 1 for k in range(n_msb)],
+            dtype=float,
+        )
+        lsb_bits = np.array(
+            [(lsb_code >> (n_lsb - 1 - k)) & 1 for k in range(n_lsb)],
+            dtype=float,
+        )
+        return np.concatenate([msb_bits, [0.0], lsb_bits])
+
+    def __repr__(self) -> str:
+        return (f"SplitCapCDAC(n_bits={self._n_bits}, v_ref={self._v_ref}, "
+                f"n_msb={self._n_msb}, cap_mismatch={self.cap_mismatch})")
+
+
 class DifferentialCDAC(CDACBase):
     """
     Binary-weighted capacitive DAC with complementary arrays for differential

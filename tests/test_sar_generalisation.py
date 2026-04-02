@@ -1,7 +1,7 @@
 """Tests for generalised SAR ADC components."""
 import numpy as np
 import pytest
-from pyDataconverter.components.cdac import RedundantSARCDAC
+from pyDataconverter.components.cdac import RedundantSARCDAC, SplitCapCDAC
 
 
 class TestRedundantSARCDAC:
@@ -54,3 +54,36 @@ class TestRedundantSARCDAC:
         codes = [adc.convert(float(v)) for v in vin]
         # codes should be non-decreasing
         assert all(b >= a for a, b in zip(codes, codes[1:]))
+
+
+class TestSplitCapCDAC:
+    def test_construction(self):
+        cdac = SplitCapCDAC(n_bits=8, v_ref=1.0, n_msb=4)
+        assert cdac.n_bits == 8
+        assert cdac.v_ref  == 1.0
+
+    def test_fewer_total_caps_than_full_binary(self):
+        """Split-cap uses n_bits+1 caps (incl. bridge), not 2^n_bits."""
+        cdac = SplitCapCDAC(n_bits=8, v_ref=1.0, n_msb=4)
+        # n_msb + n_lsb + 1 bridge cap = n_bits + 1 total caps
+        assert len(cdac.cap_weights) == 8 + 1  # 9 caps, not 256
+
+    def test_ideal_output_zero(self):
+        """Code 0 → 0 V."""
+        cdac = SplitCapCDAC(n_bits=8, v_ref=1.0, n_msb=4)
+        vp, vn = cdac.get_voltage(0)
+        assert abs(vp - vn) < 1e-9
+
+    def test_ideal_output_full_scale(self):
+        """Max code → v_ref - LSB."""
+        cdac = SplitCapCDAC(n_bits=8, v_ref=1.0, n_msb=4)
+        max_code = 2**8 - 1
+        vp, vn = cdac.get_voltage(max_code)
+        expected = (max_code / 2**8) * 1.0
+        assert abs(vp - vn - expected) < 0.01  # within 1% of LSB
+
+    def test_monotone_voltages(self):
+        """Voltages are non-decreasing with code."""
+        cdac = SplitCapCDAC(n_bits=8, v_ref=1.0, n_msb=4)
+        voltages = cdac.voltages
+        assert np.all(np.diff(voltages) >= -1e-9)
