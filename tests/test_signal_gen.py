@@ -22,6 +22,7 @@ from pyDataconverter.utils.signal_gen import (
     generate_coherent_two_tone,
 )
 from pyDataconverter.utils.signal_gen import generate_chirp
+from pyDataconverter.utils.signal_gen import generate_prbs
 
 
 # ---- generate_sine --------------------------------------------------------
@@ -628,3 +629,38 @@ def test_apply_window_blackman():
     out = apply_window(sig, 'blackman')
     assert len(out) == 128
     assert abs(out[0]) < 0.01
+
+
+# ---- generate_prbs --------------------------------------------------------
+
+class TestGeneratePRBS:
+
+    def test_invalid_order_zero_raises(self):
+        """Line 502: order not in _TAPS → ValueError."""
+        with pytest.raises(ValueError, match="order must be between 2 and 20"):
+            generate_prbs(order=0, n_samples=10)
+
+    def test_invalid_order_1_raises(self):
+        with pytest.raises(ValueError, match="order must be between 2 and 20"):
+            generate_prbs(order=1, n_samples=10)
+
+    def test_invalid_order_21_raises(self):
+        with pytest.raises(ValueError, match="order must be between 2 and 20"):
+            generate_prbs(order=21, n_samples=10)
+
+    def test_basic_length(self):
+        out = generate_prbs(order=5, n_samples=50)
+        assert len(out) == 50
+
+    def test_values_are_bipolar(self):
+        out = generate_prbs(order=4, n_samples=100)
+        assert set(np.unique(out)).issubset({-1.0, 1.0})
+
+    def test_amplitude_scaling(self):
+        out = generate_prbs(order=4, n_samples=100, amplitude=2.0)
+        assert set(np.unique(out)).issubset({-2.0, 2.0})
+
+    def test_with_seed(self):
+        a = generate_prbs(order=6, n_samples=63, seed=42)
+        b = generate_prbs(order=6, n_samples=63, seed=42)
+        np.testing.assert_array_equal(a, b)

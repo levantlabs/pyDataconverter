@@ -664,7 +664,7 @@ def generate_coherent_two_tone(sampling_rate: float,
 
 
 # Usage example
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     # Generate a sine wave
     sine = generate_sine(frequency=1e3, sampling_rate=1e6, amplitude=0.5)
 
