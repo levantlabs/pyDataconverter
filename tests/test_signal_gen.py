@@ -80,13 +80,22 @@ class TestGenerateRamp:
 class TestGenerateStep:
 
     def test_basic_step(self):
-        # levels[0] is the initial level (set via signal init = zeros),
-        # step_points are paired with levels[1:] via zip
+        # len(levels) == len(step_points) + 1
+        # levels[0] fills [0 : step_points[0]]; levels[1] fills [step_points[0] :]
         sig = generate_step(100, step_points=[50], levels=[0.0, 1.0])
         assert sig[0] == 0.0
         assert sig[49] == 0.0
         assert sig[50] == 1.0
         assert sig[99] == 1.0
+
+    def test_initial_level_is_applied(self):
+        # Regression for the old `levels[0]-ignored` bug: a non-zero initial
+        # level must appear in the first segment.
+        sig = generate_step(40, step_points=[20], levels=[1.5, 2.5])
+        assert sig[0] == 1.5
+        assert sig[19] == 1.5
+        assert sig[20] == 2.5
+        assert sig[39] == 2.5
 
     def test_multi_level(self):
         sig = generate_step(300, step_points=[100, 200], levels=[0.0, 1.0, 2.0])
@@ -97,8 +106,20 @@ class TestGenerateStep:
         assert sig[299] == 2.0
 
     def test_output_length(self):
-        sig = generate_step(500, step_points=[0, 250], levels=[0.0, 3.5])
+        sig = generate_step(500, step_points=[250], levels=[0.0, 3.5])
         assert len(sig) == 500
+
+    def test_levels_length_mismatch_raises(self):
+        with pytest.raises(ValueError, match="len\\(levels\\)"):
+            generate_step(100, step_points=[50], levels=[0.0, 1.0, 2.0])
+
+    def test_step_point_out_of_range_raises(self):
+        with pytest.raises(ValueError, match="out of range"):
+            generate_step(100, step_points=[150], levels=[0.0, 1.0])
+
+    def test_non_monotonic_step_points_raises(self):
+        with pytest.raises(ValueError, match="non-decreasing"):
+            generate_step(100, step_points=[60, 30], levels=[0.0, 1.0, 2.0])
 
 
 # ---- generate_two_tone ----------------------------------------------------
@@ -223,24 +244,61 @@ class TestGenerateDigitalRamp:
 class TestGenerateDigitalStep:
 
     def test_basic(self):
-        # step_points[-1] determines array length; step_points[1:] paired with levels[1:]
-        sig = generate_digital_step(8, [0, 50, 100], [0, 128, 200])
+        sig = generate_digital_step(8, samples=100, step_points=[50],
+                                    levels=[0, 128])
         assert len(sig) == 100
         assert sig[0] == 0
+        assert sig[49] == 0
         assert sig[50] == 128
         assert sig[99] == 128
 
+    def test_initial_level_is_applied(self):
+        # Regression for the old `levels[0]-ignored` bug.
+        sig = generate_digital_step(8, samples=40, step_points=[20],
+                                    levels=[17, 42])
+        assert sig[0] == 17
+        assert sig[19] == 17
+        assert sig[20] == 42
+        assert sig[39] == 42
+
+    def test_final_level_appears(self):
+        # Regression for the old length-truncation bug: with the previous
+        # contract, levels[-1] never appeared in the output.
+        sig = generate_digital_step(8, samples=1000,
+                                    step_points=[200, 400, 600, 800],
+                                    levels=[0, 50, 100, 150, 200])
+        assert sig[800] == 200
+        assert sig[999] == 200
+
     def test_output_length(self):
-        sig = generate_digital_step(8, [0, 50, 100], [0, 100, 200])
+        sig = generate_digital_step(8, samples=100, step_points=[50],
+                                    levels=[0, 100])
         assert len(sig) == 100
 
     def test_level_exceeds_max_raises(self):
         with pytest.raises(ValueError, match="less than"):
-            generate_digital_step(8, [0, 50], [0, 256])
+            generate_digital_step(8, samples=100, step_points=[50],
+                                  levels=[0, 256])
 
     def test_negative_level_raises(self):
         with pytest.raises(ValueError, match="non-negative"):
-            generate_digital_step(8, [0, 50], [0, -1])
+            generate_digital_step(8, samples=100, step_points=[50],
+                                  levels=[0, -1])
+
+    def test_levels_length_mismatch_raises(self):
+        with pytest.raises(ValueError, match="len\\(levels\\)"):
+            generate_digital_step(8, samples=100, step_points=[50],
+                                  levels=[0, 100, 200])
+
+    def test_step_point_out_of_range_raises(self):
+        with pytest.raises(ValueError, match="out of range"):
+            generate_digital_step(8, samples=100, step_points=[150],
+                                  levels=[0, 100])
+
+    def test_non_monotonic_step_points_raises(self):
+        with pytest.raises(ValueError, match="non-decreasing"):
+            generate_digital_step(8, samples=100, step_points=[60, 30],
+                                  levels=[0, 100, 200])
 
 
 # ---- generate_digital_sine ------------------------------------------------

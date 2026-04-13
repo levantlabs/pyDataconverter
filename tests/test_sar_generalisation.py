@@ -250,6 +250,28 @@ class TestNoiseshapingSARADC:
         # Full-band SNR should be comparable (within ~4 dB) even at Nyquist rate.
         assert m_ns['SNR'] > m_std['SNR'] - 4.0
 
+    def test_differential_mode_integrator_does_not_saturate(self):
+        """Regression: in differential mode the reconstructed analog value
+        must be in the same coordinate system as v_sampled ([-v_ref/2, +v_ref/2]).
+        Before the fix, reconstruction returned single-ended-equivalent voltage,
+        so the residue was biased by +v_ref/2 and the integrator saturated
+        immediately, silently disabling noise shaping."""
+        from pyDataconverter.architectures.SARADC import NoiseshapingSARADC
+        from pyDataconverter.dataconverter import InputType
+        adc = NoiseshapingSARADC(n_bits=6, v_ref=1.0,
+                                  input_type=InputType.DIFFERENTIAL)
+        lsb = 1.0 / 64  # v_ref / 2^n_bits
+        # Small slow-varying differential signal well below full scale
+        for i in range(200):
+            v_diff = 0.1 * np.sin(i * 0.1)
+            adc.convert((v_diff / 2, -v_diff / 2))
+            # Healthy integrator: bounded by a few LSBs; pathological
+            # (pre-fix) behaviour pins it at ±v_ref/2 = 32 LSBs.
+            assert abs(adc.integrator_state) < 5 * lsb, (
+                f"integrator state {adc.integrator_state} exceeded 5*LSB "
+                f"at step {i} — differential reconstruction bug regressed"
+            )
+
 
 class TestSARAdcBaseLineCoverage:
     """Targeted tests to cover SARADC.py lines missing from this test file."""

@@ -38,6 +38,8 @@ from abc import ABC, abstractmethod
 from typing import Tuple
 import numpy as np
 
+from ..utils._bits import code_to_bits_msb_first
+
 
 class DecoderBase(ABC):
     """
@@ -149,10 +151,7 @@ class BinaryDecoder(DecoderBase):
             Tuple[int, np.ndarray]: (0, bit array of length n_bits, MSB first).
         """
         self._validate_code(code)
-        bits = np.array(
-            [(code >> (self._n_bits - 1 - k)) & 1 for k in range(self._n_bits)],
-            dtype=float,
-        )
+        bits = code_to_bits_msb_first(code, self._n_bits, dtype=float)
         return 0, bits
 
 

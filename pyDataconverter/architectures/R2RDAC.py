@@ -36,6 +36,7 @@ from typing import Optional
 
 from pyDataconverter.dataconverter import DACBase, OutputType
 from pyDataconverter.utils.nodal_solver import solve_resistor_network
+from pyDataconverter.utils._bits import code_to_bits_msb_first
 
 
 class R2RDAC(DACBase):
@@ -166,7 +167,7 @@ class R2RDAC(DACBase):
         vref_node = n + 1
 
         # Decode bits: bit k = MSB at k=0, LSB at k=n-1
-        bits = [(code >> (n - 1 - k)) & 1 for k in range(n)]
+        bits = code_to_bits_msb_first(code, n, dtype=np.int8)
 
         resistors = []
 

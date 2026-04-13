@@ -193,7 +193,7 @@ Enum defining the output configuration for DAC architectures.
 | Name | Value | Description |
 |------|-------|-------------|
 | `SINGLE` | `'single'` | Single-ended output; produces a scalar voltage. |
-| `DIFFERENTIAL` | `'diff'` | Differential output; produces a `(positive, negative)` voltage tuple. |
+| `DIFFERENTIAL` | `'differential'` | Differential output; produces a `(positive, negative)` voltage tuple. |
 
 **Examples**
 
@@ -201,7 +201,7 @@ Enum defining the output configuration for DAC architectures.
 from pyDataconverter.dataconverter import OutputType
 
 output_cfg = OutputType.DIFFERENTIAL
-print(output_cfg.value)  # 'diff'
+print(output_cfg.value)  # 'differential'
 ```
 
 **See Also**
@@ -1030,25 +1030,28 @@ Generate a multi-level step signal.
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | samples | int | — | Total number of samples. |
-| step_points | List[int] | — | Sample indices where steps occur. |
-| levels | List[float] | — | Voltage levels for each step. The first element sets the initial level; subsequent levels take effect at the corresponding `step_points` index. |
+| step_points | List[int] | — | Sample indices where transitions occur. Must be non-decreasing and lie in `[0, samples]`. |
+| levels | List[float] | — | One value per segment. `len(levels)` must equal `len(step_points) + 1`. `levels[0]` fills `[0, step_points[0])`, `levels[i]` fills `[step_points[i-1], step_points[i])` for `1 ≤ i < N`, and `levels[-1]` fills `[step_points[-1], samples)`. |
 
 **Returns**
 
 | Type | Description |
 |------|-------------|
-| np.ndarray | Step signal array. |
+| np.ndarray | Step signal array of length `samples`. |
 
-**Notes**
+**Raises**
 
-- The signal is initialised to zero; `levels[0]` is not applied (only `levels[1:]` are used with `step_points`).
+| Exception | Condition |
+|-----------|-----------|
+| ValueError | If `len(levels) != len(step_points) + 1`, or if `step_points` is out-of-range or non-monotonic. |
 
 **Examples**
 
 ```python
 from pyDataconverter.utils.signal_gen import generate_step
 
-signal = generate_step(samples=1000, step_points=[0, 250, 500, 750], levels=[0.0, 0.5, 1.0, 1.5])
+# 4 segments (levels[0..3]) separated by 3 transition points.
+signal = generate_step(samples=1000, step_points=[250, 500, 750], levels=[0.0, 0.5, 1.0, 1.5])
 ```
 
 ---
@@ -1203,27 +1206,29 @@ Generate a digital step signal as an array of integer codes.
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | n_bits | int | — | DAC resolution in bits. |
-| step_points | List[int] | — | Sample indices where steps occur. |
-| levels | List[int] | — | Digital codes for each step. |
+| samples | int | — | Total number of samples in the output array. |
+| step_points | List[int] | — | Sample indices where transitions occur. Must be non-decreasing and lie in `[0, samples]`. |
+| levels | List[int] | — | One integer code per segment, each in `[0, 2^n_bits − 1]`. `len(levels)` must equal `len(step_points) + 1`. Segment layout matches `generate_step`. |
 
 **Returns**
 
 | Type | Description |
 |------|-------------|
-| np.ndarray | Array of integer codes. |
+| np.ndarray | Integer code array of length `samples`. |
 
 **Raises**
 
 | Exception | Condition |
 |-----------|-----------|
-| ValueError | If any level exceeds `2^n_bits - 1` or is negative. |
+| ValueError | If any level exceeds `2^n_bits - 1` or is negative, if `len(levels) != len(step_points) + 1`, or if `step_points` is out-of-range or non-monotonic. |
 
 **Examples**
 
 ```python
 from pyDataconverter.utils.signal_gen import generate_digital_step
 
-codes = generate_digital_step(n_bits=12, step_points=[0, 200, 400], levels=[0, 1000, 2000])
+# 3 segments (levels[0..2]) separated by 2 transition points.
+codes = generate_digital_step(n_bits=12, samples=600, step_points=[200, 400], levels=[0, 1000, 2000])
 ```
 
 ---

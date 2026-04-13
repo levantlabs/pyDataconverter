@@ -108,12 +108,15 @@ class TestArbitraryReference:
         ref = ArbitraryReference([0.25, 0.5, 0.75], noise_rms=1e-3)
         assert not np.allclose(ref.get_voltages(), ref.get_voltages())
 
-    def test_voltages_copy_is_returned(self):
-        """Modifying the returned array must not affect stored voltages."""
+    def test_voltages_is_read_only_view(self):
+        """The `voltages` property returns a read-only view for performance;
+        attempting to mutate it must raise, and the stored state is unchanged."""
         ref = ArbitraryReference([0.25, 0.5, 0.75])
         v = ref.voltages
-        v[0] = 999.0
-        assert ref.voltages[0] != 999.0
+        assert v.flags.writeable is False
+        with pytest.raises(ValueError):
+            v[0] = 999.0
+        assert ref.voltages[0] == 0.25
 
     def test_not_strictly_increasing(self):
         with pytest.raises(ValueError):

@@ -60,6 +60,7 @@ from typing import List, Optional, Tuple, Type
 import numpy as np
 
 from pyDataconverter.components.capacitor import UnitCapacitorBase, IdealCapacitor
+from pyDataconverter.utils._bits import code_to_bits_msb_first
 
 
 class CDACBase(ABC):
@@ -250,10 +251,7 @@ class SingleEndedCDAC(CDACBase):
         return w
 
     def _code_to_bits(self, code: int) -> np.ndarray:
-        return np.array(
-            [(code >> (self._n_bits - 1 - k)) & 1 for k in range(self._n_bits)],
-            dtype=float,
-        )
+        return code_to_bits_msb_first(code, self._n_bits, dtype=float)
 
     def __repr__(self) -> str:
         return (f"SingleEndedCDAC(n_bits={self._n_bits}, v_ref={self._v_ref}, "
@@ -685,10 +683,7 @@ class DifferentialCDAC(CDACBase):
     # ------------------------------------------------------------------
 
     def _code_to_bits(self, code: int) -> np.ndarray:
-        return np.array(
-            [(code >> (self._n_bits - 1 - k)) & 1 for k in range(self._n_bits)],
-            dtype=float,
-        )
+        return code_to_bits_msb_first(code, self._n_bits, dtype=float)
 
     def __repr__(self) -> str:
         return (f"DifferentialCDAC(n_bits={self._n_bits}, v_ref={self._v_ref}, "

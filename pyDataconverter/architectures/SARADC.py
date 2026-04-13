@@ -484,8 +484,17 @@ class NoiseshapingSARADC(SARADC):
 
         code, _, _, _ = self._run_sar(v_input)
 
-        # Reconstruct analog value from output code
+        # Reconstruct the analog value represented by the output code, in the
+        # same coordinate system as v_input. Midpoint reconstruction gives a
+        # zero-mean quantisation error — essential for the noise-shaping
+        # integrator not to acquire a DC bias.
+        #
+        # Single-ended: code k represents v ≈ (k + 0.5) * LSB ∈ [LSB/2, v_ref − LSB/2]
+        # Differential: v_sampled is in [−v_ref/2, +v_ref/2], so shift the
+        #               single-ended mapping down by v_ref/2.
         v_reconstructed = (code + 0.5) / (2 ** self.n_bits) * self.v_ref
+        if self.input_type == InputType.DIFFERENTIAL:
+            v_reconstructed -= self.v_ref / 2
 
         # Update integrator: residue = clipped error
         residue = v_input - v_reconstructed

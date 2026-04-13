@@ -70,6 +70,11 @@ def compute_fft(time_data: np.ndarray,
 
     # Convert to dB, always normalizing by FFT length N so that magnitude
     # is independent of the number of samples captured.
+    # The 1e-20 additive term prevents log(0) for bins that are exactly zero
+    # (e.g. a perfectly zeroed DC bin on a balanced signal). It sets a
+    # numerical floor at 20*log10(1e-20) = -400 dB, well below any physical
+    # spectrum — apparent "floor" values near -400 dB should be interpreted
+    # as empty bins, not real noise.
     magnitudes_db = 20 * np.log10(np.abs(fft_data) + 1e-20) - 20 * np.log10(N)
 
     # Apply additional normalization on top of the length correction

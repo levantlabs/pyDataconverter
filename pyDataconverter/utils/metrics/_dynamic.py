@@ -44,14 +44,22 @@ def _calculate_dynamic_metrics(freqs: np.ndarray,
     fund_pwr = 10 ** (fund_mag / 10)
     thd = 10 * np.log10(max(harmonic_pwr, 1e-20) / fund_pwr)
 
-    mask = np.abs(freqs - fund_freq) > bin_width
-    max_spur = np.max(mags[mask])
+    # SFDR: fundamental vs. largest spur anywhere else in the spectrum
+    # (this mask excludes ONLY the fundamental bin — harmonics are eligible).
+    sfdr_mask = np.abs(freqs - fund_freq) > bin_width
+    max_spur = np.max(mags[sfdr_mask])
     sfdr = fund_mag - max_spur
 
+    # Noise mask: excludes the fundamental AND every harmonic bin. Used for
+    # SNR, NSD, and the "Spurious" non-harmonic-spur metric below.  Computed
+    # once and reused; the old code rebuilt it twice per call.
     exclude_freqs = np.array([fund_freq] + [h[0] for h in harmonics])
-    mask = ~np.any(np.abs(freqs[np.newaxis, :] - exclude_freqs[:, np.newaxis]) <= bin_width, axis=0)
+    noise_mask = ~np.any(
+        np.abs(freqs[np.newaxis, :] - exclude_freqs[:, np.newaxis]) <= bin_width,
+        axis=0,
+    )
 
-    noise_pwr = sum(10 ** (m / 10) for m in mags[mask])
+    noise_pwr = sum(10 ** (m / 10) for m in mags[noise_mask])
     noise_floor = noise_pwr / (fs / 2)
 
     noise_pwr = max(float(noise_pwr), 1e-20)
@@ -73,16 +81,11 @@ def _calculate_dynamic_metrics(freqs: np.ndarray,
         harmonic_dict[f"HD{i}"]      = float(hm)
         harmonic_dict[f"HD{i}_freq"] = float(hf)
 
-    # Strongest non-harmonic spur (excluding fundamental and all harmonics)
-    exclude_freqs = np.array([fund_freq] + [h[0] for h in harmonics])
-    non_harmonic_mask = ~np.any(
-        np.abs(freqs[np.newaxis, :] - exclude_freqs[:, np.newaxis]) <= bin_width,
-        axis=0,
-    )
-    spurious = float(np.max(mags[non_harmonic_mask])) if non_harmonic_mask.any() else float(fund_mag)
+    # Strongest non-harmonic spur: reuse the noise mask — same exclusion set.
+    spurious = float(np.max(mags[noise_mask])) if noise_mask.any() else float(fund_mag)
 
     # NSD: total noise power normalised to 1 Hz bandwidth
-    n_noise_bins = int(np.sum(mask))
+    n_noise_bins = int(np.sum(noise_mask))
     if n_noise_bins > 0 and bin_width > 0:
         nsd_dBHz = 10 * np.log10(max(noise_pwr, 1e-20) / n_noise_bins) - 10 * np.log10(bin_width)
     else:
@@ -115,6 +118,11 @@ def _calculate_dynamic_metrics(freqs: np.ndarray,
         fund_mag_dBFS = fund_mag - level_correction
         results["FundamentalMagnitude_dBFS"] = fund_mag_dBFS
         results["HarmonicMags_dBFS"] = [m - level_correction for m in results["HarmonicMags"]]
+        # These express each ratio metric relative to the full-scale sine
+        # magnitude.  Subtracting fund_mag_dBFS normalises the signal level
+        # so that a full-scale sine gives the same numeric value regardless
+        # of how the input was sized.  The result answers: "what would this
+        # metric read if the fundamental were at full scale?"
         results["SFDR_dBFS"]  = sfdr  - fund_mag_dBFS
         results["SNR_dBFS"]   = snr   - fund_mag_dBFS
         results["SNDR_dBFS"]  = sndr  - fund_mag_dBFS

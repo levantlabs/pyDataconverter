@@ -278,7 +278,11 @@ class CurrentSourceArray:
 
         Args:
             therm_index:  Number of thermometer unit elements to steer to the
-                          positive output (integer in [0, n_therm_elements]).
+                          positive output (integer in [0, n_therm_elements],
+                          inclusive on both ends).
+                          0 = all thermometer elements steered to negative rail;
+                          n_therm_elements = all elements steered to positive
+                          rail (maximum thermometer code).
             binary_bits:  Bit array for the binary segment, MSB first (length
                           n_binary_bits).  Bit k=1 steers source to positive
                           output; k=0 steers to negative output.
@@ -292,9 +296,13 @@ class CurrentSourceArray:
             ValueError: If therm_index or binary_bits are out of range.
         """
         n_therm_elements = len(self.therm_sources)
+        # The valid range is [0, n_therm_elements] inclusive.  therm_index == 0
+        # means no thermometer elements are active; therm_index == n_therm_elements
+        # means all are active (full-scale thermometer code).  Values strictly
+        # greater than n_therm_elements are invalid.
         if therm_index < 0 or therm_index > n_therm_elements:
             raise ValueError(
-                f"therm_index {therm_index} out of range [0, {n_therm_elements}]"
+                f"therm_index {therm_index} out of range [0, {n_therm_elements}] inclusive"
             )
         if len(binary_bits) != self._n_binary_bits:
             raise ValueError(

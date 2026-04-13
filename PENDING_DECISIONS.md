@@ -59,78 +59,21 @@ Items already applied in this session are noted as **[APPLIED]**.
 
 ---
 
-### 16.1 — `generate_step` ignores `levels[0]`
-- **File:** `pyDataconverter/utils/signal_gen.py`, lines 81-88
-- **Bug:** `levels[0]` is stored in `current_level` but the signal is initialised to
-  `np.zeros(samples)`. Samples before the first step point stay at 0.0 instead of
-  `levels[0]`. This is original code (not introduced by our changes).
-
-  ```python
-  # Current code:
-  signal = np.zeros(samples)
-  current_level = levels[0]       # stored but never written to the signal
-
-  for point, level in zip(step_points, levels[1:]):
-      signal[point:] = level
-  ```
-
-  Example — `generate_step(100, [20, 50], [1.0, 2.0, 3.0])`:
-  - **Got:**  `[0.0]*20 + [2.0]*30 + [3.0]*50`
-  - **Want:** `[1.0]*20 + [2.0]*30 + [3.0]*50`
-
-- **Proposed fix:**
-  ```python
-  signal = np.full(samples, levels[0])    # initialise to first level
-  for point, level in zip(step_points, levels[1:]):
-      signal[point:] = level
-  ```
-- **Decision needed:** Apply fix?
+### 16.1 — `generate_step` ignores `levels[0]` `[APPLIED 2026-04-13]`
+- **File:** `pyDataconverter/utils/signal_gen.py`
+- **Resolution:** Contract flipped. New rule: `len(levels) == len(step_points) + 1`, `levels[0]` fills `[0, step_points[0])`, `levels[i]` fills `[step_points[i-1], step_points[i])`, and `levels[-1]` fills `[step_points[-1], samples)`. Implementation uses `np.full(samples, levels[0], dtype=float)` followed by the `zip(step_points, levels[1:])` fill loop. Full-length invariant added; non-monotonic and out-of-range step_points raise `ValueError`. Tests `test_initial_level_is_applied` and friends lock the new contract.
 
 ---
 
-### 16.2 — `generate_digital_step` has the same initial-level bug
-- **File:** `pyDataconverter/utils/signal_gen.py`, lines 256-263
-- **Bug:** Identical pattern to 16.1 — `levels[0]` is never applied; signal starts
-  at all zeros. The existing `__main__` demo hides the bug because it passes `levels[0] = 0`.
-  This is original code.
-
-  ```python
-  # Current code (line 256):
-  signal = np.zeros(step_points[-1], dtype=int)
-  current_level = levels[0]       # stored but never applied
-
-  for point, level in zip(step_points[1:], levels[1:]):
-      signal[point:] = level
-  ```
-
-- **Where it is used:** `signal_gen.py` `__main__` block (line 616), and callable
-  from any DAC testbench doing a step-response characterisation.
-- **Proposed fix:** Same as 16.1 — `np.full(..., levels[0], dtype=int)` and iterate
-  from `step_points[1:]` + `levels[1:]`.
-- **Decision needed:** Apply fix?
+### 16.2 — `generate_digital_step` has the same initial-level bug `[APPLIED 2026-04-13]`
+- **File:** `pyDataconverter/utils/signal_gen.py`
+- **Resolution:** Fixed jointly with 16.1 and 16.3 by redesigning the whole function. New signature `(n_bits, samples, step_points, levels)`, same segment contract as `generate_step`. `levels[0]` is now the initial segment, `step_points[0]` is now an actual transition (no longer silently ignored). Internal `__main__` demo and all tests updated. New regression test `test_initial_level_is_applied` guards the fix.
 
 ---
 
-### 16.3 — `generate_digital_step` signal length truncates the final level
-- **File:** `pyDataconverter/utils/signal_gen.py`, line 256
-- **Bug:** Signal length is set to `step_points[-1]`, so the array ends exactly at
-  the last step boundary. The assignment `signal[step_points[-1]:]` sets an empty
-  slice — the final level never appears in the output. This is original code.
-
-  ```python
-  # Current code:
-  signal = np.zeros(step_points[-1], dtype=int)   # length = last step point index
-  ```
-
-  Example — `step_points = [0, 200, 400, 600, 800]`, `levels = [0, 1000, 2000, 3000, 4000]`:
-  - Array length is 800 (indices 0–799).
-  - `signal[800:] = 4000` → empty slice, level 4000 never appears.
-
-- **Proposed fix option A:** Accept a `samples` parameter (mirrors `generate_step`
-  signature) so the caller controls total length.
-- **Proposed fix option B:** Default to `step_points[-1] + 1` extra sample so the
-  last level appears for at least one sample.
-- **Decision needed:** Which fix, or leave as-is?
+### 16.3 — `generate_digital_step` signal length truncates the final level `[APPLIED 2026-04-13 — Option A]`
+- **File:** `pyDataconverter/utils/signal_gen.py`
+- **Resolution:** Adopted Option A. New signature `generate_digital_step(n_bits, samples, step_points, levels)` takes an explicit `samples` parameter so the caller controls total length. The final level now fills `[step_points[-1], samples)`. Regression test `test_final_level_appears` asserts `sig[800] == 200` and `sig[999] == 200` with step_points `[200, 400, 600, 800]` and 5 levels in a length-1000 array — the exact scenario that silently dropped the final level under the old contract.
 
 ---
 

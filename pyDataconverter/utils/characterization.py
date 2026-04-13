@@ -73,6 +73,17 @@ def measure_dynamic_range(
         codes = np.array([adc.convert(float(v)) for v in vin], dtype=float)
         m = calculate_adc_dynamic_metrics(time_data=codes, fs=fs)
         snr_values[i] = m['SNR']
+        if not np.isfinite(snr_values[i]):
+            import warnings
+            warnings.warn(
+                f"non-finite SNR ({snr_values[i]}) at amplitude "
+                f"{amplitudes_dBFS[i]:.2f} dBFS — the FFT produced a "
+                f"degenerate spectrum (all-zero output, clipping, or "
+                f"missing fundamental). The sweep result at this point "
+                f"will not be meaningful.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
     dr_result = calculate_dynamic_range_from_curve(amplitudes_dBFS, snr_values)
 

@@ -110,19 +110,26 @@ class ReferenceLadder(ReferenceBase):
         else:
             self._voltages = ideal.copy()
 
+        # Cached read-only view used by .voltages and the no-noise branch of
+        # get_voltages(). Avoids allocating a full copy on every access —
+        # meaningful on hot paths for 10+ bit Flash ADCs (hundreds to
+        # thousands of elements per conversion).
+        self._voltages_ro = self._voltages.view()
+        self._voltages_ro.flags.writeable = False
+
     @property
     def n_references(self) -> int:
         return self._n_references
 
     @property
     def voltages(self) -> np.ndarray:
-        return self._voltages.copy()
+        return self._voltages_ro
 
     def get_voltages(self) -> np.ndarray:
         if self.noise_rms > 0:
             return self._voltages + np.random.normal(0, self.noise_rms,
                                                      self._n_references)
-        return self._voltages.copy()
+        return self._voltages_ro
 
     def __repr__(self) -> str:
         return (f"ReferenceLadder(n_references={self._n_references}, "
@@ -165,19 +172,23 @@ class ArbitraryReference(ReferenceBase):
         self._voltages = thresholds
         self.noise_rms = noise_rms
 
+        # Cached read-only view (see ReferenceLadder for rationale).
+        self._voltages_ro = self._voltages.view()
+        self._voltages_ro.flags.writeable = False
+
     @property
     def n_references(self) -> int:
         return len(self._voltages)
 
     @property
     def voltages(self) -> np.ndarray:
-        return self._voltages.copy()
+        return self._voltages_ro
 
     def get_voltages(self) -> np.ndarray:
         if self.noise_rms > 0:
             return self._voltages + np.random.normal(0, self.noise_rms,
                                                      len(self._voltages))
-        return self._voltages.copy()
+        return self._voltages_ro
 
     def __repr__(self) -> str:
         return (f"ArbitraryReference(n_references={len(self._voltages)}, "

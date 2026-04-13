@@ -6,7 +6,7 @@ Provides functions to generate various test signals for ADC testing.
 """
 
 import numpy as np
-from typing import Union, Tuple, List
+from typing import Optional, Union, Tuple, List
 
 
 def convert_to_differential(signal: np.ndarray, vcm: float = 0.0) -> Tuple[np.ndarray, np.ndarray]:
@@ -102,20 +102,47 @@ def generate_step(samples: int,
     """
     Generate a multi-level step signal.
 
+    Each entry of ``levels`` is the amplitude of one segment:
+
+        signal[0                : step_points[0]]   = levels[0]
+        signal[step_points[i-1] : step_points[i]]   = levels[i]   (1 ≤ i < N)
+        signal[step_points[-1]  : samples]          = levels[N]
+
+    where ``N = len(step_points)``, so ``len(levels) == N + 1``.
+
     Args:
-        samples: Total number of samples
-        step_points: List of points where steps occur
-        levels: Voltage levels for each step
+        samples: Total number of samples.
+        step_points: Sample indices where transitions occur. Must be
+            non-decreasing and every entry must lie in ``[0, samples]``.
+        levels: One value per segment; ``len(levels)`` must equal
+            ``len(step_points) + 1``.
 
     Returns:
-        Signal array
-    """
-    signal = np.zeros(samples)
-    current_level = levels[0]
+        Signal array of length ``samples``.
 
+    Raises:
+        ValueError: If ``len(levels) != len(step_points) + 1``, or if
+            ``step_points`` is out-of-range or non-monotonic.
+    """
+    if len(levels) != len(step_points) + 1:
+        raise ValueError(
+            f"len(levels) must equal len(step_points) + 1 "
+            f"(got len(levels)={len(levels)}, len(step_points)={len(step_points)})"
+        )
+    for p in step_points:
+        if p < 0 or p > samples:
+            raise ValueError(
+                f"step_points entry {p} out of range [0, {samples}]"
+            )
+    for i in range(len(step_points) - 1):
+        if step_points[i] > step_points[i + 1]:
+            raise ValueError(
+                f"step_points must be non-decreasing; got {list(step_points)}"
+            )
+
+    signal = np.full(samples, levels[0], dtype=float)
     for point, level in zip(step_points, levels[1:]):
         signal[point:] = level
-        current_level = level
 
     return signal
 
@@ -265,18 +292,36 @@ def generate_digital_ramp(n_bits: int,
 
 
 def generate_digital_step(n_bits: int,
+                          samples: int,
                           step_points: List[int],
                           levels: List[int]) -> np.ndarray:
     """
-    Generate digital step signal.
+    Generate a digital step signal as an array of integer DAC codes.
+
+    Same segment contract as :func:`generate_step`:
+
+        signal[0                : step_points[0]]   = levels[0]
+        signal[step_points[i-1] : step_points[i]]   = levels[i]   (1 ≤ i < N)
+        signal[step_points[-1]  : samples]          = levels[N]
+
+    where ``N = len(step_points)``, so ``len(levels) == N + 1``.
 
     Args:
-        n_bits: DAC resolution
-        step_points: List of points where steps occur
-        levels: Digital codes for each step
+        n_bits: DAC resolution.
+        samples: Total number of samples in the output array.
+        step_points: Sample indices where transitions occur. Must be
+            non-decreasing and every entry must lie in ``[0, samples]``.
+        levels: One integer code per segment, each in
+            ``[0, 2^n_bits − 1]``. ``len(levels)`` must equal
+            ``len(step_points) + 1``.
 
     Returns:
-        Array of digital codes
+        Integer code array of length ``samples``.
+
+    Raises:
+        ValueError: If any code is out of range, if
+            ``len(levels) != len(step_points) + 1``, or if
+            ``step_points`` is out-of-range or non-monotonic.
     """
     max_code = 2 ** n_bits - 1
     if any(level > max_code for level in levels):
@@ -285,12 +330,25 @@ def generate_digital_step(n_bits: int,
     if any(level < 0 for level in levels):
         raise ValueError("All levels must be non-negative")
 
-    signal = np.zeros(step_points[-1], dtype=int)
-    current_level = levels[0]
+    if len(levels) != len(step_points) + 1:
+        raise ValueError(
+            f"len(levels) must equal len(step_points) + 1 "
+            f"(got len(levels)={len(levels)}, len(step_points)={len(step_points)})"
+        )
+    for p in step_points:
+        if p < 0 or p > samples:
+            raise ValueError(
+                f"step_points entry {p} out of range [0, {samples}]"
+            )
+    for i in range(len(step_points) - 1):
+        if step_points[i] > step_points[i + 1]:
+            raise ValueError(
+                f"step_points must be non-decreasing; got {list(step_points)}"
+            )
 
-    for point, level in zip(step_points[1:], levels[1:]):
+    signal = np.full(samples, levels[0], dtype=int)
+    for point, level in zip(step_points, levels[1:]):
         signal[point:] = level
-        current_level = level
 
     return signal
 
@@ -456,7 +514,7 @@ def generate_prbs(order: int,
                   n_samples: int,
                   amplitude: float = 1.0,
                   offset: float = 0.0,
-                  seed: int = None) -> np.ndarray:
+                  seed: Optional[int] = None) -> np.ndarray:
     """
     Generate a Pseudo-Random Binary Sequence (PRBS).
 
@@ -789,9 +847,10 @@ if __name__ == "__main__":  # pragma: no cover
     # 5. Generate digital step
     print("\nTest 5: Digital Step")
     print("-------------------")
-    step_points = [0, 200, 400, 600, 800]
+    step_points = [200, 400, 600, 800]
     levels = [0, 1000, 2000, 3000, 4000]
-    step = generate_digital_step(n_bits=n_bits, step_points=step_points, levels=levels)
+    step = generate_digital_step(n_bits=n_bits, samples=1000,
+                                 step_points=step_points, levels=levels)
 
     plt.figure(figsize=(10, 4))
     plt.plot(step, '.-')

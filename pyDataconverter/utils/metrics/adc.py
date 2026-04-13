@@ -34,6 +34,10 @@ def calculate_gain_offset_error(
             OffsetError : float — deviation of first transition from ideal (V).
             GainError   : float — fractional gain error (dimensionless).
     """
+    if not isinstance(quant_mode, QuantizationMode):
+        raise TypeError(
+            f"quant_mode must be a QuantizationMode enum, got {type(quant_mode).__name__}"
+        )
     if quant_mode == QuantizationMode.FLOOR:
         ideal_lsb   = v_ref / (2 ** n_bits)
         ideal_first = ideal_lsb
@@ -166,6 +170,10 @@ def calculate_adc_static_metrics(input_voltages: np.ndarray,
         computed directly from transition positions so missing-code -1 LSB
         entries do not accumulate.
     """
+    if not isinstance(quant_mode, QuantizationMode):
+        raise TypeError(
+            f"quant_mode must be a QuantizationMode enum, got {type(quant_mode).__name__}"
+        )
     transitions = _calculate_code_edges(input_voltages, output_codes, n_bits)
     k = np.arange(len(transitions))  # 0 .. 2^N-2
 

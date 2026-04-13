@@ -158,6 +158,10 @@ class DifferentialComparator(ComparatorBase):
         if self.bandwidth is not None:
             if time_step is None:
                 raise ValueError("time_step must be provided when bandwidth is specified")
+            if time_step <= 0:
+                # time_step=0 would make alpha=0 (filter holds indefinitely);
+                # negative values yield a nonsensical negative alpha.
+                raise ValueError(f"time_step must be positive, got {time_step}")
             alpha  = time_step / (time_step + self._tau)
             v_diff = (1 - alpha) * self._filtered_state + alpha * v_diff
             self._filtered_state = v_diff

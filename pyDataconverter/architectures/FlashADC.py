@@ -157,7 +157,16 @@ class FlashADC(ADCBase):
 
     @property
     def reference_voltages(self) -> np.ndarray:
-        """Static reference voltages (no noise). Convenience alias for reference.voltages."""
+        """
+        Static reference voltages (no noise).
+
+        In differential mode the underlying ladder stores single-ended tap
+        voltages in ``[-v_ref/4, +v_ref/4]``, but the effective differential
+        threshold at comparator ``i`` is ``v_refp[i] - v_refn[i] = 2 *
+        tap_voltage[i]`` (see the block comment in ``__init__``). This
+        accessor returns the ×2-scaled values so callers inspecting the
+        ladder see the same thresholds the comparators actually apply.
+        """
         return self.reference.voltages*2 if self.input_type == InputType.DIFFERENTIAL else self.reference.voltages
 
     def _encode(self, thermometer: np.ndarray) -> int:

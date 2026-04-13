@@ -39,11 +39,23 @@ def solve_resistor_network(
         ValueError: If the system is singular (disconnected network or
             insufficient fixed nodes).
     """
+    if n_nodes <= 0:
+        raise ValueError(f"n_nodes must be positive, got {n_nodes}")
+
     G = np.zeros((n_nodes, n_nodes))
     I = np.zeros(n_nodes)
 
     # Build conductance matrix from resistors
     for na, nb, r in resistors:
+        # NumPy accepts negative indices and wraps silently; reject them
+        # explicitly so upstream bugs surface as clear errors rather than
+        # nonsensical network topologies.
+        if not (0 <= na < n_nodes and 0 <= nb < n_nodes):
+            raise ValueError(
+                f"resistor node index out of range [0, {n_nodes}): ({na}, {nb})"
+            )
+        if r <= 0:
+            raise ValueError(f"resistor value must be positive, got {r}")
         g = 1.0 / r
         G[na, na] += g
         G[nb, nb] += g
@@ -52,6 +64,10 @@ def solve_resistor_network(
 
     # Apply fixed voltages via row substitution
     for node, voltage in fixed_voltages.items():
+        if not (0 <= node < n_nodes):
+            raise ValueError(
+                f"fixed_voltages node index out of range [0, {n_nodes}): {node}"
+            )
         G[node, :] = 0.0
         G[node, node] = 1.0
         I[node] = voltage
