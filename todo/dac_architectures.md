@@ -1,14 +1,16 @@
 DAC Architecture Roadmap
 ========================
 
-Date: 2026-03-25
+Date: 2026-03-25 — last updated 2026-04-13.
 
-Current state: Only SimpleDAC (ideal binary-weighted, single-ended and differential).
-This file lists DAC architectures worth modeling, roughly in priority order.
+Current state (as of 2026-04-13): R-2R, resistor string, thermometer / current-
+steering (binary, thermometer, segmented), segmented-resistor, and switched-cap
+CDAC are all implemented. Sigma-Delta and PWM DACs are still open. See per-item
+STATUS blocks below.
 
 ---
 
-## 1. R-2R Ladder DAC  [HIGH]
+## 1. R-2R Ladder DAC  [HIGH] — STATUS: DONE (`architectures/R2RDAC.py`)
 
 **What it is:** Binary-weighted resistor network.  Each bit drives a node in the
 ladder; the output voltage is the Thevenin sum.  The SimpleDAC already models the
@@ -29,7 +31,7 @@ that exposes the resistor network explicitly.
 
 ---
 
-## 2. String DAC (Resistor String)  [HIGH]
+## 2. String DAC (Resistor String)  [HIGH] — STATUS: DONE (`architectures/ResistorStringDAC.py`)
 
 **What it is:** A chain of 2^N equal resistors between V_ref and GND.  A MUX
 selects the tap corresponding to the input code.
@@ -47,7 +49,7 @@ Very different character from binary-weighted.
 
 ---
 
-## 3. Thermometer (Unary) DAC  [HIGH]
+## 3. Thermometer (Unary) DAC  [HIGH] — STATUS: DONE (folded into `CurrentSteeringDAC` via `n_therm_bits == n_bits`; decoder in `components/decoder.py`)
 
 **What it is:** 2^N − 1 identical unit elements (resistors, caps, or current
 sources).  For code k, exactly k elements are switched on.
@@ -66,7 +68,7 @@ Basis for the MSB segment of segmented DACs.
 
 ---
 
-## 4. Current-Steering DAC  [HIGH]
+## 4. Current-Steering DAC  [HIGH] — STATUS: DONE (`architectures/CurrentSteeringDAC.py` with `CurrentSourceArray`; static mismatch modelled; glitch energy / DEM still on the cross-cutting backlog)
 
 **What it is:** Array of current sources (binary-weighted, thermometer, or
 segmented) steered between differential output nodes by differential switches.
@@ -89,7 +91,7 @@ parameter)
 
 ---
 
-## 5. Segmented DAC  [MEDIUM-HIGH]
+## 5. Segmented DAC  [MEDIUM-HIGH] — STATUS: DONE (`architectures/SegmentedResistorDAC.py` for the coarse-string + R-2R variant; the segmented-current-steering variant is also covered by `CurrentSteeringDAC`)
 
 **What it is:** MSBs decoded to thermometer, LSBs remain binary.  Typical split
 is upper 4–6 bits thermometer, lower bits binary.  Balances area and linearity.
@@ -109,7 +111,7 @@ is a key modelling goal.
 
 ---
 
-## 6. Switched-Capacitor DAC  [MEDIUM]
+## 6. Switched-Capacitor DAC  [MEDIUM] — STATUS: DONE (`components/cdac.py`: `SingleEndedCDAC`, `DifferentialCDAC`, `RedundantSARCDAC`, `SplitCapCDAC`, `SegmentedCDAC`; used by the SAR family and also instantiable standalone)
 
 **What it is:** Binary-weighted or thermometer capacitor array switched between
 V_ref and GND.  Already partially modelled via CDAC for the SAR ADC.
@@ -128,7 +130,7 @@ DifferentialCDAC rather than starting from scratch.
 
 ---
 
-## 7. Sigma-Delta DAC  [MEDIUM]
+## 7. Sigma-Delta DAC  [MEDIUM] — STATUS: OPEN (not started; shares infrastructure with the planned Sigma-Delta ADC in `todo/adc_architectures.md`)
 
 **What it is:** Oversampling + noise-shaping modulator driving a low-resolution
 (often 1-bit) inner DAC.  Reconstruction filter removes out-of-band quantisation
@@ -150,7 +152,7 @@ first-order Σ∆ with a 1-bit inner DAC as a starting point.
 
 ---
 
-## 8. PWM DAC  [LOW]
+## 8. PWM DAC  [LOW] — STATUS: OPEN (not started)
 
 **What it is:** Digital input sets the duty cycle of a square wave; a low-pass
 filter extracts the DC average.
@@ -167,40 +169,17 @@ LED dimming).  Simple but worth having for completeness.
 
 ## Cross-cutting component work (pre-requisites)
 
-### Decoder hierarchy
-- `DecoderBase` — abstract, takes N-bit code, returns control signals
-- `BinaryDecoder` — passthrough
-- `ThermometerDecoder` — N-bit code → 2^N − 1 unary control signals
-- `SegmentedDecoder` — MSBs via ThermometerDecoder, LSBs via BinaryDecoder
-- Lives in `pyDataconverter/components/decoder.py`
-- Symmetric counterpart to the existing `EncoderType` on the ADC side
+### Decoder hierarchy — STATUS: DONE (`components/decoder.py`)
+- `DecoderBase`, `BinaryDecoder`, `ThermometerDecoder`, `SegmentedDecoder`
+  all implemented. Symmetric counterpart to `EncoderType` on the ADC side.
 
-### Unit current source hierarchy
-- `UnitCurrentSourceBase` — abstract, defines nominal current, mismatch interface,
-  and a `get_current()` method
-- `IdealCurrentSource` — fixed nominal current with Gaussian mismatch draw at
-  construction
-- Future subclasses: `CascodeCurrentSource`, `RegulatedCascodeCurrentSource` —
-  different output impedance models without changing the array or DAC code
-- Lives in `pyDataconverter/components/current_source.py`
+### Unit current source hierarchy — STATUS: PARTIAL (`components/current_source.py`)
+- `UnitCurrentSourceBase`, `IdealCurrentSource`, `CurrentSourceArray` implemented.
+- Future subclasses (`CascodeCurrentSource`, `RegulatedCascodeCurrentSource`) still open.
 
-### CurrentSourceArray
-- Holds an array of `UnitCurrentSourceBase` instances (thermometer segment) and
-  binary-weighted multiples of the unit source (binary segment)
-- Applies decoder control signals to sum the selected currents
-- Analogous to `SingleEndedCDAC` / `DifferentialCDAC`
-- Lives in `pyDataconverter/components/current_source.py` alongside the unit source
-
-### Unit capacitor hierarchy  [TO ADD]
-- `UnitCapacitorBase` — abstract, defines nominal capacitance, mismatch interface,
-  and a `get_capacitance()` method
-- `IdealCapacitor` — fixed nominal capacitance with Gaussian mismatch draw at
-  construction
-- Future subclasses: `LeakyCapacitor` (finite parallel resistance), `NonLinearCapacitor`
-  (voltage-dependent capacitance — Cgg-style) — swappable without touching CDAC
-- Refactor existing `SingleEndedCDAC` / `DifferentialCDAC` to hold arrays of
-  `UnitCapacitorBase` instances rather than bare numpy weight arrays
-- Lives in `pyDataconverter/components/capacitor.py`
+### Unit capacitor hierarchy — STATUS: DONE (`components/capacitor.py`)
+- `UnitCapacitorBase` and `IdealCapacitor` implemented.
+- `LeakyCapacitor` / `NonLinearCapacitor` subclasses still open.
 
 ---
 
