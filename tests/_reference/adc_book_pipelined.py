@@ -152,10 +152,14 @@ class Stage:
 
 class subADC:
     def __init__(self, N, FSR=1):
+        #self.B = bits
         self.FSR = FSR
-        self.N = N
+
+        self.N = N #Number of levels. 2**self.B
         self.LSB = self.FSR / N
+
         self.ref = np.arange(N)/(N-1)*(FSR-self.LSB) - (FSR/2-self.LSB/2)
+
         self.noisesigma = 0
 
     def output(self,vin):
@@ -171,7 +175,7 @@ class subDAC:
         self.N = N
         self.FSR = FSR
         self.LSB = self.FSR / N
-        self.dacout = np.arange(N+1)/(N-1)*(FSR-self.LSB*1) - (FSR/2 + 0*self.LSB)
+        self.dacout = np.arange(N+1)/(N-1)*(FSR-self.LSB*1) - (FSR/2 + 0*self.LSB)#-self.LSB/2)
         self.error = np.zeros(N+1)
 
     def output(self, din):
