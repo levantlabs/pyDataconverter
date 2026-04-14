@@ -331,6 +331,119 @@ class TimeInterleavedADC(ADCBase):
         self._last_channel = (self._counter - 1) % self.M
         return codes
 
+    @classmethod
+    def hierarchical(cls,
+                     channels_per_level: List[int],
+                     sub_adc_template: ADCBase,
+                     fs: float,
+                     offset_std_per_level: Optional[List[float]] = None,
+                     gain_std_per_level: Optional[List[float]] = None,
+                     timing_skew_std_per_level: Optional[List[float]] = None,
+                     bandwidth_std_per_level: Optional[List[float]] = None,
+                     seed: Optional[int] = None) -> "TimeInterleavedADC":
+        """
+        Build a multi-level interleaving tree from a list of per-level factors.
+
+        ``channels_per_level[0]`` is the OUTERMOST (fastest) interleaving
+        factor; ``channels_per_level[-1]`` is the innermost (slowest). The
+        resulting tree has one ``TimeInterleavedADC`` per level, nested:
+        the innermost level's sub-ADC is ``sub_adc_template``, each outer
+        level's sub-ADC is the inner ``TimeInterleavedADC``. Total leaf
+        channel count is the product of the per-level factors.
+
+        Per-level mismatch arguments are parallel lists aligned with
+        ``channels_per_level``: entry ``[0]`` configures the outermost
+        level, entry ``[-1]`` the innermost. Each entry is a scalar stddev
+        passed as the corresponding mismatch kwarg to that level's
+        ``TimeInterleavedADC``. Missing lists default to zero at every
+        level.
+
+        Aggregate sample rate ``fs`` is the top-level rate; each inner
+        level sees ``fs / (product of outer factors)``.
+
+        Args:
+            channels_per_level: Non-empty list of ints >= 2.
+            sub_adc_template: Innermost leaf template (any ADCBase).
+            fs: Top-level aggregate sample rate (Hz).
+            offset_std_per_level: Optional parallel list of per-level
+                offset stddevs (V). Default: all zeros.
+            gain_std_per_level: Optional parallel list of per-level
+                gain-error stddevs (fractional). Default: all zeros.
+            timing_skew_std_per_level: Optional parallel list of per-level
+                timing-skew stddevs (seconds). Default: all zeros.
+            bandwidth_std_per_level: Optional parallel list of per-level
+                bandwidth stddevs (Hz). Default: all zeros.
+            seed: Optional RNG seed forwarded to every level's
+                TimeInterleavedADC constructor. Each level uses the same
+                seed but draws different mismatch values because each
+                constructor creates its own Generator instance.
+
+        Returns:
+            TimeInterleavedADC: The outermost (top-level) TI-ADC instance.
+
+        Raises:
+            ValueError: If channels_per_level is empty, contains entries
+                < 2, or any per-level list has the wrong length.
+        """
+        if not channels_per_level:
+            raise ValueError("channels_per_level must have at least one entry")
+        for i, m in enumerate(channels_per_level):
+            if not isinstance(m, int) or isinstance(m, bool) or m < 2:
+                raise ValueError(
+                    f"channels_per_level[{i}]={m}, must be integer >= 2")
+
+        L = len(channels_per_level)
+        offset_levels = cls._resolve_per_level(
+            offset_std_per_level, L, "offset_std_per_level")
+        gain_levels = cls._resolve_per_level(
+            gain_std_per_level, L, "gain_std_per_level")
+        skew_levels = cls._resolve_per_level(
+            timing_skew_std_per_level, L, "timing_skew_std_per_level")
+        bw_levels = cls._resolve_per_level(
+            bandwidth_std_per_level, L, "bandwidth_std_per_level")
+
+        # Walk from innermost outward. fs_at_level is the aggregate rate at
+        # the CURRENT level we're constructing; inner levels see slower rates.
+        # Compute the inner level's fs by dividing fs by the product of all
+        # outer factors.
+        outer_product = 1
+        for m in channels_per_level[:-1]:
+            outer_product *= m
+
+        current_template: ADCBase = sub_adc_template
+        # Innermost level first
+        for level_index in reversed(range(L)):
+            M_level = channels_per_level[level_index]
+            fs_at_level = fs / outer_product
+            current_template = cls(
+                channels=M_level,
+                sub_adc_template=current_template,
+                fs=fs_at_level,
+                offset=offset_levels[level_index],
+                gain_error=gain_levels[level_index],
+                timing_skew=skew_levels[level_index],
+                bandwidth=bw_levels[level_index],
+                seed=seed,
+            )
+            # Moving outward: next iteration builds the level above this one,
+            # which sees a FASTER rate. Multiply outer_product back up by the
+            # CURRENT level's M (since the level above this one has fewer
+            # "outer" factors relative to itself).
+            if level_index > 0:
+                outer_product //= channels_per_level[level_index - 1]
+
+        return current_template  # outermost TI-ADC
+
+    @staticmethod
+    def _resolve_per_level(values, L: int, name: str) -> List[float]:
+        """Resolve a per-level stddev argument into a length-L list."""
+        if values is None:
+            return [0.0] * L
+        if len(values) != L:
+            raise ValueError(
+                f"{name} has length {len(values)}, expected {L}")
+        return [float(v) for v in values]
+
     def __repr__(self) -> str:
         return (f"TimeInterleavedADC(M={self.M}, fs={self.fs:.3e}, "
                 f"template={type(self.channels[0]).__name__}, "

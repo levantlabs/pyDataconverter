@@ -308,3 +308,75 @@ class TestTIADCWaveform(unittest.TestCase):
         _ = ti.convert_waveform(v, t)
         # After 8 samples on M=4, last_channel should be (8-1) % 4 = 3.
         self.assertEqual(ti.last_channel, 3)
+
+
+class TestTIADCHierarchical(unittest.TestCase):
+    """hierarchical classmethod for multi-level interleaving trees."""
+
+    def test_two_level_tree_has_correct_structure(self):
+        """channels_per_level=[4, 2] → outer M=4, each channel is an M=2 TI-ADC."""
+        ti = TimeInterleavedADC.hierarchical(
+            channels_per_level=[4, 2],
+            sub_adc_template=_make_template(n_bits=6),
+            fs=8e9,
+        )
+        self.assertIsInstance(ti, TimeInterleavedADC)
+        self.assertEqual(ti.M, 4)
+        for k in range(4):
+            inner = ti.channels[k]
+            self.assertIsInstance(inner, TimeInterleavedADC,
+                                  f"channel {k} should be a TimeInterleavedADC")
+            self.assertEqual(inner.M, 2)
+            self.assertEqual(inner.fs, 8e9 / 4)
+
+    def test_ideal_hierarchy_matches_template(self):
+        """Zero mismatches at every level → hierarchy produces template output."""
+        ti = TimeInterleavedADC.hierarchical(
+            channels_per_level=[4, 2],
+            sub_adc_template=_make_template(n_bits=8),
+            fs=8e9,
+        )
+        ref = _make_template(n_bits=8)
+        for v in np.linspace(0, 1.0, 50):
+            self.assertEqual(ti.convert(float(v)), ref.convert(float(v)))
+
+    def test_per_level_mismatch_lists_are_applied(self):
+        """per-level offset_std lists populate offsets at the right level."""
+        ti = TimeInterleavedADC.hierarchical(
+            channels_per_level=[4, 2],
+            sub_adc_template=_make_template(n_bits=8),
+            fs=8e9,
+            offset_std_per_level=[1e-3, 0.5e-3],
+            seed=42,
+        )
+        self.assertEqual(ti.offset.shape, (4,))
+        self.assertGreater(np.std(ti.offset), 0.0)
+        # Each inner TI-ADC should also have offsets (drawn from the inner stddev)
+        for inner in ti.channels:
+            self.assertEqual(inner.offset.shape, (2,))
+            self.assertGreater(np.std(inner.offset), 0.0)
+
+    def test_channels_per_level_must_be_nonempty(self):
+        with self.assertRaises(ValueError):
+            TimeInterleavedADC.hierarchical(
+                channels_per_level=[],
+                sub_adc_template=_make_template(),
+                fs=1e9,
+            )
+
+    def test_channels_per_level_entry_lt_two_raises(self):
+        with self.assertRaises(ValueError):
+            TimeInterleavedADC.hierarchical(
+                channels_per_level=[4, 1],
+                sub_adc_template=_make_template(),
+                fs=1e9,
+            )
+
+    def test_per_level_list_wrong_length_raises(self):
+        with self.assertRaises(ValueError):
+            TimeInterleavedADC.hierarchical(
+                channels_per_level=[4, 2],
+                sub_adc_template=_make_template(),
+                fs=1e9,
+                offset_std_per_level=[1e-3],  # length 1, expected 2
+            )
