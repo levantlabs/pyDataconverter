@@ -306,7 +306,11 @@ class FlashADC(ADCBase):
         # Aggregate flag: if no comparator has regen enabled, return 0.
         if not any(c.tau_regen > 0 for c in self.comparators):
             return 0
-        thresholds = self.reference.voltages
+        # Use the property (not self.reference.voltages) so differential-input
+        # mode sees the 2x-scaled effective thresholds in [-v_ref/2, +v_ref/2]
+        # rather than the raw ladder voltages in [-v_ref/4, +v_ref/4]. The
+        # property remains noise-free (it reads .voltages under the hood).
+        thresholds = self.reference_voltages
         if len(thresholds) == 0:
             return 0
         diffs = np.abs(thresholds - self._last_v_sampled)
