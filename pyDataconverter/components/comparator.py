@@ -108,7 +108,9 @@ class DifferentialComparator(ComparatorBase):
                  noise_rms: float = 0.0,
                  bandwidth: Optional[float] = None,
                  hysteresis: float = 0.0,
-                 time_constant: float = 0.0):
+                 time_constant: float = 0.0,
+                 tau_regen: float = 0.0,
+                 vc_threshold: float = 0.5):
         """
         Initialise comparator with specified non-idealities.
 
@@ -118,17 +120,44 @@ class DifferentialComparator(ComparatorBase):
             bandwidth:     -3 dB bandwidth (Hz); None = infinite.
             hysteresis:    Hysteresis voltage (V).
             time_constant: Time constant for temporal behaviour (s).
+            tau_regen:     Regeneration time constant (s) used by pipelined
+                           ADC metastability modelling. Default 0.0 disables
+                           the model and makes last_regen_time always 0.
+            vc_threshold:  Comparator output-voltage threshold at which the
+                           latch is considered resolved. Default 0.5 matches
+                           the adc_book reference.
         """
+        if tau_regen < 0:
+            raise ValueError(f"tau_regen must be >= 0, got {tau_regen}")
+        if vc_threshold <= 0:
+            raise ValueError(f"vc_threshold must be > 0, got {vc_threshold}")
+
         self.offset        = offset
         self.noise_rms     = noise_rms
         self.bandwidth     = bandwidth
         self.hysteresis    = hysteresis
         self.time_constant = time_constant
+        self.tau_regen     = tau_regen
+        self.vc_threshold  = vc_threshold
         self._last_output  = 0
+        self._last_regen_time = 0.0
 
         if bandwidth is not None:
             self._filtered_state = 0.0
             self._tau = 1.0 / (2.0 * np.pi * bandwidth)
+
+    @property
+    def last_regen_time(self) -> float:
+        """
+        Regeneration time of the most recent compare() call, in seconds.
+
+        Computed as ``tau_regen * ln(vc_threshold / max(|v_diff|, 1e-30))``.
+        Returns 0.0 when ``tau_regen == 0`` (metastability modelling disabled).
+        The 1e-30 floor on ``|v_diff|`` prevents ``log(0)`` when the input
+        lands exactly on a threshold — an event that should be vanishingly
+        rare for any realistic continuous input.
+        """
+        return self._last_regen_time
 
     def compare(self,
                 v_pos: float,
@@ -138,19 +167,7 @@ class DifferentialComparator(ComparatorBase):
                 time_step: Optional[float] = None) -> int:
         """
         Compare (v_pos − v_refp) against (v_neg − v_refn) with non-idealities.
-
-        Args:
-            v_pos:      Positive signal input.
-            v_neg:      Negative signal input.
-            v_refp:     Positive reference voltage (default 0).
-            v_refn:     Negative reference voltage (default 0).
-            time_step:  Time step for bandwidth calculations.
-
-        Returns:
-            1 if effective input > threshold, else 0.
-
-        Raises:
-            ValueError: If bandwidth is set but time_step is None.
+        See class docstring for parameter details.
         """
         v_diff = (v_pos - v_refp) - (v_neg - v_refn) + self.offset
 
@@ -159,12 +176,20 @@ class DifferentialComparator(ComparatorBase):
             if time_step is None:
                 raise ValueError("time_step must be provided when bandwidth is specified")
             if time_step <= 0:
-                # time_step=0 would make alpha=0 (filter holds indefinitely);
-                # negative values yield a nonsensical negative alpha.
                 raise ValueError(f"time_step must be positive, got {time_step}")
             alpha  = time_step / (time_step + self._tau)
             v_diff = (1 - alpha) * self._filtered_state + alpha * v_diff
             self._filtered_state = v_diff
+
+        # Record regeneration time before adding noise — regen is a deterministic
+        # physical quantity driven by the pre-noise comparator input. Noise is
+        # modelled separately as an input-referred effect below.
+        if self.tau_regen > 0:
+            # 1e-30 floor prevents log(0) when v_diff is exactly on a threshold
+            safe_mag = max(abs(v_diff), 1e-30)
+            self._last_regen_time = self.tau_regen * float(np.log(self.vc_threshold / safe_mag))
+        else:
+            self._last_regen_time = 0.0
 
         # Input-referred noise
         if self.noise_rms > 0:
@@ -181,8 +206,9 @@ class DifferentialComparator(ComparatorBase):
         return result
 
     def reset(self):
-        """Reset hysteresis history and bandwidth filter state."""
+        """Reset hysteresis history, bandwidth filter state, and last regen time."""
         self._last_output = 0
+        self._last_regen_time = 0.0
         if self.bandwidth is not None:
             self._filtered_state = 0.0
 

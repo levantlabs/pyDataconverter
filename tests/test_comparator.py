@@ -2,6 +2,7 @@
 Tests for comparator components (ComparatorBase, DifferentialComparator, Comparator alias).
 """
 
+import unittest
 import numpy as np
 import pytest
 from pyDataconverter.components.comparator import (
@@ -413,3 +414,58 @@ class TestComparatorMainBlock:
             plt.legend()
             plt.grid(True)
             plt.show()
+
+
+# ===========================================================================
+# Regeneration time modelling (tau_regen)
+# ===========================================================================
+
+class TestDifferentialComparatorRegen(unittest.TestCase):
+    """tau_regen models comparator regeneration time, used by pipelined ADC."""
+
+    def test_default_tau_regen_is_zero(self):
+        comp = DifferentialComparator()
+        comp.compare(0.5, 0.0)
+        self.assertEqual(comp.last_regen_time, 0.0)
+
+    def test_default_vc_threshold_is_half(self):
+        comp = DifferentialComparator(tau_regen=1e-12)
+        self.assertEqual(comp.vc_threshold, 0.5)
+
+    def test_regen_time_log_formula(self):
+        tau = 1e-12
+        comp = DifferentialComparator(tau_regen=tau, vc_threshold=0.5)
+        comp.compare(v_pos=1e-3, v_neg=0.0)
+        expected = tau * np.log(0.5 / 1e-3)
+        self.assertAlmostEqual(comp.last_regen_time, expected, places=18)
+
+    def test_regen_time_with_nonzero_refs(self):
+        tau = 2e-12
+        comp = DifferentialComparator(tau_regen=tau, vc_threshold=0.5)
+        comp.compare(v_pos=0.3, v_neg=0.0, v_refp=0.1, v_refn=0.0)
+        expected = tau * np.log(0.5 / 0.2)
+        self.assertAlmostEqual(comp.last_regen_time, expected, places=18)
+
+    def test_regen_time_floor_on_zero_v_diff(self):
+        tau = 1e-12
+        comp = DifferentialComparator(tau_regen=tau, vc_threshold=0.5)
+        comp.compare(v_pos=0.0, v_neg=0.0)
+        expected = tau * np.log(0.5 / 1e-30)
+        self.assertAlmostEqual(comp.last_regen_time, expected, places=18)
+
+    def test_tau_regen_negative_raises(self):
+        with self.assertRaises(ValueError):
+            DifferentialComparator(tau_regen=-1e-12)
+
+    def test_vc_threshold_non_positive_raises(self):
+        with self.assertRaises(ValueError):
+            DifferentialComparator(tau_regen=1e-12, vc_threshold=0.0)
+        with self.assertRaises(ValueError):
+            DifferentialComparator(tau_regen=1e-12, vc_threshold=-0.1)
+
+    def test_reset_clears_regen_time(self):
+        comp = DifferentialComparator(tau_regen=1e-12)
+        comp.compare(1e-3, 0.0)
+        self.assertGreater(comp.last_regen_time, 0)
+        comp.reset()
+        self.assertEqual(comp.last_regen_time, 0.0)
