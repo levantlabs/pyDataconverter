@@ -286,6 +286,8 @@ print(f"{voltage:.4f}")  # approximately mid-scale voltage
 - `SimpleDAC` — concrete DAC implementation with non-ideality support
 - `OutputType` — enum for output configuration
 
+**New in pipelined-ADC support:** `DACBase.__init__` now accepts an optional `n_levels: int` kwarg. When provided, it overrides the default `2**n_bits` code count and `lsb = v_ref / (n_levels - 1)`. `convert()` validates codes against `[0, n_levels - 1]`. Default behaviour (`n_levels = 2**n_bits`) is unchanged.
+
 ---
 
 ## Architectures
@@ -496,6 +498,8 @@ print(len(t))  # 12  (3 codes × 4 oversample)
 - `DACBase` — abstract base class providing the `convert()` / `_convert_input()` contract
 - `OutputType` — enum selecting single-ended vs differential output
 
+**New in pipelined-ADC support:** `SimpleDAC` now accepts two optional kwargs. `n_levels: int` decouples the number of output codes from `2**n_bits` (inherited from the relaxed `DACBase`). `code_errors: np.ndarray` injects a per-code additive error pattern (length must equal `n_levels`), applied after the ideal transfer function and before gain/offset/noise.
+
 ---
 
 ### `EncoderType`
@@ -622,6 +626,8 @@ print(code)  # 3
 - `ReferenceBase` / `ReferenceLadder` — voltage reference component
 - `SimpleADC` — simpler ADC model without explicit comparator architecture
 
+**New in pipelined-ADC support:** `FlashADC` now accepts an optional `n_comparators: int` kwarg that decouples the comparator count from `2**n_bits - 1`. Even counts and arbitrary positive integers are allowed. When set to a non-standard value, output codes range over `[0, n_comparators]` and the reference ladder is built via `ArbitraryReference` with linear spacing instead of the default `ReferenceLadder`. Two new methods — `last_conversion_time()` and `last_metastable_sign()` — expose the comparator bank's metastability state for use by pipelined ADCs; both return 0 when every comparator has `tau_regen=0` (default).
+
 ---
 
 ## Components
@@ -745,6 +751,8 @@ print(comp.compare(0.5, 0.0))  # 1
 
 - `ComparatorBase` — abstract base class defining the comparator interface
 - `FlashADC` — uses `DifferentialComparator` as the default comparator in its comparator bank
+
+**New in pipelined-ADC support:** `DifferentialComparator.__init__` now accepts `tau_regen: float` (default 0.0) and `vc_threshold: float` (default 0.5) kwargs, and exposes a `last_regen_time` read-only property. With `tau_regen > 0`, every `compare()` call caches `tau_regen * ln(vc_threshold / max(|v_diff|, 1e-30))` as the physical comparator regeneration time, used by `FlashADC.last_conversion_time()` to aggregate across a comparator bank.
 
 ---
 
@@ -2574,6 +2582,111 @@ print(trace['code'])            # 5
 - `InputType` — enum selecting single-ended vs. differential input mode
 - `visualize_sar_adc` — static and interactive visualisation of SAR operation
 - `animate_sar_conversion` — bit-by-bit animation of a single conversion
+
+---
+
+## PipelinedADC
+
+*`pyDataconverter.architectures.PipelinedADC`*
+
+N-stage pipelined ADC with a required backend. Cascades `PipelineStage` instances and combines their partial codes via a digital combiner that is bit-exact to the adc_book reference. See `docs/superpowers/specs/2026-04-13-pipelined-adc-design.md` for the full design and `tests/test_pipelined_adc_vs_reference.py` for four bit-exact validation configurations.
+
+**Constructor**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `n_bits` | int | — | Resolution in bits. |
+| `v_ref` | float | 1.0 | Reference voltage (V). |
+| `input_type` | InputType | SINGLE | Single-ended or differential. |
+| `stages` | List[PipelineStage] | — | Non-empty list of early stages. |
+| `backend` | ADCBase | — | Required backend ADC (any subclass). |
+| `backend_H` | float | 1.0 | Digital combiner weight applied to the backend code. |
+| `backend_code_offset` | int | 0 | Integer added to the backend's raw code before accumulation. |
+| `fs` | float | 1.0 | Sample rate (Hz). Required positive. |
+| `noise_rms` | float | 0.0 | First-stage S&H thermal / kT/C noise (V RMS). |
+| `offset` | float | 0.0 | First-stage input-referred offset (V). |
+| `gain_error` | float | 0.0 | First-stage fractional gain error. |
+| `t_jitter` | float | 0.0 | First-stage aperture jitter (s RMS). |
+| `clip_output` | bool | True | Clip final DOUT to `[0, 2**n_bits - 1]`. |
+
+**Example**
+
+```python
+from pyDataconverter.architectures.PipelinedADC import PipelineStage, PipelinedADC
+from pyDataconverter.architectures.FlashADC import FlashADC
+from pyDataconverter.architectures.SimpleDAC import SimpleDAC
+from pyDataconverter.components.residue_amplifier import ResidueAmplifier
+from pyDataconverter.dataconverter import InputType, OutputType
+
+stage0 = PipelineStage(
+    sub_adc=FlashADC(n_bits=3, v_ref=1.0, n_comparators=8),
+    sub_dac=SimpleDAC(n_bits=3, n_levels=9, v_ref=1.0, output_type=OutputType.SINGLE),
+    residue_amp=ResidueAmplifier(gain=4.0),
+    fs=500e6, code_offset=-1,
+)
+adc = PipelinedADC(
+    n_bits=12, v_ref=1.0, input_type=InputType.SINGLE,
+    stages=[stage0],
+    backend=FlashADC(n_bits=10, v_ref=1.0, n_comparators=1026),
+    backend_H=512, backend_code_offset=0, fs=500e6,
+)
+code = adc.convert(0.25)
+```
+
+See `examples/pipelined_adc_example.py` for the bipolar canonical configuration that reproduces the adc_book reference.
+
+---
+
+## PipelineStage
+
+*`pyDataconverter.architectures.PipelinedADC`*
+
+One stage of a pipelined ADC. Composes a sub-ADC (`ADCBase`), a sub-DAC (`DACBase`), and a `ResidueAmplifier`. Not an ADC itself; used as a building block for `PipelinedADC`.
+
+**Constructor**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `sub_adc` | ADCBase | — | Any ADCBase instance. |
+| `sub_dac` | DACBase | — | Any DACBase instance. Must produce single-ended output. |
+| `residue_amp` | ResidueAmplifier | — | Residue amplifier. |
+| `fs` | float | — | Sample rate (Hz), required positive. |
+| `offset` | float | 0.0 | Input-referred offset added to `(v_in - v_dac)`. |
+| `code_offset` | int | 0 | Integer added to `raw_code` before accumulation in the combiner. Equivalent to the `adc_book` reference's `minADCcode`. |
+| `H` | float | `residue_amp.gain` | Digital combiner weight. Override to decouple from physical residue gain. |
+
+**Method**
+
+```python
+raw_code, shifted_code, v_res = stage.convert_stage(v_sampled)
+```
+
+Returns the sub-ADC's raw output code, the offset-shifted code used by the combiner, and the amplified residue fed to the next stage.
+
+---
+
+## ResidueAmplifier
+
+*`pyDataconverter.components.residue_amplifier`*
+
+Closed-loop residue amplifier used in pipelined ADC stages. The caller (typically a `PipelineStage`) pre-multiplies `target` and `initial_error` by the amp's gain; `amplify()` then applies only the exponential settling on top:
+
+```python
+v_out = amp.amplify(target, initial_error, t_budget)
+# returns target + initial_error * exp(-t_budget / settling_tau) + offset
+```
+
+Handles three IEEE 754 corner cases explicitly (`settling_tau=0`, `initial_error=0`, `t_budget=+inf`) to prevent NaN. Negative `t_budget` is deliberately not guarded to reproduce the `adc_book` reference's unguarded behaviour at `TR < 0`.
+
+**Constructor**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `gain` | float | — | Closed-loop voltage gain. Nonzero; signed allowed. Callers pre-multiply their `target` and `initial_error` arguments by this value. |
+| `offset` | float | 0.0 | Output-referred DC offset. |
+| `slew_rate` | float | +inf | Peak output slew rate (V/s). 0 or +inf disables slew limiting. |
+| `settling_tau` | float | 0.0 | First-order settling time constant (s). 0 means instantaneous ideal amp. |
+| `output_swing` | (float, float) | None | Optional `(v_min, v_max)` clipping bounds. |
 
 ---
 

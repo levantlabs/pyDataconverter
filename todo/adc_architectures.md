@@ -15,45 +15,11 @@ docs.
 
 ---
 
-## 1. Pipelined ADC  [HIGH] — STATUS: IN DESIGN (2026-04-13)
+## 1. Pipelined ADC  [HIGH] — STATUS: PHASE 1 IMPLEMENTED (2026-04-13)
 
-**What it is:** A cascade of N stages. Each stage resolves a small number of bits
-(typically 1, 1.5, 2, or 2.5 bits) using a sub-ADC, reconstructs the quantised
-value through an internal DAC, subtracts it from the held input to produce a
-residue, and amplifies the residue to full scale before passing it to the next
-stage. A digital backend aligns the per-stage bits and applies redundancy-based
-error correction.
+Shipped classes: `pyDataconverter/architectures/PipelinedADC.py` (`PipelineStage`, `PipelinedADC`), `pyDataconverter/components/residue_amplifier.py` (`ResidueAmplifier`). Extensions: relaxed `FlashADC.n_comparators`, `DACBase.n_levels`, `SimpleDAC.code_errors`, `DifferentialComparator.tau_regen`. Bit-exact against the vetted `adc_book` reference on four canonical configurations (see `tests/test_pipelined_adc_vs_reference.py`). Example: `examples/pipelined_adc_example.py`. Full design: `docs/superpowers/specs/2026-04-13-pipelined-adc-design.md`.
 
-**Why model it:** The dominant architecture for 10–14 bit ADCs at 50–500 MS/s
-(telecom, instrumentation, imaging). Rich modelling content around stage gain
-error, capacitor mismatch, amplifier settling, and inter-stage crosstalk. Also
-forces us to build reusable sub-components (MDAC, residue amplifier,
-sample-and-hold) that unlock several other architectures.
-
-**Key non-idealities to add:**
-- Residue amplifier finite gain → closed-loop gain error per stage
-- Residue amplifier slew rate and settling time (bandwidth-limited)
-- Residue amplifier offset
-- MDAC capacitor mismatch (per-stage, independent)
-- Comparator offsets inside the sub-ADC (absorbed by redundancy if the stage has
-  overlap, otherwise directly visible as INL)
-- Inter-stage timing skew (if clock phases are staggered)
-
-**Components needed (some new, some existing):**
-- **`ResidueAmplifier`** (new) — models gain, slew, settling, offset. Input is a
-  held voltage; output is `G * (v_in - v_dac)` with the above imperfections.
-- **`MDAC`** (new) — composes a sample-and-hold, a sub-DAC (likely a reuse of
-  `SingleEndedCDAC` or `DifferentialCDAC`), a subtractor, and a `ResidueAmplifier`.
-  Exposes `convert_stage(v_in) -> (stage_code, v_residue)`.
-- **`PipelineStage`** (new) — composes a sub-ADC (likely `FlashADC` or a 1.5-bit
-  custom comparator pair) and an `MDAC`. Clean unit, one stage = one pipeline
-  cell.
-- **`PipelinedADC`** (new, extends `ADCBase`) — cascades N `PipelineStage`
-  instances plus an optional final flash stage and a digital alignment / error
-  correction backend.
-
-**Bits-per-stage decision:** to be resolved in the design session. Options
-include 1, 1.5, 2, and 2.5 bits per stage, or a heterogeneous cascade.
+Phase 2 items (still open): explicit `SampleAndHold` component, residue-amp slew-rate limiting in comparison harness, `SARADC` metastability plumbing, additional non-idealities (reference noise, sub-DAC cap mismatch, stage crosstalk, 1/f noise), pipelined-specific characterisation helpers in `utils/characterization.py`.
 
 ---
 
