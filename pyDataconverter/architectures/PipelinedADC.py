@@ -137,3 +137,134 @@ class PipelineStage:
 
         shifted_code = raw_code + self.code_offset
         return raw_code, shifted_code, v_res
+
+
+class PipelinedADC(ADCBase):
+    """
+    N-stage pipelined ADC with a required backend.
+
+    A cascade of ``PipelineStage`` instances followed by a mandatory backend
+    ADC. The first stage applies an optional SARADC-style sample-and-hold
+    (``noise_rms``, ``offset``, ``gain_error``, ``t_jitter``) before handing
+    the signal to stage 0. Each stage produces a partial code and a residue
+    that feeds the next stage. The backend digitises the final residue.
+
+    Digital combiner: ``DOUT = DOUT + DOUT * stage.H + shifted_code`` per
+    stage and once more with ``backend_H`` for the backend, bit-exactly
+    matching the adc_book reference's accumulation formula.
+
+    Attributes:
+        stages:              List of PipelineStage instances.
+        backend:             Backend ADC (any ADCBase subclass).
+        backend_H:           Digital combiner weight applied to the backend.
+        backend_code_offset: Integer added to backend's raw code before
+                             combining (analogous to stage.code_offset).
+        fs:                  Sample rate (Hz).
+        clip_output:         Whether to clip the final DOUT to
+                             [0, 2**n_bits - 1].
+    """
+
+    def __init__(self,
+                 n_bits: int,
+                 v_ref: float = 1.0,
+                 input_type: InputType = InputType.SINGLE,
+                 stages: Optional[List[PipelineStage]] = None,
+                 backend: Optional[ADCBase] = None,
+                 backend_H: float = 1.0,
+                 backend_code_offset: int = 0,
+                 fs: float = 1.0,
+                 noise_rms: float = 0.0,
+                 offset: float = 0.0,
+                 gain_error: float = 0.0,
+                 t_jitter: float = 0.0,
+                 clip_output: bool = True):
+        super().__init__(n_bits, v_ref, input_type)
+
+        if stages is None or not isinstance(stages, list) or len(stages) == 0:
+            raise ValueError(
+                "PipelinedADC requires at least one stage, got " +
+                (repr(stages) if not isinstance(stages, list) else "empty list"))
+        for i, s in enumerate(stages):
+            if not isinstance(s, PipelineStage):
+                raise TypeError(
+                    f"stages[{i}] must be a PipelineStage instance, got {type(s).__name__}")
+
+        if backend is None or not isinstance(backend, ADCBase):
+            raise TypeError(
+                f"backend must be an ADCBase instance, got {type(backend).__name__}")
+
+        if not isinstance(backend_H, (int, float)):
+            raise TypeError(f"backend_H must be a number, got {type(backend_H).__name__}")
+        if backend_H <= 0:
+            raise ValueError(f"backend_H must be positive, got {backend_H}")
+        if not isinstance(backend_code_offset, int) or isinstance(backend_code_offset, bool):
+            raise TypeError(
+                f"backend_code_offset must be an integer, got {type(backend_code_offset).__name__}")
+
+        if not isinstance(fs, (int, float)):
+            raise TypeError(f"fs must be a number, got {type(fs).__name__}")
+        if fs <= 0:
+            raise ValueError(f"fs must be positive, got {fs}")
+
+        if noise_rms < 0:
+            raise ValueError(f"noise_rms must be >= 0, got {noise_rms}")
+        if t_jitter < 0:
+            raise ValueError(f"t_jitter must be >= 0, got {t_jitter}")
+
+        self.stages              = stages
+        self.backend             = backend
+        self.backend_H           = float(backend_H)
+        self.backend_code_offset = backend_code_offset
+        self.fs                  = float(fs)
+        self.noise_rms           = float(noise_rms)
+        self.offset              = float(offset)
+        self.gain_error          = float(gain_error)
+        self.t_jitter            = float(t_jitter)
+        self.clip_output         = bool(clip_output)
+
+    def _sample_input(self, analog_input) -> float:
+        """Apply first-stage S&H non-idealities. Mirrors SARADC._sample_input."""
+        if self.input_type == InputType.SINGLE:
+            v = float(analog_input)
+        else:
+            v_pos, v_neg = analog_input
+            v = float(v_pos) - float(v_neg)
+
+        if self.gain_error:
+            v = v * (1.0 + self.gain_error)
+        if self.offset:
+            v = v + self.offset
+        if self.noise_rms:
+            v = v + float(np.random.normal(0.0, self.noise_rms))
+        if self.t_jitter and self._dvdt:
+            v = v + self._dvdt * float(np.random.normal(0.0, self.t_jitter))
+        return v
+
+    def _convert_input(self, analog_input) -> int:
+        """Cascade conversion + digital combiner."""
+        v_sampled = self._sample_input(analog_input)
+
+        DOUT = 0
+        for stage in self.stages:
+            raw_code, shifted_code, v_res = stage.convert_stage(v_sampled)
+            DOUT = DOUT + DOUT * stage.H + shifted_code
+            v_sampled = v_res
+
+        # Backend
+        raw_backend = int(self.backend.convert(float(v_sampled)))
+        shifted_be  = raw_backend + self.backend_code_offset
+        DOUT = DOUT + DOUT * self.backend_H + shifted_be
+
+        if self.clip_output:
+            lo, hi = 0, 2 ** self.n_bits - 1
+            if DOUT < lo:
+                DOUT = lo
+            elif DOUT > hi:
+                DOUT = hi
+
+        return int(DOUT)
+
+    def __repr__(self) -> str:
+        return (f"PipelinedADC(n_bits={self.n_bits}, v_ref={self.v_ref}, "
+                f"input_type={self.input_type.name}, stages={len(self.stages)}, "
+                f"backend={type(self.backend).__name__}, fs={self.fs:.3e})")
