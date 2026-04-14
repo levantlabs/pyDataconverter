@@ -72,7 +72,9 @@ class FlashADC(ADCBase):
 
     Attributes:
         Inherits all attributes from ADCBase, plus:
-        n_comparators (int): Number of comparators (2^n_bits - 1).
+        n_comparators (int): Number of comparators. Defaults to
+            2^n_bits - 1; override via the n_comparators constructor kwarg
+            for arbitrary (including even) counts.
         comparators (list): Per-comparator Comparator instances.
         reference (ReferenceBase): Voltage reference generator.
         encoder_type (EncoderType): Thermometer-to-binary encoding strategy.
@@ -111,7 +113,10 @@ class FlashADC(ADCBase):
             reference_noise: RMS dynamic noise for the default ReferenceLadder
                 (ignored when reference is provided).
             resistor_mismatch: Resistor mismatch std for the default
-                ReferenceLadder (ignored when reference is provided).
+                ReferenceLadder (ignored when reference is provided, and
+                also ignored when n_comparators overrides the default
+                2**n_bits - 1 — the ArbitraryReference used in that path
+                does not model resistor mismatch).
             encoder_type: Thermometer-to-binary encoding strategy.
             n_comparators: Number of comparators. If None, defaults to 2**n_bits - 1.
                 Can be any positive integer to override the default derivation.
@@ -144,10 +149,15 @@ class FlashADC(ADCBase):
                     f"this FlashADC has n_comparators={self.n_comparators}")
             self.reference = reference
         else:
-            # Build a default ladder whose length matches n_comparators. When
-            # n_comparators is a non-power-of-2, bypass ReferenceLadder's
-            # 2^n_bits assumption by using ArbitraryReference with a linear
-            # spacing that matches the standard ladder for the power-of-2 case.
+            # Build a default ladder whose length matches n_comparators.
+            # Power-of-2 case: use ReferenceLadder (preserves existing
+            # behaviour for backward compatibility, including resistor
+            # mismatch modelling). Non-power-of-2 case: use ArbitraryReference
+            # with linearly-spaced bin-midpoint thresholds — this is the
+            # appropriate spacing for an arbitrary count, but note that the
+            # two formulas produce numerically different thresholds even at
+            # n_comparators == 2**n_bits - 1, which is why the guard must be
+            # exact (do not mix the two paths for the same count).
             v_min = -v_ref / 4 if input_type == InputType.DIFFERENTIAL else 0.0
             v_max =  v_ref / 4 if input_type == InputType.DIFFERENTIAL else v_ref
             if self.n_comparators == 2 ** n_bits - 1:
@@ -229,7 +239,8 @@ class FlashADC(ADCBase):
                           tuple (differential).
 
         Returns:
-            int: Output code in [0, 2^n_bits - 1].
+            int: Output code in [0, n_comparators] (which equals
+                2^n_bits - 1 in the default configuration).
         """
         comp_refs = self.reference.get_voltages()
         n = self.n_comparators
@@ -249,9 +260,7 @@ class FlashADC(ADCBase):
             for i, (comp, ref) in enumerate(zip(self.comparators, comp_refs)):
                 thermometer[i] = comp.compare(vin, 0.0, ref, 0.0)
 
-        code = self._encode(thermometer)
-        max_code = self.n_comparators if self.n_comparators != 2 ** self.n_bits - 1 else 2 ** self.n_bits - 1
-        return int(np.clip(code, 0, max_code))
+        return int(np.clip(self._encode(thermometer), 0, self.n_comparators))
 
     def reset(self):
         """Reset all comparator states (hysteresis history, bandwidth filter)."""
