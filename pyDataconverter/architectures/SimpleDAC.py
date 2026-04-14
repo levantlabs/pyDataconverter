@@ -59,8 +59,9 @@ class SimpleDAC(DACBase):
                  offset: float = 0.0,
                  gain_error: float = 0.0,
                  fs: float = 1.0,
-                 oversample: int = 1):
-        super().__init__(n_bits, v_ref, output_type)
+                 oversample: int = 1,
+                 n_levels: int = None):
+        super().__init__(n_bits, v_ref, output_type, n_levels=n_levels)
 
         if noise_rms < 0:
             raise ValueError("noise_rms must be >= 0")

@@ -123,7 +123,11 @@ class DACBase(ABC):
         lsb (float): Least significant bit size
     """
 
-    def __init__(self, n_bits: int, v_ref: float = 1.0, output_type: OutputType = OutputType.SINGLE):
+    def __init__(self,
+                 n_bits: int,
+                 v_ref: float = 1.0,
+                 output_type: OutputType = OutputType.SINGLE,
+                 n_levels: int = None):
         # Validate n_bits
         if not isinstance(n_bits, int):
             raise TypeError("n_bits must be an integer")
@@ -140,11 +144,21 @@ class DACBase(ABC):
         if not isinstance(output_type, OutputType):
             raise TypeError("output_type must be an OutputType enum")
 
+        # Resolve n_levels: explicit override wins, else default to 2^n_bits.
+        if n_levels is None:
+            n_levels = 2 ** n_bits
+        else:
+            if not isinstance(n_levels, int) or isinstance(n_levels, bool):
+                raise TypeError("n_levels must be an integer")
+            if n_levels < 2:
+                raise ValueError(f"n_levels must be >= 2, got {n_levels}")
+
         # Assign attributes
         self.n_bits = n_bits
         self.v_ref = v_ref
         self.output_type = output_type
-        self.lsb = v_ref / (2 ** n_bits - 1)
+        self.n_levels = n_levels
+        self.lsb = v_ref / (n_levels - 1)
 
     def convert(self, digital_input: int) -> Union[float, Tuple[float, float]]:
         """
@@ -162,8 +176,8 @@ class DACBase(ABC):
         # Validate input range
         if not isinstance(digital_input, (int, np.integer)):
             raise TypeError("Digital input must be an integer")
-        if digital_input < 0 or digital_input >= 2 ** self.n_bits:
-            raise ValueError(f"Digital input must be between 0 and {2 ** self.n_bits - 1}")
+        if digital_input < 0 or digital_input >= self.n_levels:
+            raise ValueError(f"Digital input must be between 0 and {self.n_levels - 1}")
 
         # Call architecture-specific conversion
         return self._convert_input(digital_input)

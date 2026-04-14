@@ -470,5 +470,38 @@ class TestSimpleDACMainBlock(unittest.TestCase):
         self.assertAlmostEqual(v_pos - v_neg, 0.0, delta=dac_diff.lsb)
 
 
+class TestDACBaseNLevels(unittest.TestCase):
+    """DACBase now supports arbitrary n_levels, decoupled from n_bits."""
+
+    def test_default_n_levels_matches_2_to_the_n_bits(self):
+        # When n_levels is not supplied, DACBase (via SimpleDAC) should behave
+        # exactly as before: n_levels == 2**n_bits, lsb == v_ref / (2^n - 1).
+        dac = SimpleDAC(n_bits=3, v_ref=1.0, output_type=OutputType.SINGLE)
+        self.assertEqual(dac.convert(0), 0.0)
+        self.assertAlmostEqual(dac.convert(7), 1.0)
+        self.assertAlmostEqual(dac.lsb, 1.0 / 7)
+
+    def test_explicit_n_levels_overrides_n_bits(self):
+        # 9 output levels over [0, v_ref] with lsb = v_ref / 8.
+        dac = SimpleDAC(n_bits=3, n_levels=9, v_ref=1.0, output_type=OutputType.SINGLE)
+        self.assertAlmostEqual(dac.lsb, 1.0 / 8)
+        self.assertAlmostEqual(dac.convert(0), 0.0)
+        self.assertAlmostEqual(dac.convert(4), 0.5)
+        self.assertAlmostEqual(dac.convert(8), 1.0)
+
+    def test_code_above_n_levels_raises(self):
+        dac = SimpleDAC(n_bits=3, n_levels=9, v_ref=1.0, output_type=OutputType.SINGLE)
+        with self.assertRaises(ValueError):
+            dac.convert(9)
+
+    def test_n_levels_less_than_two_raises(self):
+        with self.assertRaises(ValueError):
+            SimpleDAC(n_bits=3, n_levels=1, v_ref=1.0, output_type=OutputType.SINGLE)
+
+    def test_n_levels_not_int_raises(self):
+        with self.assertRaises(TypeError):
+            SimpleDAC(n_bits=3, n_levels=3.5, v_ref=1.0, output_type=OutputType.SINGLE)
+
+
 if __name__ == '__main__':
     unittest.main()
