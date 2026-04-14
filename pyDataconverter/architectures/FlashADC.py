@@ -39,7 +39,7 @@ from typing import Optional, Type, Union, Tuple
 import numpy as np
 from pyDataconverter.dataconverter import ADCBase, InputType
 from pyDataconverter.components.comparator import ComparatorBase, DifferentialComparator
-from pyDataconverter.components.reference import ReferenceBase, ReferenceLadder
+from pyDataconverter.components.reference import ReferenceBase, ReferenceLadder, ArbitraryReference
 
 
 class EncoderType(Enum):
@@ -88,7 +88,8 @@ class FlashADC(ADCBase):
                  reference: Optional[ReferenceBase] = None,
                  reference_noise: float = 0.0,
                  resistor_mismatch: float = 0.0,
-                 encoder_type: EncoderType = EncoderType.COUNT_ONES):
+                 encoder_type: EncoderType = EncoderType.COUNT_ONES,
+                 n_comparators: Optional[int] = None):
         """
         Initialize Flash ADC.
 
@@ -112,14 +113,26 @@ class FlashADC(ADCBase):
             resistor_mismatch: Resistor mismatch std for the default
                 ReferenceLadder (ignored when reference is provided).
             encoder_type: Thermometer-to-binary encoding strategy.
+            n_comparators: Number of comparators. If None, defaults to 2**n_bits - 1.
+                Can be any positive integer to override the default derivation.
         """
         super().__init__(n_bits, v_ref, input_type)
 
         if not isinstance(encoder_type, EncoderType):
             raise TypeError("encoder_type must be an EncoderType enum")
 
-        self.n_comparators = 2 ** n_bits - 1
-        self.encoder_type  = encoder_type
+        # Resolve n_comparators: explicit override wins, else derived from n_bits.
+        if n_comparators is None:
+            self.n_comparators = 2 ** n_bits - 1
+        else:
+            if not isinstance(n_comparators, int) or isinstance(n_comparators, bool):
+                raise TypeError(
+                    f"n_comparators must be an integer, got {type(n_comparators).__name__}")
+            if n_comparators < 1:
+                raise ValueError(f"n_comparators must be >= 1, got {n_comparators}")
+            self.n_comparators = n_comparators
+
+        self.encoder_type = encoder_type
 
         # Reference generator
         if reference is not None:
@@ -128,19 +141,23 @@ class FlashADC(ADCBase):
             if reference.n_references != self.n_comparators:
                 raise ValueError(
                     f"reference has {reference.n_references} taps but "
-                    f"{n_bits}-bit ADC needs {self.n_comparators}")
+                    f"this FlashADC has n_comparators={self.n_comparators}")
             self.reference = reference
         else:
-            # For differential mode each comparator receives (v_pos - v_refp[i], v_neg - v_refn[i]).
-            # v_refp and v_refn come from opposite ends of the same ladder, so the effective
-            # differential threshold = v_refp[i] - v_refn[i] = 2 * tap_voltage[i].
-            # The ladder therefore spans [-v_ref/4, +v_ref/4] so that the differential
-            # thresholds cover the full [-v_ref/2, +v_ref/2] input range.
+            # Build a default ladder whose length matches n_comparators. When
+            # n_comparators is a non-power-of-2, bypass ReferenceLadder's
+            # 2^n_bits assumption by using ArbitraryReference with a linear
+            # spacing that matches the standard ladder for the power-of-2 case.
             v_min = -v_ref / 4 if input_type == InputType.DIFFERENTIAL else 0.0
             v_max =  v_ref / 4 if input_type == InputType.DIFFERENTIAL else v_ref
-            self.reference = ReferenceLadder(n_bits, v_min, v_max,
-                                             resistor_mismatch=resistor_mismatch,
-                                             noise_rms=reference_noise)
+            if self.n_comparators == 2 ** n_bits - 1:
+                self.reference = ReferenceLadder(n_bits, v_min, v_max,
+                                                 resistor_mismatch=resistor_mismatch,
+                                                 noise_rms=reference_noise)
+            else:
+                lsb = (v_max - v_min) / self.n_comparators
+                thresholds = v_min + lsb * (np.arange(self.n_comparators) + 0.5)
+                self.reference = ArbitraryReference(thresholds, noise_rms=reference_noise)
 
         # Comparator bank
         if comparator_params is None:
@@ -232,7 +249,9 @@ class FlashADC(ADCBase):
             for i, (comp, ref) in enumerate(zip(self.comparators, comp_refs)):
                 thermometer[i] = comp.compare(vin, 0.0, ref, 0.0)
 
-        return int(np.clip(self._encode(thermometer), 0, 2 ** self.n_bits - 1))
+        code = self._encode(thermometer)
+        max_code = self.n_comparators if self.n_comparators != 2 ** self.n_bits - 1 else 2 ** self.n_bits - 1
+        return int(np.clip(code, 0, max_code))
 
     def reset(self):
         """Reset all comparator states (hysteresis history, bandwidth filter)."""

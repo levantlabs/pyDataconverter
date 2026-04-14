@@ -2,6 +2,7 @@
 Tests for FlashADC and EncoderType.
 """
 
+import unittest
 import numpy as np
 import pytest
 from pyDataconverter.architectures.FlashADC import FlashADC, EncoderType
@@ -421,3 +422,38 @@ class TestMainBlock:
         # Verify visualization functions were called
         assert mock_viz_module.visualize_flash_adc.called
         assert mock_viz_module.animate_flash_adc.called
+
+
+class TestFlashADCRelaxedNComparators(unittest.TestCase):
+    """FlashADC supports arbitrary comparator counts, not just 2^n_bits - 1."""
+
+    def test_default_n_comparators_is_2_to_the_n_minus_1(self):
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE)
+        self.assertEqual(adc.n_comparators, 7)
+
+    def test_explicit_n_comparators_overrides_default(self):
+        adc = FlashADC(n_bits=10, v_ref=1.0, input_type=InputType.SINGLE,
+                       n_comparators=1026)
+        self.assertEqual(adc.n_comparators, 1026)
+
+    def test_even_n_comparators_accepted(self):
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE,
+                       n_comparators=8)
+        self.assertEqual(adc.n_comparators, 8)
+
+    def test_output_code_range_expands(self):
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE,
+                       n_comparators=8)
+        sweep = np.linspace(-0.01, 1.01, 401)
+        codes = {adc.convert(float(v)) for v in sweep}
+        self.assertTrue(min(codes) >= 0)
+        self.assertTrue(max(codes) <= 8)
+        self.assertGreater(len(codes), 5)
+
+    def test_n_comparators_not_int_raises(self):
+        with self.assertRaises(TypeError):
+            FlashADC(n_bits=3, v_ref=1.0, n_comparators=7.5)
+
+    def test_n_comparators_zero_raises(self):
+        with self.assertRaises(ValueError):
+            FlashADC(n_bits=3, v_ref=1.0, n_comparators=0)
