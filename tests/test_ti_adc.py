@@ -380,3 +380,57 @@ class TestTIADCHierarchical(unittest.TestCase):
                 fs=1e9,
                 offset_std_per_level=[1e-3],  # length 1, expected 2
             )
+
+
+class TestTIADCComposition(unittest.TestCase):
+    """TI-ADC composes with other architectures (its whole reason for being)."""
+
+    def test_ti_adc_as_pipelined_backend(self):
+        """A TimeInterleavedADC can serve as a PipelinedADC backend."""
+        # Importing here to avoid circular-ish cost at module load
+        from pyDataconverter.architectures.PipelinedADC import (
+            PipelineStage, PipelinedADC)
+        from pyDataconverter.components.residue_amplifier import ResidueAmplifier
+        from pyDataconverter.architectures.SimpleDAC import SimpleDAC
+        from pyDataconverter.dataconverter import OutputType
+
+        # Small stage0 + a TI-ADC backend built from a FlashADC template.
+        stage_sub_adc = FlashADC(n_bits=3, v_ref=1.0,
+                                  input_type=InputType.SINGLE, n_comparators=8)
+        stage_sub_dac = SimpleDAC(n_bits=3, n_levels=9, v_ref=1.0,
+                                   output_type=OutputType.SINGLE)
+        stage_amp = ResidueAmplifier(gain=4.0, settling_tau=0.0)
+        stage = PipelineStage(sub_adc=stage_sub_adc, sub_dac=stage_sub_dac,
+                              residue_amp=stage_amp, fs=1e9, code_offset=0)
+
+        backend_template = FlashADC(n_bits=8, v_ref=1.0,
+                                     input_type=InputType.SINGLE)
+        ti_backend = TimeInterleavedADC(channels=4,
+                                         sub_adc_template=backend_template,
+                                         fs=1e9)
+
+        adc = PipelinedADC(n_bits=10, v_ref=1.0, input_type=InputType.SINGLE,
+                            stages=[stage], backend=ti_backend,
+                            backend_H=255, backend_code_offset=0, fs=1e9)
+
+        # Smoke test: a few inputs produce valid codes without raising.
+        for v in (0.1, 0.25, 0.5, 0.75, 0.9):
+            code = adc.convert(v)
+            self.assertIsInstance(code, int)
+            self.assertGreaterEqual(code, 0)
+            self.assertLessEqual(code, 2 ** 10 - 1)
+
+    def test_ti_adc_inside_ti_adc_manual_nesting(self):
+        """Manual nested construction also builds a valid hierarchy (same as classmethod)."""
+        inner = TimeInterleavedADC(channels=2, sub_adc_template=_make_template(n_bits=6),
+                                    fs=1e9)
+        outer = TimeInterleavedADC(channels=4, sub_adc_template=inner, fs=4e9)
+        self.assertEqual(outer.M, 4)
+        # Each outer channel is a TimeInterleavedADC (deep copy of inner)
+        for ch in outer.channels:
+            self.assertIsInstance(ch, TimeInterleavedADC)
+            self.assertEqual(ch.M, 2)
+        # An ideal nested TI-ADC with zero mismatches should equal the template
+        ref = _make_template(n_bits=6)
+        for v in np.linspace(0, 1.0, 20):
+            self.assertEqual(outer.convert(float(v)), ref.convert(float(v)))
