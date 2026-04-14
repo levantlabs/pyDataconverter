@@ -16,7 +16,7 @@ Version History:
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Union, Tuple
+from typing import Union, Tuple, Optional
 import numpy as np
 
 
@@ -120,14 +120,15 @@ class DACBase(ABC):
         n_bits (int): DAC resolution
         v_ref (float): Reference voltage
         output_type (OutputType): Single-ended or differential
-        lsb (float): Least significant bit size
+        n_levels (int): Number of output codes (default 2**n_bits).
+        lsb (float): Least significant bit size (v_ref / (n_levels - 1)).
     """
 
     def __init__(self,
                  n_bits: int,
                  v_ref: float = 1.0,
                  output_type: OutputType = OutputType.SINGLE,
-                 n_levels: int = None):
+                 n_levels: Optional[int] = None):
         # Validate n_bits
         if not isinstance(n_bits, int):
             raise TypeError("n_bits must be an integer")
@@ -165,7 +166,7 @@ class DACBase(ABC):
         Convert digital input to analog output.
 
         Args:
-            digital_input: Input code (must be between 0 and 2^n_bits - 1)
+            digital_input: Input code (must be between 0 and n_levels - 1)
 
         Returns:
             Single voltage or tuple of (pos, neg) for differential

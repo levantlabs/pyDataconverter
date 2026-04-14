@@ -20,7 +20,7 @@ Version History:
 """
 
 from pyDataconverter.dataconverter import DACBase, OutputType
-from typing import Union, Tuple
+from typing import Union, Tuple, Optional
 import numpy as np
 
 
@@ -49,6 +49,12 @@ class SimpleDAC(DACBase):
                              hold factor). Used by convert_sequence() to
                              upsample the output waveform. Default 1 (no
                              oversampling).
+        n_levels (int, optional): Number of output codes. Inherited from
+                                  DACBase. When None (default) the base class
+                                  uses 2**n_bits codes with lsb = v_ref/(2**n_bits − 1).
+                                  Otherwise lsb = v_ref / (n_levels − 1). Enables
+                                  non-power-of-2 output counts for e.g. pipelined
+                                  ADC sub-DACs.
     """
 
     def __init__(self,
@@ -60,7 +66,7 @@ class SimpleDAC(DACBase):
                  gain_error: float = 0.0,
                  fs: float = 1.0,
                  oversample: int = 1,
-                 n_levels: int = None):
+                 n_levels: Optional[int] = None):
         super().__init__(n_bits, v_ref, output_type, n_levels=n_levels)
 
         if noise_rms < 0:
