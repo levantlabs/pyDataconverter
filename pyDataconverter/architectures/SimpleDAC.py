@@ -153,6 +153,14 @@ class SimpleDAC(DACBase):
             Single-ended: (t, voltages)
             Differential:  (t, v_pos, v_neg)
         """
+        # NOTE: self.code_errors is NOT applied in this vectorised path.
+        # Per-code error injection is Phase 1 scoped to the single-code
+        # _convert_input path used by SimpleDAC.convert(). The batch
+        # convert_sequence path inlines its own arithmetic and does not
+        # consult code_errors. This is intentional for Phase 1 — the
+        # pipelined-ADC comparison harness (Task 10) exercises convert()
+        # only. Reconcile before any future code path wants code_errors
+        # in a batch context.
         max_code = (1 << self.n_bits) - 1
         codes = np.clip(codes, 0, max_code)
 
