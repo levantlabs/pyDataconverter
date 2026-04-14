@@ -35,6 +35,9 @@ class ResidueAmplifier:
 
     Attributes:
         gain:          Closed-loop voltage gain (signed; inverting amps OK).
+                       NOTE: stored as an attribute for callers to read
+                       when building amplify() arguments; NOT applied
+                       inside amplify() itself. The caller pre-multiplies.
         offset:        Output-referred DC offset voltage (V).
         slew_rate:     Peak rate of change of the output (V/s). 0 or +inf
                        disables slew limiting. Optional; Phase 1 uses the
@@ -79,14 +82,23 @@ class ResidueAmplifier:
                 initial_error: float,
                 t_budget: float) -> float:
         """
-        Apply finite-gain + exponential-settling amplification.
+        Apply exponential-settling amplification on a pre-scaled target.
+
+        The caller (typically a PipelineStage) is responsible for
+        multiplying by the amp's gain when building ``target`` and
+        ``initial_error``. This method does NOT re-multiply by
+        ``self.gain``; the attribute exists so callers can read it
+        (e.g. ``stage.residue_amp.gain``) when scaling their own values.
 
         Args:
-            target:        Input voltage to amplify. The amp produces
-                           gain * target as the ideal amplified residue.
-            initial_error: Signed perturbation the amp starts at, in
-                           residue-output units. The amp exponentially
-                           decays this toward zero over ``t_budget``.
+            target:        Pre-scaled ideal residue the amp would reach
+                           given infinite settling time. Typically built
+                           by the caller as ``self.gain * (v_in - v_dac)``.
+            initial_error: Pre-scaled signed perturbation the amp starts
+                           at, in residue-output units. Typically built
+                           by the caller as ``sign * self.gain * sub_dac.lsb``.
+                           The amp exponentially decays this toward zero
+                           over ``t_budget``.
             t_budget:      Seconds of settling time available. NOT clamped —
                            negative values produce ``exp(+positive) > 1``,
                            matching the reference's unguarded behaviour at
@@ -96,22 +108,18 @@ class ResidueAmplifier:
             Amplified residue voltage, clipped to ``output_swing`` if set.
 
         Edge cases (handled explicitly to avoid NaN):
-            - ``settling_tau == 0``: return ``gain * target + offset``
-              regardless of ``initial_error`` or ``t_budget`` (instantaneous
-              ideal amp).
-            - ``initial_error == 0``: short-circuit to ``gain * target + offset``.
-            - ``t_budget == +inf``: full settling, return ``gain * target + offset``.
+            - ``settling_tau == 0``: return ``target + offset`` regardless
+              of ``initial_error`` or ``t_budget`` (instantaneous ideal amp).
+            - ``initial_error == 0``: short-circuit to ``target + offset``.
+            - ``t_budget == +inf``: full settling, return ``target + offset``.
         """
-        # Apply gain to target to get ideal amplified residue
-        ideal_target = self.gain * target
-
         # Ideal-amp / no-error / infinite-time degenerate cases short-circuit
         # to avoid IEEE 754 0*inf and exp(-t/0) NaN traps.
         if self.settling_tau == 0 or initial_error == 0 or (math.isinf(t_budget) and t_budget > 0):
-            v_out = ideal_target + self.offset
+            v_out = target + self.offset
         else:
             decay = math.exp(-t_budget / self.settling_tau)
-            v_out = ideal_target + initial_error * decay + self.offset
+            v_out = target + initial_error * decay + self.offset
 
         if self.output_swing is not None:
             v_min, v_max = self.output_swing
