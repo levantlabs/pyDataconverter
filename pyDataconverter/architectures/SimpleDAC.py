@@ -20,7 +20,7 @@ Version History:
 """
 
 from pyDataconverter.dataconverter import DACBase, OutputType
-from typing import Union, Tuple
+from typing import Union, Tuple, Optional
 import numpy as np
 
 
@@ -49,6 +49,12 @@ class SimpleDAC(DACBase):
                              hold factor). Used by convert_sequence() to
                              upsample the output waveform. Default 1 (no
                              oversampling).
+        n_levels (int, optional): Number of output codes. Inherited from
+                                  DACBase. When None (default) the base class
+                                  uses 2**n_bits codes with lsb = v_ref/(2**n_bits − 1).
+                                  Otherwise lsb = v_ref / (n_levels − 1). Enables
+                                  non-power-of-2 output counts for e.g. pipelined
+                                  ADC sub-DACs.
     """
 
     def __init__(self,
@@ -59,19 +65,34 @@ class SimpleDAC(DACBase):
                  offset: float = 0.0,
                  gain_error: float = 0.0,
                  fs: float = 1.0,
-                 oversample: int = 1):
-        super().__init__(n_bits, v_ref, output_type)
+                 oversample: int = 1,
+                 n_levels: Optional[int] = None,
+                 code_errors: Optional[np.ndarray] = None):
+        super().__init__(n_bits, v_ref, output_type, n_levels=n_levels)
 
         if noise_rms < 0:
             raise ValueError("noise_rms must be >= 0")
         if oversample < 1:
             raise ValueError("oversample must be >= 1")
 
-        self.noise_rms  = noise_rms
-        self.offset     = offset
-        self.gain_error = gain_error
-        self.fs         = fs
-        self.oversample = oversample
+        if code_errors is not None:
+            if not isinstance(code_errors, np.ndarray):
+                raise TypeError(
+                    f"code_errors must be a numpy ndarray, got {type(code_errors).__name__}")
+            if code_errors.ndim != 1:
+                raise ValueError(
+                    f"code_errors must be 1-D, got shape {code_errors.shape}")
+            if len(code_errors) != self.n_levels:
+                raise ValueError(
+                    f"code_errors must have length n_levels={self.n_levels}, "
+                    f"got {len(code_errors)}")
+
+        self.noise_rms   = noise_rms
+        self.offset      = offset
+        self.gain_error  = gain_error
+        self.fs          = fs
+        self.oversample  = oversample
+        self.code_errors = code_errors
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -98,27 +119,22 @@ class SimpleDAC(DACBase):
 
     def _convert_input(self, digital_input: int) -> Union[float, Tuple[float, float]]:
         """
-        Compute ideal voltage, apply non-idealities, then format output.
-
-        Args:
-            digital_input: Pre-validated input code
-
-        Returns:
-            float or tuple: Output voltage(s)
-                - Single-ended: returns float voltage
-                - Differential: returns tuple of (v_pos, v_neg)
+        Compute ideal voltage, apply per-code error (if any), apply non-idealities,
+        then format output.
         """
         # Calculate ideal voltage
         voltage = digital_input * self.lsb
 
-        # Apply non-idealities before single/differential split
+        # Apply per-code static error (injected via code_errors kwarg)
+        if self.code_errors is not None:
+            voltage = voltage + float(self.code_errors[digital_input])
+
+        # Apply dynamic non-idealities
         voltage = self._apply_nonidealities(voltage)
 
         if self.output_type == OutputType.SINGLE:
             return voltage
         else:  # DIFFERENTIAL
-            # For differential, center around v_ref/2
-            # Full range goes from -v_ref/2 to +v_ref/2
             v_diff = 2 * voltage - self.v_ref
             v_pos = v_diff / 2 + self.v_ref / 2
             v_neg = -v_diff / 2 + self.v_ref / 2
@@ -137,7 +153,15 @@ class SimpleDAC(DACBase):
             Single-ended: (t, voltages)
             Differential:  (t, v_pos, v_neg)
         """
-        max_code = (1 << self.n_bits) - 1
+        # NOTE: self.code_errors is NOT applied in this vectorised path.
+        # Per-code error injection is Phase 1 scoped to the single-code
+        # _convert_input path used by SimpleDAC.convert(). The batch
+        # convert_sequence path inlines its own arithmetic and does not
+        # consult code_errors. This is intentional for Phase 1 — the
+        # pipelined-ADC comparison harness (Task 10) exercises convert()
+        # only. Reconcile before any future code path wants code_errors
+        # in a batch context.
+        max_code = self.n_levels - 1
         codes = np.clip(codes, 0, max_code)
 
         voltages = codes.astype(float) * self.lsb

@@ -11,3 +11,4 @@ from .cdac import (
     SplitCapCDAC,
     SegmentedCDAC,
 )
+from .residue_amplifier import ResidueAmplifier

@@ -470,5 +470,100 @@ class TestSimpleDACMainBlock(unittest.TestCase):
         self.assertAlmostEqual(v_pos - v_neg, 0.0, delta=dac_diff.lsb)
 
 
+class TestDACBaseNLevels(unittest.TestCase):
+    """DACBase now supports arbitrary n_levels, decoupled from n_bits."""
+
+    def test_default_n_levels_matches_2_to_the_n_bits(self):
+        # When n_levels is not supplied, DACBase (via SimpleDAC) should behave
+        # exactly as before: n_levels == 2**n_bits, lsb == v_ref / (2^n - 1).
+        dac = SimpleDAC(n_bits=3, v_ref=1.0, output_type=OutputType.SINGLE)
+        self.assertEqual(dac.convert(0), 0.0)
+        self.assertAlmostEqual(dac.convert(7), 1.0)
+        self.assertAlmostEqual(dac.lsb, 1.0 / 7)
+
+    def test_explicit_n_levels_overrides_n_bits(self):
+        # 9 output levels over [0, v_ref] with lsb = v_ref / 8.
+        dac = SimpleDAC(n_bits=3, n_levels=9, v_ref=1.0, output_type=OutputType.SINGLE)
+        self.assertAlmostEqual(dac.lsb, 1.0 / 8)
+        self.assertAlmostEqual(dac.convert(0), 0.0)
+        self.assertAlmostEqual(dac.convert(4), 0.5)
+        self.assertAlmostEqual(dac.convert(8), 1.0)
+
+    def test_code_above_n_levels_raises(self):
+        dac = SimpleDAC(n_bits=3, n_levels=9, v_ref=1.0, output_type=OutputType.SINGLE)
+        with self.assertRaises(ValueError):
+            dac.convert(9)
+
+    def test_n_levels_less_than_two_raises(self):
+        with self.assertRaises(ValueError):
+            SimpleDAC(n_bits=3, n_levels=1, v_ref=1.0, output_type=OutputType.SINGLE)
+
+    def test_n_levels_not_int_raises(self):
+        with self.assertRaises(TypeError):
+            SimpleDAC(n_bits=3, n_levels=3.5, v_ref=1.0, output_type=OutputType.SINGLE)
+
+
+class TestSimpleDACCodeErrors(unittest.TestCase):
+    """SimpleDAC supports per-code additive error injection."""
+
+    def test_default_no_errors(self):
+        dac = SimpleDAC(n_bits=3, v_ref=1.0, output_type=OutputType.SINGLE)
+        # With no code_errors, behaves exactly like the ideal transfer
+        for code in range(8):
+            self.assertAlmostEqual(dac.convert(code), code / 7)
+
+    def test_code_errors_applied_additively(self):
+        errors = np.array([0.0, 0.01, -0.02, 0.005, 0.0, -0.01, 0.002, 0.0])
+        dac = SimpleDAC(n_bits=3, v_ref=1.0, output_type=OutputType.SINGLE,
+                        code_errors=errors)
+        for code in range(8):
+            expected = code / 7 + errors[code]
+            self.assertAlmostEqual(dac.convert(code), expected)
+
+    def test_code_errors_with_n_levels(self):
+        # 9-level DAC with a specific error pattern
+        errors = np.array([0.0, -0.2, 0.3, 0.05, -0.15, 0.0, 0.3, -0.3, 0.0]) * 0.001
+        dac = SimpleDAC(n_bits=3, n_levels=9, v_ref=1.0,
+                        output_type=OutputType.SINGLE, code_errors=errors)
+        for code in range(9):
+            expected = code / 8 + errors[code]
+            self.assertAlmostEqual(dac.convert(code), expected)
+
+    def test_code_errors_wrong_length_raises(self):
+        errors = np.zeros(7)  # should be 8 for n_bits=3
+        with self.assertRaises(ValueError):
+            SimpleDAC(n_bits=3, v_ref=1.0, output_type=OutputType.SINGLE,
+                      code_errors=errors)
+
+    def test_code_errors_not_array_raises(self):
+        with self.assertRaises(TypeError):
+            SimpleDAC(n_bits=3, v_ref=1.0, output_type=OutputType.SINGLE,
+                      code_errors="not an array")
+
+    def test_code_errors_applied_before_gain_offset_noise(self):
+        # Code error + offset should both appear in the output
+        errors = np.array([0.0, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        dac = SimpleDAC(n_bits=3, v_ref=1.0, output_type=OutputType.SINGLE,
+                        offset=0.05, code_errors=errors)
+        # code=1: ideal = 1/7, + code_error 0.1, + offset 0.05
+        self.assertAlmostEqual(dac.convert(1), 1/7 + 0.1 + 0.05)
+
+
+class TestSimpleDACConvertSequenceNLevels(unittest.TestCase):
+    """convert_sequence must honour n_levels, not fall back to 2**n_bits."""
+
+    def test_convert_sequence_respects_n_levels(self):
+        # 9-level DAC: codes 0..8 must all produce distinct outputs
+        dac = SimpleDAC(n_bits=3, n_levels=9, v_ref=1.0,
+                        output_type=OutputType.SINGLE)
+        codes = np.arange(9)
+        t, voltages = dac.convert_sequence(codes)
+        # Code 8 must produce v_ref (= 1.0), NOT v_ref * 7/8 (= 0.875)
+        # under the bug, code 8 would be clipped to 7 and return 0.875.
+        self.assertAlmostEqual(float(voltages[-1]), 1.0, places=10)
+        # All codes should be monotonically increasing (9 distinct values)
+        self.assertEqual(len(np.unique(voltages)), 9)
+
+
 if __name__ == '__main__':
     unittest.main()

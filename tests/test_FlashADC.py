@@ -2,6 +2,7 @@
 Tests for FlashADC and EncoderType.
 """
 
+import unittest
 import numpy as np
 import pytest
 from pyDataconverter.architectures.FlashADC import FlashADC, EncoderType
@@ -421,3 +422,80 @@ class TestMainBlock:
         # Verify visualization functions were called
         assert mock_viz_module.visualize_flash_adc.called
         assert mock_viz_module.animate_flash_adc.called
+
+
+class TestFlashADCRelaxedNComparators(unittest.TestCase):
+    """FlashADC supports arbitrary comparator counts, not just 2^n_bits - 1."""
+
+    def test_default_n_comparators_is_2_to_the_n_minus_1(self):
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE)
+        self.assertEqual(adc.n_comparators, 7)
+
+    def test_explicit_n_comparators_overrides_default(self):
+        adc = FlashADC(n_bits=10, v_ref=1.0, input_type=InputType.SINGLE,
+                       n_comparators=1026)
+        self.assertEqual(adc.n_comparators, 1026)
+
+    def test_even_n_comparators_accepted(self):
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE,
+                       n_comparators=8)
+        self.assertEqual(adc.n_comparators, 8)
+
+    def test_output_code_range_expands(self):
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE,
+                       n_comparators=8)
+        sweep = np.linspace(-0.01, 1.01, 401)
+        codes = {adc.convert(float(v)) for v in sweep}
+        self.assertTrue(min(codes) >= 0)
+        self.assertTrue(max(codes) <= 8)
+        self.assertGreater(len(codes), 5)
+
+    def test_n_comparators_not_int_raises(self):
+        with self.assertRaises(TypeError):
+            FlashADC(n_bits=3, v_ref=1.0, n_comparators=7.5)
+
+    def test_n_comparators_zero_raises(self):
+        with self.assertRaises(ValueError):
+            FlashADC(n_bits=3, v_ref=1.0, n_comparators=0)
+
+
+class TestFlashADCMetastabilityHooks(unittest.TestCase):
+    """FlashADC reports metastability state for pipelined-ADC timing coupling."""
+
+    def test_defaults_are_ideal(self):
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE)
+        adc.convert(0.5)
+        self.assertEqual(adc.last_conversion_time(), 0.0)
+        self.assertEqual(adc.last_metastable_sign(), 0)
+
+    def test_last_conversion_time_aggregates_max_across_bank(self):
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE,
+                       comparator_params={"tau_regen": 1e-12})
+        adc.convert(0.5)
+        expected = max(c.last_regen_time for c in adc.comparators)
+        self.assertAlmostEqual(adc.last_conversion_time(), expected, places=18)
+        self.assertGreater(adc.last_conversion_time(), 0.0)
+
+    def test_metastable_sign_positive_when_nearest_threshold_above_input(self):
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE,
+                       comparator_params={"tau_regen": 1e-12})
+        adc.convert(0.05)
+        self.assertEqual(adc.last_metastable_sign(), +1)
+
+    def test_metastable_sign_negative_when_nearest_threshold_below_input(self):
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE,
+                       comparator_params={"tau_regen": 1e-12})
+        adc.convert(0.95)
+        self.assertEqual(adc.last_metastable_sign(), -1)
+
+    def test_sign_zero_when_tau_regen_zero(self):
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE)
+        adc.convert(0.5)
+        self.assertEqual(adc.last_metastable_sign(), 0)
+
+    def test_relaxed_count_with_regen_still_aggregates(self):
+        adc = FlashADC(n_bits=4, v_ref=1.0, input_type=InputType.SINGLE,
+                       n_comparators=8,
+                       comparator_params={"tau_regen": 2e-12})
+        adc.convert(0.3)
+        self.assertGreater(adc.last_conversion_time(), 0.0)

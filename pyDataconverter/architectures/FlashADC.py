@@ -39,7 +39,7 @@ from typing import Optional, Type, Union, Tuple
 import numpy as np
 from pyDataconverter.dataconverter import ADCBase, InputType
 from pyDataconverter.components.comparator import ComparatorBase, DifferentialComparator
-from pyDataconverter.components.reference import ReferenceBase, ReferenceLadder
+from pyDataconverter.components.reference import ReferenceBase, ReferenceLadder, ArbitraryReference
 
 
 class EncoderType(Enum):
@@ -72,7 +72,9 @@ class FlashADC(ADCBase):
 
     Attributes:
         Inherits all attributes from ADCBase, plus:
-        n_comparators (int): Number of comparators (2^n_bits - 1).
+        n_comparators (int): Number of comparators. Defaults to
+            2^n_bits - 1; override via the n_comparators constructor kwarg
+            for arbitrary (including even) counts.
         comparators (list): Per-comparator Comparator instances.
         reference (ReferenceBase): Voltage reference generator.
         encoder_type (EncoderType): Thermometer-to-binary encoding strategy.
@@ -88,7 +90,8 @@ class FlashADC(ADCBase):
                  reference: Optional[ReferenceBase] = None,
                  reference_noise: float = 0.0,
                  resistor_mismatch: float = 0.0,
-                 encoder_type: EncoderType = EncoderType.COUNT_ONES):
+                 encoder_type: EncoderType = EncoderType.COUNT_ONES,
+                 n_comparators: Optional[int] = None):
         """
         Initialize Flash ADC.
 
@@ -110,16 +113,31 @@ class FlashADC(ADCBase):
             reference_noise: RMS dynamic noise for the default ReferenceLadder
                 (ignored when reference is provided).
             resistor_mismatch: Resistor mismatch std for the default
-                ReferenceLadder (ignored when reference is provided).
+                ReferenceLadder (ignored when reference is provided, and
+                also ignored when n_comparators overrides the default
+                2**n_bits - 1 — the ArbitraryReference used in that path
+                does not model resistor mismatch).
             encoder_type: Thermometer-to-binary encoding strategy.
+            n_comparators: Number of comparators. If None, defaults to 2**n_bits - 1.
+                Can be any positive integer to override the default derivation.
         """
         super().__init__(n_bits, v_ref, input_type)
 
         if not isinstance(encoder_type, EncoderType):
             raise TypeError("encoder_type must be an EncoderType enum")
 
-        self.n_comparators = 2 ** n_bits - 1
-        self.encoder_type  = encoder_type
+        # Resolve n_comparators: explicit override wins, else derived from n_bits.
+        if n_comparators is None:
+            self.n_comparators = 2 ** n_bits - 1
+        else:
+            if not isinstance(n_comparators, int) or isinstance(n_comparators, bool):
+                raise TypeError(
+                    f"n_comparators must be an integer, got {type(n_comparators).__name__}")
+            if n_comparators < 1:
+                raise ValueError(f"n_comparators must be >= 1, got {n_comparators}")
+            self.n_comparators = n_comparators
+
+        self.encoder_type = encoder_type
 
         # Reference generator
         if reference is not None:
@@ -128,19 +146,28 @@ class FlashADC(ADCBase):
             if reference.n_references != self.n_comparators:
                 raise ValueError(
                     f"reference has {reference.n_references} taps but "
-                    f"{n_bits}-bit ADC needs {self.n_comparators}")
+                    f"this FlashADC has n_comparators={self.n_comparators}")
             self.reference = reference
         else:
-            # For differential mode each comparator receives (v_pos - v_refp[i], v_neg - v_refn[i]).
-            # v_refp and v_refn come from opposite ends of the same ladder, so the effective
-            # differential threshold = v_refp[i] - v_refn[i] = 2 * tap_voltage[i].
-            # The ladder therefore spans [-v_ref/4, +v_ref/4] so that the differential
-            # thresholds cover the full [-v_ref/2, +v_ref/2] input range.
+            # Build a default ladder whose length matches n_comparators.
+            # Power-of-2 case: use ReferenceLadder (preserves existing
+            # behaviour for backward compatibility, including resistor
+            # mismatch modelling). Non-power-of-2 case: use ArbitraryReference
+            # with linearly-spaced bin-midpoint thresholds — this is the
+            # appropriate spacing for an arbitrary count, but note that the
+            # two formulas produce numerically different thresholds even at
+            # n_comparators == 2**n_bits - 1, which is why the guard must be
+            # exact (do not mix the two paths for the same count).
             v_min = -v_ref / 4 if input_type == InputType.DIFFERENTIAL else 0.0
             v_max =  v_ref / 4 if input_type == InputType.DIFFERENTIAL else v_ref
-            self.reference = ReferenceLadder(n_bits, v_min, v_max,
-                                             resistor_mismatch=resistor_mismatch,
-                                             noise_rms=reference_noise)
+            if self.n_comparators == 2 ** n_bits - 1:
+                self.reference = ReferenceLadder(n_bits, v_min, v_max,
+                                                 resistor_mismatch=resistor_mismatch,
+                                                 noise_rms=reference_noise)
+            else:
+                lsb = (v_max - v_min) / self.n_comparators
+                thresholds = v_min + lsb * (np.arange(self.n_comparators) + 0.5)
+                self.reference = ArbitraryReference(thresholds, noise_rms=reference_noise)
 
         # Comparator bank
         if comparator_params is None:
@@ -154,6 +181,8 @@ class FlashADC(ADCBase):
             params = comparator_params.copy()
             params['offset'] = offsets[i]
             self.comparators.append(comparator_type(**params))
+
+        self._last_v_sampled = 0.0
 
     @property
     def reference_voltages(self) -> np.ndarray:
@@ -212,8 +241,16 @@ class FlashADC(ADCBase):
                           tuple (differential).
 
         Returns:
-            int: Output code in [0, 2^n_bits - 1].
+            int: Output code in [0, n_comparators] (which equals
+                2^n_bits - 1 in the default configuration).
         """
+        # Cache the effective single-ended input for metastability reporting
+        if self.input_type == InputType.DIFFERENTIAL:
+            v_pos_in, v_neg_in = analog_input
+            self._last_v_sampled = float(v_pos_in) - float(v_neg_in)
+        else:
+            self._last_v_sampled = float(analog_input)
+
         comp_refs = self.reference.get_voltages()
         n = self.n_comparators
 
@@ -232,12 +269,54 @@ class FlashADC(ADCBase):
             for i, (comp, ref) in enumerate(zip(self.comparators, comp_refs)):
                 thermometer[i] = comp.compare(vin, 0.0, ref, 0.0)
 
-        return int(np.clip(self._encode(thermometer), 0, 2 ** self.n_bits - 1))
+        return int(np.clip(self._encode(thermometer), 0, self.n_comparators))
 
     def reset(self):
         """Reset all comparator states (hysteresis history, bandwidth filter)."""
         for comp in self.comparators:
             comp.reset()
+
+    def last_conversion_time(self) -> float:
+        """
+        Regeneration time of the slowest comparator from the most recent
+        convert() call, in seconds.
+
+        Aggregates ``last_regen_time`` across the comparator bank via
+        ``max()``. Returns 0.0 when every comparator has ``tau_regen=0``
+        (metastability modelling disabled).
+        """
+        return max((c.last_regen_time for c in self.comparators), default=0.0)
+
+    def last_metastable_sign(self) -> int:
+        """
+        Sign of the initial-condition error a residue amp would see at the
+        start of its settling window, for the most recent convert() call.
+
+        Returns:
+            +1 if the sub-ADC's nearest threshold is above the last input,
+            -1 if the nearest threshold is below the last input,
+             0 if metastability modelling is disabled (tau_regen=0 on every
+               comparator) — in which case downstream pipelined ADCs treat
+               the stage as operating ideally.
+
+        Internally uses ``self.reference.voltages`` (not ``get_voltages()``)
+        so the sign reflects the static ladder geometry, independent of any
+        dynamic reference noise realisation.
+        """
+        # Aggregate flag: if no comparator has regen enabled, return 0.
+        if not any(c.tau_regen > 0 for c in self.comparators):
+            return 0
+        # Use the property (not self.reference.voltages) so differential-input
+        # mode sees the 2x-scaled effective thresholds in [-v_ref/2, +v_ref/2]
+        # rather than the raw ladder voltages in [-v_ref/4, +v_ref/4]. The
+        # property remains noise-free (it reads .voltages under the hood).
+        thresholds = self.reference_voltages
+        if len(thresholds) == 0:
+            return 0
+        diffs = np.abs(thresholds - self._last_v_sampled)
+        i_nearest = int(np.argmin(diffs))
+        # +1 if threshold > v_sampled, else -1 (strictly greater — ties go to -1)
+        return 1 if (thresholds[i_nearest] - self._last_v_sampled) > 0 else -1
 
     def __repr__(self) -> str:
         return (f"{self.__class__.__name__}("
