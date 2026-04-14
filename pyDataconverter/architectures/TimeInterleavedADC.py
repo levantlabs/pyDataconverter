@@ -149,9 +149,58 @@ class TimeInterleavedADC(ADCBase):
         self._counter = 0
         self._last_channel: Optional[int] = None
 
+    @property
+    def last_channel(self) -> Optional[int]:
+        """Index of the most recently used channel, or None before any convert() call."""
+        return self._last_channel
+
     def _convert_input(self, analog_input):
-        """Placeholder — filled in by Task 3."""
-        raise NotImplementedError("_convert_input is added in Task 3")
+        """
+        Pointwise per-channel conversion.
+
+        Applies input-referred offset, gain, and timing-skew corrections for
+        the current channel, routes to that channel's sub-ADC, and advances
+        the channel counter.
+
+        Bandwidth mismatch is not representable pointwise (it is a
+        convolution) — if any channel has nonzero bandwidth, this method
+        raises RuntimeError and directs the caller to use convert_waveform.
+        """
+        if np.any(self.bandwidth != 0):
+            raise RuntimeError(
+                "bandwidth mismatch requires convert_waveform(); use that "
+                "method or disable bandwidth to use the pointwise convert().")
+
+        k = self._counter % self.M
+
+        # Resolve the effective scalar input. For differential input_type the
+        # TI-ADC applies all corrections to the scalar v_diff = v_pos - v_neg,
+        # then repackages the result for the sub-ADC.
+        if self.input_type == InputType.DIFFERENTIAL:
+            v_pos, v_neg = analog_input
+            v = float(v_pos) - float(v_neg)
+        else:
+            v = float(analog_input)
+
+        offset_k = float(self.offset[k])
+        gain_k   = float(self.gain_error[k])
+        skew_k   = float(self.timing_skew[k])
+
+        # First-order per-channel input-referred correction.
+        v_eff = v * (1.0 + gain_k) + offset_k + self._dvdt * skew_k
+
+        # Repackage for the sub-ADC's input_type.
+        if self.input_type == InputType.DIFFERENTIAL:
+            sub_input = (v_eff / 2 + self.v_ref / 2,
+                         -v_eff / 2 + self.v_ref / 2)
+        else:
+            sub_input = v_eff
+
+        raw_code = int(self.channels[k].convert(sub_input, dvdt=self._dvdt))
+
+        self._last_channel = k
+        self._counter += 1
+        return raw_code
 
     def __repr__(self) -> str:
         return (f"TimeInterleavedADC(M={self.M}, fs={self.fs:.3e}, "

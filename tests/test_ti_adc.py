@@ -111,3 +111,106 @@ class TestTIADCConstruction(unittest.TestCase):
         ti2 = TimeInterleavedADC(channels=4, sub_adc_template=tmpl, fs=1e9)
         for ch in ti2.channels:
             self.assertIsNot(ch, tmpl)
+
+
+class TestTIADCPointwise(unittest.TestCase):
+    """Pointwise convert() path — the core data flow."""
+
+    def test_ideal_ti_adc_matches_template(self):
+        """Zero mismatch => TI-ADC output identical to template output sample-by-sample."""
+        template = SimpleADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE)
+        ti = TimeInterleavedADC(channels=4, sub_adc_template=_make_template(n_bits=8),
+                                fs=1e9)
+        # Use a NEW template for the reference since each sub-ADC is a deep
+        # copy and we want a fresh one to compare against (avoids any state).
+        ref_template = _make_template(n_bits=8)
+        for v in np.linspace(0, 1.0, 101):
+            vf = float(v)
+            expected = ref_template.convert(vf)
+            actual = ti.convert(vf)
+            self.assertEqual(actual, expected,
+                             f"mismatch at v={v}: expected {expected}, got {actual}")
+
+    def test_channel_counter_rotates_on_each_call(self):
+        ti = TimeInterleavedADC(channels=4, sub_adc_template=_make_template(), fs=1e9)
+        expected_sequence = [0, 1, 2, 3, 0, 1, 2, 3]
+        for expected_k in expected_sequence:
+            ti.convert(0.5)
+            self.assertEqual(ti.last_channel, expected_k)
+
+    def test_offset_mismatch_shifts_output(self):
+        """Explicit offset array produces predictable per-channel code shifts."""
+        # 4-bit ADC has LSB = 1/15 ~ 0.067. Use an offset array whose values are
+        # large enough to flip several codes.
+        explicit = np.array([0.0, 0.1, -0.1, 0.05])
+        ti = TimeInterleavedADC(
+            channels=4,
+            sub_adc_template=SimpleADC(n_bits=4, v_ref=1.0, input_type=InputType.SINGLE),
+            fs=1e9,
+            offset=explicit,
+        )
+        ref = SimpleADC(n_bits=4, v_ref=1.0, input_type=InputType.SINGLE)
+        v = 0.5
+        for k in range(4):
+            expected = ref.convert(v + explicit[k])
+            actual = ti.convert(v)
+            self.assertEqual(actual, expected,
+                             f"channel {k}: expected {expected}, got {actual}")
+
+    def test_gain_error_scales_output(self):
+        """Explicit gain_error array scales the input per channel before quantisation."""
+        explicit = np.array([0.0, 0.1, -0.1, 0.05])  # fractional gain errors
+        ti = TimeInterleavedADC(
+            channels=4,
+            sub_adc_template=SimpleADC(n_bits=4, v_ref=1.0, input_type=InputType.SINGLE),
+            fs=1e9,
+            gain_error=explicit,
+        )
+        ref = SimpleADC(n_bits=4, v_ref=1.0, input_type=InputType.SINGLE)
+        v = 0.5
+        for k in range(4):
+            expected = ref.convert(v * (1 + explicit[k]))
+            actual = ti.convert(v)
+            self.assertEqual(actual, expected,
+                             f"channel {k}: expected {expected}, got {actual}")
+
+    def test_timing_skew_applies_dvdt_correction(self):
+        """Explicit timing_skew array times dvdt produces an input-referred shift."""
+        explicit = np.array([0.0, 1e-12, -1e-12, 2e-12])  # per-channel skews
+        ti = TimeInterleavedADC(
+            channels=4,
+            sub_adc_template=SimpleADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE),
+            fs=1e9,
+            timing_skew=explicit,
+        )
+        ref = SimpleADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE)
+        v = 0.5
+        dvdt = 1e9  # 1 V/ns
+        for k in range(4):
+            expected = ref.convert(v + dvdt * explicit[k])
+            actual = ti.convert(v, dvdt=dvdt)
+            self.assertEqual(actual, expected,
+                             f"channel {k}: expected {expected}, got {actual}")
+
+    def test_all_three_mismatches_compose(self):
+        """offset + gain + skew applied together should sum as v*(1+g) + offset + dvdt*skew."""
+        explicit_off = np.array([0.05, 0.0, 0.0, 0.0])
+        explicit_gain = np.array([0.0, 0.05, 0.0, 0.0])
+        explicit_skew = np.array([0.0, 0.0, 1e-11, 0.0])
+        ti = TimeInterleavedADC(
+            channels=4,
+            sub_adc_template=SimpleADC(n_bits=10, v_ref=1.0, input_type=InputType.SINGLE),
+            fs=1e9,
+            offset=explicit_off,
+            gain_error=explicit_gain,
+            timing_skew=explicit_skew,
+        )
+        ref = SimpleADC(n_bits=10, v_ref=1.0, input_type=InputType.SINGLE)
+        v = 0.4
+        dvdt = 5e8
+        for k in range(4):
+            v_eff = v * (1 + explicit_gain[k]) + explicit_off[k] + dvdt * explicit_skew[k]
+            expected = ref.convert(v_eff)
+            actual = ti.convert(v, dvdt=dvdt)
+            self.assertEqual(actual, expected,
+                             f"channel {k}: v_eff={v_eff}, expected {expected}, got {actual}")
