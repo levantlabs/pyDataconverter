@@ -503,5 +503,51 @@ class TestDACBaseNLevels(unittest.TestCase):
             SimpleDAC(n_bits=3, n_levels=3.5, v_ref=1.0, output_type=OutputType.SINGLE)
 
 
+class TestSimpleDACCodeErrors(unittest.TestCase):
+    """SimpleDAC supports per-code additive error injection."""
+
+    def test_default_no_errors(self):
+        dac = SimpleDAC(n_bits=3, v_ref=1.0, output_type=OutputType.SINGLE)
+        # With no code_errors, behaves exactly like the ideal transfer
+        for code in range(8):
+            self.assertAlmostEqual(dac.convert(code), code / 7)
+
+    def test_code_errors_applied_additively(self):
+        errors = np.array([0.0, 0.01, -0.02, 0.005, 0.0, -0.01, 0.002, 0.0])
+        dac = SimpleDAC(n_bits=3, v_ref=1.0, output_type=OutputType.SINGLE,
+                        code_errors=errors)
+        for code in range(8):
+            expected = code / 7 + errors[code]
+            self.assertAlmostEqual(dac.convert(code), expected)
+
+    def test_code_errors_with_n_levels(self):
+        # 9-level DAC with a specific error pattern
+        errors = np.array([0.0, -0.2, 0.3, 0.05, -0.15, 0.0, 0.3, -0.3, 0.0]) * 0.001
+        dac = SimpleDAC(n_bits=3, n_levels=9, v_ref=1.0,
+                        output_type=OutputType.SINGLE, code_errors=errors)
+        for code in range(9):
+            expected = code / 8 + errors[code]
+            self.assertAlmostEqual(dac.convert(code), expected)
+
+    def test_code_errors_wrong_length_raises(self):
+        errors = np.zeros(7)  # should be 8 for n_bits=3
+        with self.assertRaises(ValueError):
+            SimpleDAC(n_bits=3, v_ref=1.0, output_type=OutputType.SINGLE,
+                      code_errors=errors)
+
+    def test_code_errors_not_array_raises(self):
+        with self.assertRaises(TypeError):
+            SimpleDAC(n_bits=3, v_ref=1.0, output_type=OutputType.SINGLE,
+                      code_errors="not an array")
+
+    def test_code_errors_applied_before_gain_offset_noise(self):
+        # Code error + offset should both appear in the output
+        errors = np.array([0.0, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        dac = SimpleDAC(n_bits=3, v_ref=1.0, output_type=OutputType.SINGLE,
+                        offset=0.05, code_errors=errors)
+        # code=1: ideal = 1/7, + code_error 0.1, + offset 0.05
+        self.assertAlmostEqual(dac.convert(1), 1/7 + 0.1 + 0.05)
+
+
 if __name__ == '__main__':
     unittest.main()

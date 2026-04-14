@@ -66,7 +66,8 @@ class SimpleDAC(DACBase):
                  gain_error: float = 0.0,
                  fs: float = 1.0,
                  oversample: int = 1,
-                 n_levels: Optional[int] = None):
+                 n_levels: Optional[int] = None,
+                 code_errors: Optional[np.ndarray] = None):
         super().__init__(n_bits, v_ref, output_type, n_levels=n_levels)
 
         if noise_rms < 0:
@@ -74,11 +75,24 @@ class SimpleDAC(DACBase):
         if oversample < 1:
             raise ValueError("oversample must be >= 1")
 
-        self.noise_rms  = noise_rms
-        self.offset     = offset
-        self.gain_error = gain_error
-        self.fs         = fs
-        self.oversample = oversample
+        if code_errors is not None:
+            if not isinstance(code_errors, np.ndarray):
+                raise TypeError(
+                    f"code_errors must be a numpy ndarray, got {type(code_errors).__name__}")
+            if code_errors.ndim != 1:
+                raise ValueError(
+                    f"code_errors must be 1-D, got shape {code_errors.shape}")
+            if len(code_errors) != self.n_levels:
+                raise ValueError(
+                    f"code_errors must have length n_levels={self.n_levels}, "
+                    f"got {len(code_errors)}")
+
+        self.noise_rms   = noise_rms
+        self.offset      = offset
+        self.gain_error  = gain_error
+        self.fs          = fs
+        self.oversample  = oversample
+        self.code_errors = code_errors
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -105,27 +119,22 @@ class SimpleDAC(DACBase):
 
     def _convert_input(self, digital_input: int) -> Union[float, Tuple[float, float]]:
         """
-        Compute ideal voltage, apply non-idealities, then format output.
-
-        Args:
-            digital_input: Pre-validated input code
-
-        Returns:
-            float or tuple: Output voltage(s)
-                - Single-ended: returns float voltage
-                - Differential: returns tuple of (v_pos, v_neg)
+        Compute ideal voltage, apply per-code error (if any), apply non-idealities,
+        then format output.
         """
         # Calculate ideal voltage
         voltage = digital_input * self.lsb
 
-        # Apply non-idealities before single/differential split
+        # Apply per-code static error (injected via code_errors kwarg)
+        if self.code_errors is not None:
+            voltage = voltage + float(self.code_errors[digital_input])
+
+        # Apply dynamic non-idealities
         voltage = self._apply_nonidealities(voltage)
 
         if self.output_type == OutputType.SINGLE:
             return voltage
         else:  # DIFFERENTIAL
-            # For differential, center around v_ref/2
-            # Full range goes from -v_ref/2 to +v_ref/2
             v_diff = 2 * voltage - self.v_ref
             v_pos = v_diff / 2 + self.v_ref / 2
             v_neg = -v_diff / 2 + self.v_ref / 2
