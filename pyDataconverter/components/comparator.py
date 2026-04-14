@@ -101,6 +101,10 @@ class DifferentialComparator(ComparatorBase):
         bandwidth:     -3 dB bandwidth (Hz); None for infinite bandwidth.
         hysteresis:    Hysteresis window (V), symmetric around the threshold.
         time_constant: Reserved for future temporal modelling (s).
+        tau_regen:     Regeneration time constant (s) used by pipelined ADC
+                       metastability modelling. Default 0.0 disables the model.
+        vc_threshold:  Comparator output-voltage threshold at which the latch
+                       is considered resolved. Default 0.5.
     """
 
     def __init__(self,
@@ -156,6 +160,15 @@ class DifferentialComparator(ComparatorBase):
         The 1e-30 floor on ``|v_diff|`` prevents ``log(0)`` when the input
         lands exactly on a threshold — an event that should be vanishingly
         rare for any realistic continuous input.
+
+        Note: the returned value can be NEGATIVE when ``|v_diff| > vc_threshold``.
+        This is physically meaningful — a large differential input resolves
+        before the nominal comparator output threshold, so the "time to
+        resolve" is negative relative to the latch clock edge. Callers that
+        add ``last_regen_time`` to a timing budget must handle this case
+        explicitly; the pipelined ADC does so via its amplifier-settling
+        budget calculation, which allows negative budgets on purpose to
+        reproduce the reference model's unguarded arithmetic.
         """
         return self._last_regen_time
 
@@ -167,7 +180,30 @@ class DifferentialComparator(ComparatorBase):
                 time_step: Optional[float] = None) -> int:
         """
         Compare (v_pos − v_refp) against (v_neg − v_refn) with non-idealities.
-        See class docstring for parameter details.
+
+        The effective input difference is::
+
+            v_diff = (v_pos − v_refp) − (v_neg − v_refn) + self.offset
+
+        followed by bandwidth limiting (if enabled), regeneration-time
+        caching (if ``tau_regen > 0``), input-referred noise injection,
+        and hysteresis comparison.
+
+        Args:
+            v_pos:      Positive signal input.
+            v_neg:      Negative signal input.
+            v_refp:     Positive reference voltage (default 0).
+            v_refn:     Negative reference voltage (default 0).
+            time_step:  Time step (s) used by the bandwidth first-order LPF.
+                        Required only when ``self.bandwidth is not None``.
+
+        Returns:
+            1 if the effective input exceeds the (possibly hysteretic)
+            zero threshold, otherwise 0.
+
+        Raises:
+            ValueError: If ``self.bandwidth is not None`` and ``time_step``
+                is ``None`` or non-positive.
         """
         v_diff = (v_pos - v_refp) - (v_neg - v_refn) + self.offset
 
@@ -176,6 +212,8 @@ class DifferentialComparator(ComparatorBase):
             if time_step is None:
                 raise ValueError("time_step must be provided when bandwidth is specified")
             if time_step <= 0:
+                # time_step=0 would make alpha=0 (filter holds indefinitely);
+                # negative values yield a nonsensical negative alpha.
                 raise ValueError(f"time_step must be positive, got {time_step}")
             alpha  = time_step / (time_step + self._tau)
             v_diff = (1 - alpha) * self._filtered_state + alpha * v_diff
