@@ -164,9 +164,13 @@ The SAR family currently rolls S&H into `_sample_input`. Pipelined and TI
 architectures need an explicit `SampleAndHold` component with bandwidth,
 acquisition time, and droop parameters.
 
-### Residue amplifier — STATUS: NOT STARTED
-Required by pipelined. Models finite open-loop gain → closed-loop gain error,
-slew rate, settling time, offset. Reusable for subranging and cyclic.
+### Residue amplifier — STATUS: SHIPPED (Phase 1, 2026-04-13)
+Shipped as `pyDataconverter/components/residue_amplifier.py` with the
+pipelined ADC Phase 1. Models finite closed-loop gain, offset, settling
+time, optional output-swing clipping. `slew_rate` kwarg is accepted for
+forward compatibility but not applied in Phase 1 (the adc_book reference
+has no slew model to compare against). Phase 2 will extend to active
+slew limiting. Reusable for subranging and cyclic ADCs.
 
 ### Multiplying DAC (MDAC) — STATUS: NOT STARTED
 Required by pipelined. Composes S&H, sub-DAC, subtractor, and residue amp into

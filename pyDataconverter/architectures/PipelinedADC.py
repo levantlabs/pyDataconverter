@@ -159,7 +159,13 @@ class PipelinedADC(ADCBase):
         backend_H:           Digital combiner weight applied to the backend.
         backend_code_offset: Integer added to backend's raw code before
                              combining (analogous to stage.code_offset).
-        fs:                  Sample rate (Hz).
+        fs:                  Sample rate (Hz). The default of 1.0 is
+                             a placeholder — any configuration with
+                             ``tau_regen > 0`` on any comparator or
+                             ``settling_tau > 0`` on any residue amp
+                             MUST override this to the real sample rate.
+                             Leaving the default produces nonsensical
+                             timing budgets (500 ms per stage half-period).
         clip_output:         Whether to clip the final DOUT to
                              [0, 2**n_bits - 1].
     """

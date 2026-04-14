@@ -2635,6 +2635,31 @@ code = adc.convert(0.25)
 
 See `examples/pipelined_adc_example.py` for the bipolar canonical configuration that reproduces the adc_book reference.
 
+**Important: unipolar vs bipolar construction**
+
+`FlashADC` and `SimpleDAC` default to unipolar ranges ([0, v_ref]) consistent with the rest of pyDataconverter. The canonical pipelined-ADC reference configuration (and the `adc_book` validation oracle) is **bipolar** ([-v_ref/2, +v_ref/2]). A naive `PipelinedADC` constructed from default sub-ADCs and sub-DACs will NOT produce the same output codes as the bipolar reference; it will instead produce its own (internally consistent) unipolar transfer function.
+
+To reproduce the reference bit-exactly, pass explicit bipolar thresholds to each `FlashADC` via `ArbitraryReference`, and use `SimpleDAC(offset=-v_ref/2)` to bipolar-shift the sub-DAC output:
+
+```python
+import numpy as np
+from pyDataconverter.components.reference import ArbitraryReference
+
+# Bipolar thresholds for an N-level sub-ADC spanning [-v_ref/2, +v_ref/2]
+N = 8
+v_ref = 1.0
+lsb = v_ref / N
+thresholds = np.arange(N)/(N-1)*(v_ref - lsb) - (v_ref/2 - lsb/2)
+
+sub_adc = FlashADC(n_bits=3, v_ref=v_ref, n_comparators=N,
+                    reference=ArbitraryReference(thresholds))
+sub_dac = SimpleDAC(n_bits=3, n_levels=N+1, v_ref=v_ref,
+                     output_type=OutputType.SINGLE,
+                     offset=-v_ref/2)
+```
+
+The full bipolar canonical configuration is in `examples/pipelined_adc_example.py` and is validated against the reference in `tests/test_pipelined_adc_vs_reference.py`.
+
 ---
 
 ## PipelineStage
