@@ -262,3 +262,49 @@ class TestTIADCHelpers(unittest.TestCase):
         codes = np.zeros((4, 4), dtype=int)
         with self.assertRaises(ValueError):
             ti.split_by_channel(codes)
+
+
+class TestTIADCWaveform(unittest.TestCase):
+    """convert_waveform path: bandwidth mismatch + pointwise-vs-waveform parity."""
+
+    def test_ideal_waveform_matches_pointwise(self):
+        """With zero mismatch, convert_waveform and a pointwise loop agree."""
+        ti_a = TimeInterleavedADC(channels=4, sub_adc_template=_make_template(n_bits=8),
+                                   fs=1e9)
+        ti_b = TimeInterleavedADC(channels=4, sub_adc_template=_make_template(n_bits=8),
+                                   fs=1e9)
+        t = np.linspace(0, 1e-6, 128)
+        v = 0.5 + 0.4 * np.sin(2 * np.pi * 2e6 * t)
+        dvdt = np.gradient(v, t)
+        expected = np.array([ti_a.convert(float(v[i]), dvdt=float(dvdt[i]))
+                             for i in range(len(v))], dtype=int)
+        actual = ti_b.convert_waveform(v, t)
+        np.testing.assert_array_equal(actual, expected)
+
+    def test_pointwise_raises_when_bandwidth_nonzero(self):
+        ti = TimeInterleavedADC(channels=4, sub_adc_template=_make_template(),
+                                fs=1e9, bandwidth=np.array([1e8, 2e8, 1.5e8, 1e8]))
+        with self.assertRaises(RuntimeError) as ctx:
+            ti.convert(0.5)
+        self.assertIn("convert_waveform", str(ctx.exception))
+
+    def test_waveform_runs_with_bandwidth_active(self):
+        """Smoke test: nonzero bandwidth exercises the LPF branch without raising."""
+        ti = TimeInterleavedADC(channels=4, sub_adc_template=_make_template(n_bits=10),
+                                fs=1e9, bandwidth=np.array([1e8, 2e8, 1.5e8, 1e8]))
+        t = np.linspace(0, 1e-6, 64)
+        v = 0.5 + 0.3 * np.sin(2 * np.pi * 5e7 * t)
+        codes = ti.convert_waveform(v, t)
+        self.assertEqual(len(codes), 64)
+        self.assertEqual(codes.dtype.kind, "i")
+        # Every code should be in the valid sub-ADC range
+        self.assertTrue(np.all(codes >= 0))
+        self.assertTrue(np.all(codes <= 2**10 - 1))
+
+    def test_waveform_advances_channel_counter(self):
+        ti = TimeInterleavedADC(channels=4, sub_adc_template=_make_template(), fs=1e9)
+        t = np.linspace(0, 1e-6, 8)
+        v = 0.5 * np.ones_like(t)
+        _ = ti.convert_waveform(v, t)
+        # After 8 samples on M=4, last_channel should be (8-1) % 4 = 3.
+        self.assertEqual(ti.last_channel, 3)

@@ -243,6 +243,94 @@ class TimeInterleavedADC(ADCBase):
         # codes[0::M], codes[1::M], ... via reshape + transpose.
         return codes.reshape(N_per_channel, self.M).T
 
+    def convert_waveform(self, v_dense, t_dense):
+        """
+        Convert a dense time-domain waveform with per-channel mismatches.
+
+        Overrides ``ADCBase.convert_waveform`` to apply per-channel
+        ``scipy.signal.butter`` first-order LPFs when any channel has nonzero
+        ``bandwidth``. When bandwidth is zero for every channel, the result
+        matches the default (pointwise) path exactly.
+
+        Offset, gain, and timing-skew mismatches are applied as input-referred
+        first-order corrections (same arithmetic as the pointwise path).
+        Bandwidth mismatch filters the dense waveform per channel BEFORE
+        sampling the value at the channel's nominal sample index.
+
+        The channel counter advances by ``len(v_dense)`` over the call, so
+        back-to-back invocations pick up where the previous one left off.
+
+        Args:
+            v_dense: 1-D numpy array of input voltages. For differential
+                input_type, pass the scalar ``v_pos - v_neg``; tuple form
+                is not supported for waveforms.
+            t_dense: 1-D numpy array of sample times (seconds), same length
+                as ``v_dense``. Assumed regularly spaced when any
+                ``bandwidth`` is nonzero (used to derive the effective
+                sampling rate for the LPF cutoff normalisation).
+
+        Returns:
+            np.ndarray[int]: Output codes, same length as ``v_dense``.
+        """
+        v_dense = np.asarray(v_dense, dtype=float)
+        t_dense = np.asarray(t_dense, dtype=float)
+        if v_dense.shape != t_dense.shape:
+            raise ValueError(
+                f"v_dense and t_dense must have the same shape, got "
+                f"{v_dense.shape} and {t_dense.shape}")
+        if v_dense.ndim != 1:
+            raise ValueError(
+                f"v_dense and t_dense must be 1-D, got shape {v_dense.shape}")
+
+        N = len(v_dense)
+        dvdt_dense = np.gradient(v_dense, t_dense)
+
+        # Build per-channel filtered waveforms if any channel has bandwidth set.
+        if np.any(self.bandwidth != 0):
+            dt = float(t_dense[1] - t_dense[0])
+            fs_dense = 1.0 / dt
+            nyquist = fs_dense / 2.0
+            v_per_channel = np.empty((self.M, N))
+            for k in range(self.M):
+                bw_k = float(self.bandwidth[k])
+                if bw_k > 0:
+                    # First-order Butterworth LPF at bw_k.
+                    wn = bw_k / nyquist
+                    if wn >= 1.0:
+                        # Cutoff at or above Nyquist → effectively pass-through.
+                        v_per_channel[k] = v_dense
+                    else:
+                        b, a = scipy.signal.butter(1, wn, btype='low')
+                        v_per_channel[k] = scipy.signal.lfilter(b, a, v_dense)
+                else:
+                    v_per_channel[k] = v_dense
+        else:
+            v_per_channel = None  # sentinel: use v_dense directly per sample
+
+        codes = np.empty(N, dtype=int)
+        for i in range(N):
+            k = (self._counter + i) % self.M
+            v_in = v_per_channel[k, i] if v_per_channel is not None else v_dense[i]
+
+            offset_k = float(self.offset[k])
+            gain_k   = float(self.gain_error[k])
+            skew_k   = float(self.timing_skew[k])
+            dvdt_i   = float(dvdt_dense[i])
+
+            v_eff = v_in * (1.0 + gain_k) + offset_k + dvdt_i * skew_k
+
+            if self.input_type == InputType.DIFFERENTIAL:
+                sub_input = (v_eff / 2 + self.v_ref / 2,
+                             -v_eff / 2 + self.v_ref / 2)
+            else:
+                sub_input = v_eff
+
+            codes[i] = int(self.channels[k].convert(sub_input, dvdt=dvdt_i))
+
+        self._counter += N
+        self._last_channel = (self._counter - 1) % self.M
+        return codes
+
     def __repr__(self) -> str:
         return (f"TimeInterleavedADC(M={self.M}, fs={self.fs:.3e}, "
                 f"template={type(self.channels[0]).__name__}, "
