@@ -202,6 +202,47 @@ class TimeInterleavedADC(ADCBase):
         self._counter += 1
         return raw_code
 
+    def reset(self):
+        """
+        Reset the channel rotation state.
+
+        After calling ``reset()``, the next ``convert()`` sample is routed to
+        channel 0. ``last_channel`` becomes ``None`` again. Does not reset
+        the per-channel sub-ADCs (they manage their own state, e.g. hysteresis
+        or bandwidth-filter state, independently).
+        """
+        self._counter = 0
+        self._last_channel = None
+
+    def split_by_channel(self, codes) -> np.ndarray:
+        """
+        Reshape a 1-D code array into a 2-D per-channel view.
+
+        Args:
+            codes: 1-D array of length N·M (must be an integer multiple of
+                ``self.M``). Typically the output of ``convert_waveform`` or
+                a list of consecutive ``convert()`` return values.
+
+        Returns:
+            np.ndarray of shape ``(M, N)``: row k is the subsequence
+            ``codes[k::M]``, i.e. the codes produced by channel k in time
+            order.
+
+        Raises:
+            ValueError: If ``codes`` is not 1-D or ``len(codes) % M != 0``.
+        """
+        codes = np.asarray(codes)
+        if codes.ndim != 1:
+            raise ValueError(f"codes must be 1-D, got shape {codes.shape}")
+        if len(codes) % self.M != 0:
+            raise ValueError(
+                f"len(codes)={len(codes)} is not a multiple of M={self.M}; "
+                f"pass an array whose length is an integer multiple of the "
+                f"channel count.")
+        N_per_channel = len(codes) // self.M
+        # codes[0::M], codes[1::M], ... via reshape + transpose.
+        return codes.reshape(N_per_channel, self.M).T
+
     def __repr__(self) -> str:
         return (f"TimeInterleavedADC(M={self.M}, fs={self.fs:.3e}, "
                 f"template={type(self.channels[0]).__name__}, "

@@ -214,3 +214,51 @@ class TestTIADCPointwise(unittest.TestCase):
             actual = ti.convert(v, dvdt=dvdt)
             self.assertEqual(actual, expected,
                              f"channel {k}: v_eff={v_eff}, expected {expected}, got {actual}")
+
+
+class TestTIADCHelpers(unittest.TestCase):
+    """last_channel property, reset(), split_by_channel helper."""
+
+    def test_last_channel_none_before_any_convert(self):
+        ti = TimeInterleavedADC(channels=4, sub_adc_template=_make_template(), fs=1e9)
+        self.assertIsNone(ti.last_channel)
+
+    def test_last_channel_advances_with_convert(self):
+        ti = TimeInterleavedADC(channels=4, sub_adc_template=_make_template(), fs=1e9)
+        expected_sequence = [0, 1, 2, 3, 0, 1]
+        for k in expected_sequence:
+            ti.convert(0.5)
+            self.assertEqual(ti.last_channel, k)
+
+    def test_reset_restores_counter_and_last_channel(self):
+        ti = TimeInterleavedADC(channels=4, sub_adc_template=_make_template(), fs=1e9)
+        ti.convert(0.5)
+        ti.convert(0.5)
+        self.assertEqual(ti.last_channel, 1)
+        ti.reset()
+        self.assertIsNone(ti.last_channel)
+        ti.convert(0.5)
+        self.assertEqual(ti.last_channel, 0)
+
+    def test_split_by_channel_reshape_and_content(self):
+        ti = TimeInterleavedADC(channels=4, sub_adc_template=_make_template(), fs=1e9)
+        codes = np.array([10, 11, 12, 13, 20, 21, 22, 23, 30, 31, 32, 33])
+        result = ti.split_by_channel(codes)
+        self.assertEqual(result.shape, (4, 3))
+        # Row k should be codes[k::M]
+        np.testing.assert_array_equal(result[0], np.array([10, 20, 30]))
+        np.testing.assert_array_equal(result[1], np.array([11, 21, 31]))
+        np.testing.assert_array_equal(result[2], np.array([12, 22, 32]))
+        np.testing.assert_array_equal(result[3], np.array([13, 23, 33]))
+
+    def test_split_by_channel_wrong_length_raises(self):
+        ti = TimeInterleavedADC(channels=4, sub_adc_template=_make_template(), fs=1e9)
+        codes = np.array([1, 2, 3, 4, 5, 6, 7])  # not a multiple of 4
+        with self.assertRaises(ValueError):
+            ti.split_by_channel(codes)
+
+    def test_split_by_channel_non_1d_raises(self):
+        ti = TimeInterleavedADC(channels=4, sub_adc_template=_make_template(), fs=1e9)
+        codes = np.zeros((4, 4), dtype=int)
+        with self.assertRaises(ValueError):
+            ti.split_by_channel(codes)
