@@ -161,7 +161,7 @@ class SimpleDAC(DACBase):
         # pipelined-ADC comparison harness (Task 10) exercises convert()
         # only. Reconcile before any future code path wants code_errors
         # in a batch context.
-        max_code = (1 << self.n_bits) - 1
+        max_code = self.n_levels - 1
         codes = np.clip(codes, 0, max_code)
 
         voltages = codes.astype(float) * self.lsb

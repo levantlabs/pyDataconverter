@@ -549,5 +549,21 @@ class TestSimpleDACCodeErrors(unittest.TestCase):
         self.assertAlmostEqual(dac.convert(1), 1/7 + 0.1 + 0.05)
 
 
+class TestSimpleDACConvertSequenceNLevels(unittest.TestCase):
+    """convert_sequence must honour n_levels, not fall back to 2**n_bits."""
+
+    def test_convert_sequence_respects_n_levels(self):
+        # 9-level DAC: codes 0..8 must all produce distinct outputs
+        dac = SimpleDAC(n_bits=3, n_levels=9, v_ref=1.0,
+                        output_type=OutputType.SINGLE)
+        codes = np.arange(9)
+        t, voltages = dac.convert_sequence(codes)
+        # Code 8 must produce v_ref (= 1.0), NOT v_ref * 7/8 (= 0.875)
+        # under the bug, code 8 would be clipped to 7 and return 0.875.
+        self.assertAlmostEqual(float(voltages[-1]), 1.0, places=10)
+        # All codes should be monotonically increasing (9 distinct values)
+        self.assertEqual(len(np.unique(voltages)), 9)
+
+
 if __name__ == '__main__':
     unittest.main()
