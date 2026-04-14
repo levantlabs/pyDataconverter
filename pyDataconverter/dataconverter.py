@@ -93,6 +93,51 @@ class ADCBase(ABC):
         self._dvdt = float(dvdt)
         return self._convert_input(vin) #Pass this on to a abstract function
 
+    def convert_waveform(self, v_dense, t_dense):
+        """
+        Convert a dense time-domain waveform into a sequence of output codes.
+
+        The default implementation computes ``dvdt`` via ``np.gradient`` and
+        loops over samples calling ``self.convert(v_dense[i], dvdt=dvdt[i])``.
+        This gives every ``ADCBase`` subclass a zero-work waveform API and
+        is the base-class fallback for callers who have a dense waveform in
+        hand but do not want to compute ``dvdt`` manually.
+
+        Subclasses with richer per-sample state (e.g. ``TimeInterleavedADC``
+        applying per-channel bandwidth LPFs) override this method to do
+        something smarter while keeping the same signature.
+
+        Args:
+            v_dense: 1-D numpy array of input voltages at each sample instant.
+                For differential ADCs, pass the differential voltage
+                ``v_pos - v_neg``; the method does not accept a tuple
+                representation for waveforms.
+            t_dense: 1-D numpy array of sample times (seconds), same length
+                as ``v_dense``.
+
+        Returns:
+            np.ndarray[int]: Output codes, same length as ``v_dense``.
+
+        Raises:
+            ValueError: If ``v_dense`` and ``t_dense`` have mismatched shapes
+                or are not 1-D.
+        """
+        v_dense = np.asarray(v_dense, dtype=float)
+        t_dense = np.asarray(t_dense, dtype=float)
+        if v_dense.shape != t_dense.shape:
+            raise ValueError(
+                f"v_dense and t_dense must have the same shape, got "
+                f"{v_dense.shape} and {t_dense.shape}")
+        if v_dense.ndim != 1:
+            raise ValueError(
+                f"v_dense and t_dense must be 1-D, got shape {v_dense.shape}")
+        dvdt_dense = np.gradient(v_dense, t_dense)
+        codes = np.empty(len(v_dense), dtype=int)
+        for i in range(len(v_dense)):
+            codes[i] = int(self.convert(float(v_dense[i]),
+                                         dvdt=float(dvdt_dense[i])))
+        return codes
+
     @abstractmethod
     def _convert_input(self, vin:  Union[float, Tuple[float, float]]):
         "Architecture specific conversion. "
