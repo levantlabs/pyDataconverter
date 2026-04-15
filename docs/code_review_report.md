@@ -1,7 +1,7 @@
 # pyDataconverter — Consolidated Code Review Report
 
 *Synthesized from 5 independent reviews: Optimization, Security, Robustness, Correctness, and API Documentation.*
-*Date: 2026-04-02 — last updated 2026-04-13.*
+*Date: 2026-04-02 — last updated 2026-04-14. Section 5 adds Phase 2 full-codebase review.*
 
 ---
 
@@ -333,3 +333,221 @@ The optimisation findings cluster around three patterns: redundant NumPy array c
 ### Documentation and code are drifting apart in specific but high-visibility spots
 
 The `OutputType.DIFFERENTIAL` value mismatch is the most serious documentation issue because it is in a quickstart-level example that a new user will run first and find broken. The `seed` annotation mismatch and the `NoiseshapingSARADC` docstring are lower severity but contribute to a pattern where internal changes are not propagated to documentation. Adding a lightweight documentation-check step to the CI pipeline — for example, a `doctest` run on the API reference examples — would catch regressions of this type automatically going forward.
+
+---
+
+## 5. Phase 2 Full-Codebase Review — 2026-04-14
+
+*Scope: all library source files (ADC/DAC architectures, components, utils, visualizations, 4 new TI-ADC example scripts, updated quickstart). Three independent Explore-agent passes across the codebase; critical claims individually verified against source before inclusion.*
+
+*943 tests passing at time of review. All test regressions introduced here would be new.*
+
+---
+
+### 5.1 Status summary
+
+| ID | File | Severity | Title | Status |
+|----|------|----------|-------|--------|
+| R4-C1 | `utils/fft_analysis.py:242,266` | **Critical** | `duration` undefined in `demo_fft_analysis()` | Open |
+| R4-I1 | `utils/visualizations/dac_plots.py:60` | Important | DAC plot LSB uses wrong formula for default DACs | Open |
+| R4-I2 | `components/capacitor.py:97`, `current_source.py:103` | Important | Silent clipping of negative mismatch draws | Open |
+| R4-I3 | `utils/characterization.py:92` | Important | Key rename creates inconsistency with source dict | Open |
+| R4-I4 | `architectures/SARADC.py:109,175` | Important | `cap_mismatch` silently ignored when `cdac` provided | Open |
+| R4-I5 | `components/cdac.py` | Important | Code bounds check only in `SegmentedCDAC`, not `SingleEndedCDAC`/`DifferentialCDAC` | Open |
+| R4-I6 | `utils/visualizations/visualize_SARADC.py:103` | Important | Assumes CDAC `get_voltage` returns tuple; fails for single-ended | Open |
+| R4-I7 | `architectures/R2RDAC.py:188` | Important | Double 2R-to-GND on LSB node when bit=0; verify linearity is unaffected | Needs verification |
+| R4-I8 | `architectures/TimeInterleavedADC.py:290` | Important | `convert_waveform` assumes uniform time spacing; silently wrong for non-uniform `t` | Open |
+| R4-M1 | `utils/signal_gen.py` | Minor | Inconsistent parameter names (`sampling_rate` vs `fs`) across functions | Open |
+| R4-M2 | `components/comparator.py:99` | Minor | Docstring says "input-referred" but offset is applied post-bandwidth-filter | Open |
+| R4-M3 | `utils/visualizations/adc_plots.py:88-99` | Minor | LSB calculated from swept `v_range` instead of `adc.v_ref`; wrong for differential ADCs | Open |
+| R4-M4 | `architectures/TimeInterleavedADC.py:_resolve_mismatch` | Minor | Negative scalar stddev not rejected; silently treated as positive | Open |
+| R4-M5 | `utils/metrics/adc.py:425` | Minor | PDF singularity threshold 0.999 is a magic number | Open |
+| R4-M6 | `utils/signal_gen.py:559` | Minor | PRBS error message does not state the valid order range (2–20) | Open |
+
+**False positives (verified against source, not bugs):**
+
+| Claim | Why invalid |
+|-------|-------------|
+| PipelinedADC combiner formula `DOUT + DOUT*H + code` is wrong | Docstring at `PipelinedADC.py:152-154` explicitly states this is "bit-exactly matching the adc_book reference's accumulation formula." Intentional. |
+| FlashADC differential reference scaling inconsistency | `_convert_input` passes `comp_refs[i]` and `comp_refs[n-1-i]` to the comparator. Effective threshold is `comp_refs[i] − comp_refs[n-1-i] = 2×comp_refs[i]`. The `reference_voltages` property is a public read accessor scaled ×2 for display. Code is correct. |
+
+---
+
+### 5.2 Detailed findings
+
+---
+
+**R4-C1 — `demo_fft_analysis()` crashes: `duration` undefined**
+- **File:** `pyDataconverter/utils/fft_analysis.py:242, 266`
+- **Severity:** Critical (crashes on execution)
+- **Description:** `demo_fft_analysis()` is a standalone demo function. Demo 1 uses the literal `NFFT / fs` inline (lines 219–220). Demos 2 and 3 use the variable name `duration` (lines 242, 266) which is never assigned in the function scope. Calling `demo_fft_analysis()` raises `NameError: name 'duration' is not defined` at Demo 2.
+- **Fix:** Add `duration = NFFT / fs` after the `NFFT` / `NFIN` declarations at the top of the function (around line 213).
+
+---
+
+**R4-I1 — `dac_plots.py` LSB formula wrong for default DACs**
+- **File:** `pyDataconverter/utils/visualizations/dac_plots.py:60`
+- **Severity:** Important
+- **Description:** `lsb = dac.v_ref / (n_codes - 1)` is the symmetric endpoint formula (voltage at code 0 = 0, voltage at code n_codes-1 = v_ref). The default `SimpleDAC` (and most architectures with `n_levels=None`) uses `lsb = v_ref / n_codes`. This makes the displayed LSB value in the plot title and the error-in-LSB axis slightly wrong for all standard DACs: a 12-bit DAC at 1 V would show LSB = 244.07 µV instead of 244.14 µV — small, but enough to make DNL/INL appear non-zero at code 0 and n_codes-1 for a perfect DAC.
+- **Fix:** Check the DAC's actual formula: if `hasattr(dac, 'n_levels') and dac.n_levels is not None` use the symmetric formula; otherwise use `v_ref / n_codes`. Alternatively add a `get_lsb()` method to `DACBase` (see R4-I1b below).
+
+---
+
+**R4-I2 — Silent clipping of negative capacitance / current from large mismatch draws**
+- **Files:** `pyDataconverter/components/capacitor.py:97`, `pyDataconverter/components/current_source.py:103`
+- **Severity:** Important
+- **Description:** Both components clip values to 0 silently when a large mismatch draw produces a negative result:
+  ```python
+  self._capacitance = max(0.0, self._c_nominal * (1.0 + np.random.normal(0.0, mismatch)))
+  ```
+  A 0 F capacitor or 0 A current source is not a realistic mismatch model — it means the component is missing entirely. This masks over-large mismatch specifications (e.g., `mismatch=2.0`) with wrong simulation results rather than a user-visible error.
+- **Fix:** Add a `mismatch <= 1.0` validation in `__init__` (3σ draw is at most 3× nominal, always positive), or at minimum log a warning when the clip fires.
+
+---
+
+**R4-I3 — `characterization.measure_dynamic_range` renames key inconsistently**
+- **File:** `pyDataconverter/utils/characterization.py:92`
+- **Severity:** Important
+- **Description:** `measure_dynamic_range()` wraps `calculate_dynamic_range_from_curve()` and returns `'AmplitudeAtSNR0_dBFS'` for the key that the source function returns as `'AmplitudeAtSNR0_dB'`. This silent rename means callers looking for `'AmplitudeAtSNR0_dB'` get a `KeyError`, and callers looking for `'AmplitudeAtSNR0_dBFS'` are relying on an undocumented key.
+- **Fix:** Either pass the source key through unchanged, or document the rename in the `measure_dynamic_range` docstring.
+
+---
+
+**R4-I4 — `SARADC`: `cap_mismatch` silently ignored when custom `cdac` is provided**
+- **File:** `pyDataconverter/architectures/SARADC.py:109,175`
+- **Severity:** Important
+- **Description:** When `cdac=None`, `cap_mismatch > 0` correctly seeds a mismatched CDAC. When `cdac` is provided (not `None`), `cap_mismatch` is accepted without complaint but never applied. A caller passing both expects the mismatch to be active; it will not be.
+- **Fix:**
+  ```python
+  if cdac is not None and cap_mismatch > 0:
+      raise ValueError(
+          "cap_mismatch must be 0 when providing a custom cdac; "
+          "configure mismatch in the cdac instance directly")
+  ```
+
+---
+
+**R4-I5 — CDAC code-range check exists only in `SegmentedCDAC`**
+- **File:** `pyDataconverter/components/cdac.py`
+- **Severity:** Important
+- **Description:** `SegmentedCDAC.get_voltage()` validates that the code is in `[0, 2^n_bits - 1]` and raises `ValueError` on violation. `SingleEndedCDAC.get_voltage()` and `DifferentialCDAC.get_voltage()` have no such check; an out-of-range code silently passes to bit-extraction, where NumPy's shift arithmetic produces a wrong bit pattern rather than an error.
+- **Fix:** Add the same bounds check to `SingleEndedCDAC.get_voltage()` and `DifferentialCDAC.get_voltage()` to match the `SegmentedCDAC` behavior.
+
+---
+
+**R4-I6 — `visualize_SARADC._bit_contributions` assumes differential CDAC**
+- **File:** `pyDataconverter/utils/visualizations/visualize_SARADC.py:103`
+- **Severity:** Important
+- **Description:** Line 103 does `diff_base = v_base[0] - v_base[1]` where `v_base = adc.cdac.get_voltage(0)`. For a `SingleEndedCDAC`, `get_voltage` returns a scalar `float`, not a tuple; `v_base[0]` then indexes the first character of the float's string representation (via Python's iterator fallback) and raises `TypeError`. The visualization silently works only when the SAR uses a differential CDAC.
+- **Fix:**
+  ```python
+  v_base = adc.cdac.get_voltage(0)
+  diff_base = (v_base[0] - v_base[1]) if isinstance(v_base, tuple) else float(v_base)
+  ```
+
+---
+
+**R4-I7 — `R2RDAC` LSB node has two parallel 2R arms to GND when bit=0**
+- **File:** `pyDataconverter/architectures/R2RDAC.py:180-188`
+- **Severity:** Important (needs verification)
+- **Description:** The for-loop at lines 180–182 adds a 2R arm from each node k to `switch_node` (GND if bit=0, V_ref if bit=1). Line 188 adds a permanent additional 2R arm from node `n-1` to GND. When bit `n-1` (LSB) = 0, there are two parallel 2R arms from node `n-1` to GND → effective resistance R, not 2R. This changes the Thevenin impedance at the LSB node and would cause a non-linearity at all codes where LSB=0.
+
+  The comment at line 184-187 says this is "separate from the bit switch arm" and required for binary weighting — but that rationale applies only when the bit switch arm connects to V_ref (bit=1). When bit=0 both arms go to the same node, creating a topology mismatch.
+- **Fix / Verification needed:** Run `[dac.convert(c) for c in range(2**n_bits)]` on a known-linear configuration and check that adjacent-code steps are equal. If DNL is non-zero at LSB=0 codes, remove the permanent termination (line 188) and instead rely on the bit-switch arm to provide the termination.
+
+---
+
+**R4-I8 — `TimeInterleavedADC.convert_waveform` assumes uniform time spacing**
+- **File:** `pyDataconverter/architectures/TimeInterleavedADC.py:290`
+- **Severity:** Important
+- **Description:** `dt = float(t_dense[1] - t_dense[0])` is computed once and used as the uniform sample period for all IIR bandwidth filters. If the caller passes a non-uniformly-spaced `t_dense` array (e.g., from a non-uniform resampler or a simulation with variable step size), every filter cutoff frequency is wrong, silently.
+- **Fix:** Validate that `t_dense` is uniformly spaced before using it:
+  ```python
+  dt_all = np.diff(t_dense)
+  if not np.allclose(dt_all, dt_all[0], rtol=1e-4):
+      raise ValueError("convert_waveform requires uniformly spaced t_dense")
+  dt = float(dt_all[0])
+  ```
+
+---
+
+**R4-M1 — `signal_gen.py` inconsistent parameter names across functions**
+- **File:** `pyDataconverter/utils/signal_gen.py`
+- **Severity:** Minor
+- **Description:** `generate_sine()` and `generate_multitone()` use `sampling_rate`; `generate_chirp()`, `generate_step()`, `generate_prbs()`, and `generate_coherent_sine()` use `fs`. Both mean the same thing, but the inconsistency forces callers to check each function's signature.
+- **Fix:** Standardize to `fs` (shorter, matches scipy and NumPy conventions) in a single pass. Maintain backward compatibility with a deprecated `sampling_rate` alias if needed.
+
+---
+
+**R4-M2 — Comparator docstring says "input-referred" but offset is applied post-filter**
+- **File:** `pyDataconverter/components/comparator.py:99`
+- **Severity:** Minor
+- **Description:** The `offset` parameter docstring says "DC input-referred offset voltage (V)". In the implementation, offset is added to `v_diff` after the bandwidth-limiting IIR filter. For a high-bandwidth signal, the pre-filter and post-filter values are identical, so this is only misleading for configurations with both `bandwidth` and `offset` active. The term "input-referred" implies the offset appears before all signal processing.
+- **Fix:** Change the docstring to "DC offset voltage added to the filtered differential signal" to match the actual implementation.
+
+---
+
+**R4-M3 — `adc_plots.plot_transfer_function` uses swept range, not `v_ref`, for LSB**
+- **File:** `pyDataconverter/utils/visualizations/adc_plots.py:88-99`
+- **Severity:** Minor
+- **Description:** The function computes `lsb = v_range / n_codes` where `v_range = v_max - v_min` is the sweep range. For a single-ended ADC tested at full range this is correct, but for a differential ADC (where v_range is the full differential swing but internal v_ref is per-rail) the LSB is wrong, and the plotted error axis will be miscalibrated.
+- **Fix:** Prefer `lsb = adc.v_ref / n_codes` (or the symmetric variant when applicable) over the swept range.
+
+---
+
+**R4-M4 — `TimeInterleavedADC._resolve_mismatch` accepts negative scalar stddev**
+- **File:** `pyDataconverter/architectures/TimeInterleavedADC.py` (`_resolve_mismatch` helper)
+- **Severity:** Minor
+- **Description:** A negative scalar (e.g., `-0.001`) is interpreted as a standard deviation and passed directly to `rng.normal(scale=negative)`, which raises `ValueError: scale < 0` deep inside NumPy — not at the TI-ADC constructor boundary.
+- **Fix:** Add `if scalar < 0: raise ValueError(f"{name} scalar must be >= 0 (stddev), got {scalar}")` before the `rng.normal` call.
+
+---
+
+**R4-M5 — PDF singularity threshold 0.999 in `metrics/adc.py` is a magic number**
+- **File:** `pyDataconverter/utils/metrics/adc.py:425`
+- **Severity:** Minor
+- **Description:** `in_range = np.abs(u) < 0.999` avoids the `1/sqrt(1-u²)` singularity at ±1. The value 0.999 is undocumented. The threshold affects INL accuracy near the rails.
+- **Fix:** Extract as `_PDF_SINGULARITY_GUARD = 0.999  # avoid 1/sqrt(1-u²) divergence within 0.1% of ±full-scale` and add a brief comment.
+
+---
+
+**R4-M6 — PRBS error message does not indicate valid order range**
+- **File:** `pyDataconverter/utils/signal_gen.py:559`
+- **Severity:** Minor
+- **Description:** `generate_prbs(order=21)` raises `ValueError` with a message that lists only the unsupported value, not the supported range.
+- **Fix:** `raise ValueError(f"order must be between 2 and 20, got {order}")`.
+
+---
+
+### 5.3 Cross-cutting observation: LSB formula fragmentation
+
+Three separate locations compute LSB with slightly different formulas:
+
+| Location | Formula | Correct for |
+|----------|---------|-------------|
+| `dac_plots.py:60` | `v_ref / (n_codes - 1)` | Symmetric DACs only |
+| `simple_dac_example.py:119` | `v_ref / (n_codes - 1)` | Same — wrong for default `SimpleDAC` |
+| `adc_plots.py:94/98` | `v_range / (n_codes - 1)` or `v_range / n_codes` | Swept range — wrong for differential |
+
+The root cause is that `DACBase` and `ADCBase` do not expose a `get_lsb()` method. Adding one would let all visualization and metrics code use a single authoritative source:
+
+```python
+# DACBase
+def get_lsb(self) -> float:
+    if self.n_levels is None:
+        return self.v_ref / (2 ** self.n_bits)
+    return self.v_ref / (self.n_levels - 1)
+```
+
+This is a low-effort, high-consistency fix.
+
+---
+
+### 5.4 Newly confirmed correct behaviors (do not re-file)
+
+These were flagged by automated review agents but are intentional or already correct:
+
+- **`PipelinedADC` combiner `DOUT = DOUT + DOUT*H + code`** — deliberately matches adc_book reference formula (docstring says so explicitly; formula is validated by full test suite).
+- **`FlashADC` differential reference path** — `comp_refs[i]` and `comp_refs[n-1-i]` are single-ended values; the comparator's differential subtraction `(v_pos − v_refp[i]) − (v_neg − v_refn[i])` achieves the ×2 threshold automatically. The `reference_voltages` property returns ×2 for external display only.
+- **`R2RDAC` nodal solver robustness** — `nodal_solver.py` already rejects non-positive R and out-of-range indices (P2-6 from prior review). Tap-voltage finiteness is guaranteed for well-formed ladders (P2-5 from prior review).
+- **`SARADC` gain-error overflow** — `v_sampled` drives comparators, not DAC indices; over-range saturates to max/min code correctly (P2-3 from prior review).
