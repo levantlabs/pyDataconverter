@@ -608,9 +608,12 @@ from pyDataconverter.architectures.FlashADC import FlashADC
 from pyDataconverter.architectures.TimeInterleavedADC import TimeInterleavedADC
 from pyDataconverter.dataconverter import InputType
 
+from pyDataconverter.utils.signal_gen import generate_coherent_sine
+
 template = FlashADC(n_bits=10, v_ref=1.0, input_type=InputType.SINGLE)
 ti = TimeInterleavedADC(4, template, fs=1e9)
 
+signal, _ = generate_coherent_sine(1e9, 4096, 97, amplitude=0.4, offset=0.5)
 codes = np.array([ti.convert(v) for v in signal])
 ```
 
@@ -642,6 +645,7 @@ channel. The filter needs dvdt (time-derivative of the input), so you must
 supply a time vector via the waveform path:
 
 ```python
+# signal and fs from the Mismatch snippet above; ti has bandwidth= set
 t = np.arange(len(signal)) / fs
 codes = ti.convert_waveform(signal, t)   # returns np.ndarray of int
 ```
