@@ -3725,3 +3725,100 @@ anim = animate_sar_adc(adc, input_voltages=voltages, interval=0.1)
 - `visualize_sar_adc` — static or interactive snapshot
 - `animate_sar_conversion` — bit-by-bit animation of a single conversion
 - `SARADC` — the SAR ADC architecture being animated
+
+---
+
+## TimeInterleavedADC
+
+*`pyDataconverter.architectures.TimeInterleavedADC`*
+
+M-channel time-interleaved ADC. Wraps a sub-ADC template as M identical channels (deep-copied at construction), injects per-channel offset/gain/timing-skew/bandwidth mismatches, and produces a single interleaved output stream whose spectrum reproduces the standard TI-ADC mismatch spurs. Inherits from `ADCBase` so it composes as a backend in `PipelinedADC`, as a sub-ADC inside `PipelineStage`, or as another `TimeInterleavedADC`'s template (hierarchical interleaving). Full design in `docs/superpowers/specs/2026-04-14-ti-adc-design.md`; mismatch spur formulas in Appendix A.
+
+**Constructor**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `channels` | int | — | Number of interleaved channels (M ≥ 2). |
+| `sub_adc_template` | ADCBase | — | Any ADCBase instance. Each channel is a deep copy of this template. `n_bits`, `v_ref`, and `input_type` are inherited from the template and must not be passed as TI-ADC kwargs. |
+| `fs` | float | — | Aggregate sample rate (Hz). Required positive. Per-channel rate is `fs / channels`. |
+| `offset` | scalar or length-M array | `None` | Per-channel input-referred offset (V). A scalar is interpreted as the stddev of an `N(0, σ)` random draw (seeded by `seed`). A length-M array is interpreted as explicit per-channel values. `None` or `0` disables the mismatch. |
+| `gain_error` | scalar or length-M array | `None` | Per-channel fractional gain error. Same scalar-or-array semantics. |
+| `timing_skew` | scalar or length-M array | `None` | Per-channel sampling clock phase error (seconds). Applied as a first-order `dvdt · τ_k` correction to the input. Same semantics. |
+| `bandwidth` | scalar or length-M array | `None` | Per-channel front-end LPF cutoff (Hz). **Requires `convert_waveform`**; pointwise `convert()` raises `RuntimeError` when bandwidth is nonzero. |
+| `seed` | int or None | `None` | Seed for the random draw when any mismatch is specified as a scalar stddev. |
+
+**Methods**
+
+| Method | Description |
+|---|---|
+| `convert(v, dvdt=0.0)` | Inherited from `ADCBase`. Advances the channel counter by one. Raises `RuntimeError` if any `bandwidth[k] != 0`. |
+| `convert_waveform(v_dense, t_dense)` | Overrides `ADCBase.convert_waveform` to apply per-channel `scipy.signal.butter` LPFs when bandwidth is active. Returns a 1-D `np.ndarray[int]` of output codes. Advances the channel counter by `len(v_dense)`. |
+| `split_by_channel(codes)` | Reshapes a 1-D code array into a 2-D array of shape `(M, len(codes)/M)` where row `k` is channel `k`'s subsequence. |
+| `reset()` | Resets the channel counter and `last_channel`. Does not reset the per-channel sub-ADCs. |
+| `hierarchical(channels_per_level, sub_adc_template, fs, ...)` | **Classmethod.** Builds a multi-level interleaving tree from a list of per-level factors. `channels_per_level[0]` is outermost; `channels_per_level[-1]` is innermost. Per-level stddev lists (`offset_std_per_level`, etc.) populate each level's random draws. |
+
+**Properties**
+
+| Property | Description |
+|---|---|
+| `last_channel` | Index of the channel that handled the most recent `convert()` call. `None` before any call and immediately after `reset()`. |
+| `M` | Number of channels. |
+| `channels` | List of the M deep-copied sub-ADC instances. |
+
+**Important: bandwidth mismatch requires `convert_waveform`**
+
+Offset, gain, and timing-skew mismatches are all first-order pointwise corrections — they work via both `convert(v, dvdt=...)` and `convert_waveform(v, t)`. Bandwidth mismatch is a convolution (per-channel LPF on the dense waveform) and cannot be expressed pointwise. A user who constructs a `TimeInterleavedADC` with any nonzero `bandwidth` and calls `convert()` will get a `RuntimeError` directing them to `convert_waveform()`. This is a deliberate API asymmetry chosen over silent wrong results.
+
+**Example**
+
+```python
+import numpy as np
+from pyDataconverter.architectures.FlashADC import FlashADC
+from pyDataconverter.architectures.TimeInterleavedADC import TimeInterleavedADC
+from pyDataconverter.dataconverter import InputType
+
+template = FlashADC(n_bits=10, v_ref=1.0, input_type=InputType.SINGLE)
+
+# 4-channel TI-ADC with explicit per-channel mismatches
+ti = TimeInterleavedADC(
+    channels=4,
+    sub_adc_template=template,
+    fs=1e9,
+    offset=np.array([1e-3, -1e-3, 0.5e-3, -0.5e-3]),
+    gain_error=np.array([1e-3, -1e-3, 5e-4, -5e-4]),
+    timing_skew=np.array([1e-12, -1e-12, 5e-13, -5e-13]),
+)
+
+# Pointwise conversion
+code = ti.convert(0.5, dvdt=0.0)
+print(ti.last_channel)  # 0 after first call
+
+# Hierarchical: 4 outer channels, each with 2 inner channels (8 total leaves)
+hier = TimeInterleavedADC.hierarchical(
+    channels_per_level=[4, 2],
+    sub_adc_template=template,
+    fs=8e9,
+    offset_std_per_level=[1e-3, 0.5e-3],
+    seed=42,
+)
+```
+
+See `examples/ti_adc_example.py` for a full demo with spectrum plot, and `tests/test_ti_adc_spurs.py` for the analytical validation configurations.
+
+---
+
+## ADCBase.convert_waveform
+
+*`pyDataconverter.dataconverter.ADCBase.convert_waveform`*
+
+Default waveform-conversion method on `ADCBase`. Every existing `ADCBase` subclass inherits this implementation unchanged. Users with a dense time-domain waveform (`v_dense`, `t_dense`) can feed it directly to any ADC without computing `dvdt` manually:
+
+```python
+t = np.linspace(0, 1e-6, 1024)
+v = 0.5 + 0.4 * np.sin(2 * np.pi * 5e6 * t)
+codes = adc.convert_waveform(v, t)
+```
+
+**Default implementation:** computes `dvdt_dense = np.gradient(v_dense, t_dense)` and loops over samples calling `self.convert(v_dense[i], dvdt=dvdt_dense[i])`. Subclasses with richer per-sample state (e.g. `TimeInterleavedADC` applying per-channel bandwidth LPFs) override this to do something smarter while preserving the same signature.
+
+**Raises:** `ValueError` if `v_dense` and `t_dense` have mismatched shapes or are not 1-D.

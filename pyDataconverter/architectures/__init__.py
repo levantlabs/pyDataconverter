@@ -7,3 +7,4 @@ from .ResistorStringDAC import ResistorStringDAC
 from .R2RDAC import R2RDAC
 from .SegmentedResistorDAC import SegmentedResistorDAC
 from .PipelinedADC import PipelineStage, PipelinedADC
+from .TimeInterleavedADC import TimeInterleavedADC

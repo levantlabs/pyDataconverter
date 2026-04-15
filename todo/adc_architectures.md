@@ -23,34 +23,11 @@ Phase 2 items (still open): explicit `SampleAndHold` component, residue-amp slew
 
 ---
 
-## 2. Time-Interleaved ADC (TI-ADC)  [HIGH] — STATUS: IN DESIGN (2026-04-13)
+## 2. Time-Interleaved ADC (TI-ADC)  [HIGH] — STATUS: PHASE 1 IMPLEMENTED (2026-04-14)
 
-**What it is:** M parallel sub-ADCs sampling the same input at staggered clock
-phases. Sample N is routed to sub-ADC (N mod M); the output is reassembled in
-order. A perfect TI-ADC behaves as a single ADC at M times the per-channel
-rate. Imperfect channels generate characteristic mismatch spurs.
+Shipped class: `pyDataconverter/architectures/TimeInterleavedADC.py` (`TimeInterleavedADC(ADCBase)` + `hierarchical` classmethod + `split_by_channel` + `last_channel`). New base-class method: `ADCBase.convert_waveform` default (inherited by every ADC unchanged). Four mismatch types (offset, gain, timing_skew, bandwidth) with scalar-or-array kwarg polymorphism. Pointwise `convert()` supports offset/gain/skew; bandwidth mismatch requires `convert_waveform()` and the pointwise path raises `RuntimeError` to prevent silent wrong results. Validation via analytical spur formulas (Razavi/Murmann/Kester) — no external bit-exact oracle like adc_book for pipelined ADC. Example: `examples/ti_adc_example.py`. Full design: `docs/superpowers/specs/2026-04-14-ti-adc-design.md`.
 
-**Why model it:** The only way to reach multi-GS/s in CMOS. Orthogonal to the
-other architectures — you can interleave Flash, SAR, or pipelined sub-ADCs.
-The interesting modelling content lives entirely in the channel mismatches and
-their spectral signatures, which are hard to study any other way.
-
-**Key non-idealities to add (all inter-channel):**
-- Offset mismatch → spur at `fs/M` and its multiples (DC-independent)
-- Gain mismatch → images at `±fin` around `k·fs/M` for each channel
-- Timing skew (sampling clock phase error) → images at `k·fs/M ± fin`, scaled by
-  `fin`
-- Bandwidth mismatch → frequency-dependent images (sub-ADC input BW differs)
-
-**Components / design decisions:**
-- **Composition over inheritance.** The TI wrapper should accept any
-  `ADCBase` instance as a channel template and replicate it M times; it should
-  not require a dedicated TI subclass per architecture.
-- **`TimeInterleavedADC`** (new, extends `ADCBase`) — holds M sub-ADCs, a
-  channel mux, per-channel mismatch parameters, and a digital recombiner.
-- **Calibration support:** expose hooks for per-channel offset, gain, and
-  timing correction that can be driven either from a configuration dict or
-  from a calibration routine run offline.
+Phase 2 items (still open): second-order-correct timing-skew interpolation (cubic spline at `t + τ_k`), digital calibration engine for offset/gain/skew estimation and correction, stateful per-channel LPF so pointwise `convert()` can also handle bandwidth mismatch (removes the API asymmetry), explicit `SampleAndHold` per-channel component (shared with Pipelined ADC Phase 2), TI-ADC characterisation helpers in `utils/characterization.py`, heterogeneous channel templates (list of sub-ADCs instead of one template).
 
 ---
 
