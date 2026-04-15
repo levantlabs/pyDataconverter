@@ -2,9 +2,13 @@
 TI-ADC ENOB vs. Input Frequency (Bandwidth Mismatch)
 =====================================================
 
-Two-curve plot: ideal (flat) vs. bandwidth-mismatched TI-ADC. Bandwidth
-mismatch degrades ENOB at high input frequencies while low-frequency ENOB
-is unaffected.
+Two-curve plot: ideal (flat) vs. bandwidth-mismatched TI-ADC.
+
+Each channel's front-end is modelled as a first-order Butterworth LPF.
+Bandwidth mismatch between channels introduces both amplitude differences
+(growing with f_in) and phase differences (equivalent to a per-channel
+timing skew). Together, these effects degrade ENOB monotonically with
+input frequency. The ideal curve is flat at the quantisation-limited ENOB.
 
 Run with:
 
@@ -99,7 +103,8 @@ def main():
 
     ax.set_xlabel("Input Frequency (MHz)")
     ax.set_ylabel("ENOB (bits)")
-    ax.set_title(f"TI-ADC ENOB vs. f_in -- Bandwidth Mismatch (M={M}, {N_BITS}-bit)")
+    ax.set_title(f"TI-ADC ENOB vs. f_in — Bandwidth Mismatch (M={M}, {N_BITS}-bit,\n"
+                 f"BW channels: {[int(b/1e6) for b in BW_ARRAY]} MHz)")
     ax.legend()
     ax.grid(True, alpha=0.3)
 
