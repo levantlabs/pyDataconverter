@@ -59,15 +59,13 @@ def _sweep(param: str, magnitudes: np.ndarray, signal: np.ndarray) -> np.ndarray
     sfdr_vals = np.zeros(len(magnitudes))
     rng = np.random.default_rng(SEED)
     for i, mag in enumerate(magnitudes):
-        offsets = rng.standard_normal(M) * mag
+        draw = rng.standard_normal(M) * mag
         if param == "offset":
-            ti = TimeInterleavedADC(M, _build_template(), fs=FS, offset=offsets)
+            ti = TimeInterleavedADC(M, _build_template(), fs=FS, offset=draw)
         elif param == "gain":
-            ti = TimeInterleavedADC(M, _build_template(), fs=FS,
-                                    gain_error=rng.standard_normal(M) * mag)
+            ti = TimeInterleavedADC(M, _build_template(), fs=FS, gain_error=draw)
         else:  # skew
-            ti = TimeInterleavedADC(M, _build_template(), fs=FS,
-                                    timing_skew=rng.standard_normal(M) * mag)
+            ti = TimeInterleavedADC(M, _build_template(), fs=FS, timing_skew=draw)
         sfdr_vals[i] = _measure_sfdr(ti, signal)
     return sfdr_vals
 
