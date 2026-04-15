@@ -265,59 +265,15 @@ class TestGetHarmonicAliasing:
 
 class TestDemoFFTAnalysis:
 
-    def test_demo_fft_analysis_runs_partially(self):
-        """demo_fft_analysis runs but fails due to undefined 'duration' variable.
-
-        We test that it at least starts executing (covers the import and
-        initial demo section). The function has a bug on line 238 where
-        'duration' is not defined, so we expect a NameError.
-        """
-        with pytest.raises(NameError):
-            demo_fft_analysis()
-
-    def test_demo_fft_analysis_full_with_patched_duration(self):
-        """Patch the missing 'duration' variable so demo_fft_analysis runs fully.
-
-        The function references an undefined local 'duration'. We patch
-        generate_two_tone and generate_sine to supply a default duration,
-        allowing the rest of the demo to execute and cover lines 239-289.
-        """
-        import pyDataconverter.utils.fft_analysis as fft_mod
-
-        orig_two_tone = fft_mod.generate_two_tone
-        orig_sine = fft_mod.generate_sine
-
-        def patched_two_tone(*args, **kwargs):
-            # Replace the undefined 'duration' with a computed default
-            if 'duration' in kwargs and kwargs['duration'] is None:
-                kwargs['duration'] = 1024 / 1e6
-            return orig_two_tone(*args, **kwargs)
-
-        def patched_sine(*args, **kwargs):
-            if 'duration' in kwargs and kwargs['duration'] is None:
-                kwargs['duration'] = 1024 / 1e6
-            return orig_sine(*args, **kwargs)
-
-        # The bug is that 'duration' is a NameError, so we need to inject it
-        # into the function's global scope temporarily.
-        original_globals = fft_mod.demo_fft_analysis.__globals__
-        original_globals['duration'] = 1024 / 1e6
-
-        try:
-            # Should now run to completion
-            demo_fft_analysis()
-        finally:
-            # Clean up
-            if 'duration' in original_globals:
-                del original_globals['duration']
+    def test_demo_fft_analysis_runs_to_completion(self):
+        """demo_fft_analysis runs all four sub-demos without error."""
+        demo_fft_analysis()
 
     def test_main_block_calls_demo(self):
         """Exercise the __name__ == '__main__' block via runpy."""
         import runpy
-        # This will call demo_fft_analysis() which raises NameError
-        with pytest.raises(NameError):
-            runpy.run_module(
-                'pyDataconverter.utils.fft_analysis',
-                run_name='__main__',
-                alter_sys=True
-            )
+        runpy.run_module(
+            'pyDataconverter.utils.fft_analysis',
+            run_name='__main__',
+            alter_sys=True
+        )

@@ -348,7 +348,7 @@ The `OutputType.DIFFERENTIAL` value mismatch is the most serious documentation i
 
 | ID | File | Severity | Title | Status |
 |----|------|----------|-------|--------|
-| R4-C1 | `utils/fft_analysis.py:242,266` | **Critical** | `duration` undefined in `demo_fft_analysis()` | Open |
+| R4-C1 | `utils/fft_analysis.py:242,266` | Minor (not Critical) | `duration` undefined in `demo_fft_analysis()` | FIXED |
 | R4-I1 | `utils/visualizations/dac_plots.py:60` | Important | DAC plot LSB uses wrong formula for default DACs | Open |
 | R4-I2 | `components/capacitor.py:97`, `current_source.py:103` | Important | Silent clipping of negative mismatch draws | Open |
 | R4-I3 | `utils/characterization.py:92` | Important | Key rename creates inconsistency with source dict | Open |
@@ -377,11 +377,11 @@ The `OutputType.DIFFERENTIAL` value mismatch is the most serious documentation i
 
 ---
 
-**R4-C1 — `demo_fft_analysis()` crashes: `duration` undefined**
+**R4-C1 — `demo_fft_analysis()` crashes: `duration` undefined** — **FIXED**
 - **File:** `pyDataconverter/utils/fft_analysis.py:242, 266`
-- **Severity:** Critical (crashes on execution)
-- **Description:** `demo_fft_analysis()` is a standalone demo function. Demo 1 uses the literal `NFFT / fs` inline (lines 219–220). Demos 2 and 3 use the variable name `duration` (lines 242, 266) which is never assigned in the function scope. Calling `demo_fft_analysis()` raises `NameError: name 'duration' is not defined` at Demo 2.
-- **Fix:** Add `duration = NFFT / fs` after the `NFFT` / `NFIN` declarations at the top of the function (around line 213).
+- **Severity on reflection:** Minor — `demo_fft_analysis()` is a module-level `if __name__ == "__main__"` entry point, not imported anywhere in the library, tests, or examples. Known issue previously tracked in `CODE_REVIEW.md:119` (item 15.3), `PENDING_DECISIONS.md:42`, and `todo/fft_analysis_review.md`. Original "Critical" rating overstated its real-world impact — no user path reached it.
+- **Description:** Demos 2 and 3 of `demo_fft_analysis()` used the variable name `duration` which was never assigned in the function scope. Calling `demo_fft_analysis()` (or running the module directly with `python -m pyDataconverter.utils.fft_analysis`) raised `NameError: name 'duration' is not defined` at Demo 2.
+- **Fix:** Added `duration = NFFT / fs` to the test-parameters block (`fft_analysis.py:215`) and made Demo 1 reuse the same variable for consistency. Consolidated the three pre-existing coverage tests (`test_demo_fft_analysis_runs_partially`, `test_demo_fft_analysis_full_with_patched_duration`, `test_main_block_calls_demo`) — which had documented the bug as a pytest expectation via `pytest.raises(NameError)` — into two positive tests: `test_demo_fft_analysis_runs_to_completion` and an inverted `test_main_block_calls_demo`. 942 tests passing.
 
 ---
 

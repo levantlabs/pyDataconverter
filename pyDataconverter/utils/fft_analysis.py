@@ -212,12 +212,13 @@ def demo_fft_analysis():
     fs = 1e6  # 1 MHz sampling rate
     NFFT = 1024
     NFIN = 11
+    duration = NFFT / fs  # signal length used by every generator call below
 
     # 1. Single tone with harmonics
     print("\nDemo 1: Single tone with harmonics")
     signal1, f0 = generate_coherent_sine(fs, NFFT, NFIN, amplitude=1.0)
-    signal2 = generate_sine(2 * f0, fs, amplitude=0.1, duration=NFFT / fs)
-    signal3 = generate_sine(3 * f0, fs, amplitude=0.05, duration=NFFT / fs)
+    signal2 = generate_sine(2 * f0, fs, amplitude=0.1, duration=duration)
+    signal3 = generate_sine(3 * f0, fs, amplitude=0.05, duration=duration)
     signal = signal1 + signal2 + signal3
 
     # In demo_fft_analysis()
