@@ -56,7 +56,7 @@ def _run(ti: TimeInterleavedADC, signal: np.ndarray) -> np.ndarray:
     return np.array([ti.convert(float(v)) for v in signal])
 
 
-def _peak_near(freqs, spec_db, target_hz, window_hz=30e6) -> tuple[float, float]:
+def _peak_near(freqs, spec_db, target_hz, window_hz=3 * FS / N_FFT) -> tuple[float, float]:
     """Return (peak_dBFS, actual_frequency_Hz) within ±window_hz."""
     mask = np.abs(freqs - target_hz) <= window_hz
     if not mask.any():
