@@ -13,7 +13,7 @@ Run with:
 
 import numpy as np
 import matplotlib
-matplotlib.use("Agg")
+matplotlib.use("Agg")  # headless-friendly; comment out for interactive use
 import matplotlib.pyplot as plt
 
 from pyDataconverter.architectures.SimpleADC import SimpleADC
@@ -67,7 +67,6 @@ def _peak_near(freqs, spec_db, target_hz, window_hz=20e6) -> float:
 
 def main():
     signal, f_in = generate_coherent_sine(FS, N_FFT, N_FIN, AMPLITUDE, DC_OFFSET)
-    t = np.arange(N_FFT) / FS
 
     # Ideal spectrum (same ADC, zero mismatch)
     ideal_ti = TimeInterleavedADC(M, _build_template(), fs=FS)
