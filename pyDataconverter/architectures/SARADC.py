@@ -122,14 +122,18 @@ class SARADC(ADCBase):
             comparator_type: Comparator class to instantiate.
             comparator_params: Keyword arguments forwarded to the comparator
                 constructor (e.g. noise_rms, offset, hysteresis).
-            cdac: Pre-constructed CDACBase instance.  If provided, cap_mismatch
-                is ignored and the supplied C-DAC is used directly.  Its n_bits
-                and v_ref must match those of the ADC.  If None, a
-                SingleEndedCDAC or DifferentialCDAC is auto-created based on
-                input_type.
+            cdac: Pre-constructed CDACBase instance.  Its n_bits and v_ref
+                must match those of the ADC.  If None, a SingleEndedCDAC or
+                DifferentialCDAC is auto-created based on input_type.  When a
+                cdac *is* provided AND ``cap_mismatch > 0``, the SARADC calls
+                ``cdac.apply_mismatch(cap_mismatch)`` so the SARADC-level
+                stddev wins — the CDAC's nominal topology is preserved but a
+                fresh mismatch realization is drawn on top of it.  A
+                RuntimeWarning is emitted so callers notice the override.
             cap_mismatch: Standard deviation of multiplicative capacitor
-                mismatch (dimensionless, e.g. 0.001 = 0.1 %).  Ignored when
-                cdac is provided.
+                mismatch (dimensionless, e.g. 0.001 = 0.1 %).  Applied to an
+                auto-created C-DAC when ``cdac is None``, or passed through
+                to ``cdac.apply_mismatch()`` when a C-DAC is supplied.
             noise_rms: Input-referred RMS sampling noise (V).  Represents kT/C
                 or other front-end noise fixed at the sampling instant.
                 Applied once per conversion before the bit loop.
@@ -170,6 +174,17 @@ class SARADC(ADCBase):
                 raise ValueError(
                     f"cdac.v_ref={cdac.v_ref} does not match v_ref={v_ref}")
             self.cdac = cdac
+            if cap_mismatch > 0:
+                import warnings
+                warnings.warn(
+                    f"SARADC: cap_mismatch={cap_mismatch} overrides the "
+                    f"mismatch baked into the supplied CDAC. The CDAC's "
+                    f"nominal topology is preserved but a fresh mismatch "
+                    f"realization is drawn via cdac.apply_mismatch().",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                cdac.apply_mismatch(cap_mismatch)
         else:
             if input_type == InputType.SINGLE:
                 self.cdac = SingleEndedCDAC(n_bits, v_ref, cap_mismatch=cap_mismatch)

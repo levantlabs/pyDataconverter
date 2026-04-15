@@ -352,7 +352,7 @@ The `OutputType.DIFFERENTIAL` value mismatch is the most serious documentation i
 | R4-I1 | `utils/visualizations/dac_plots.py:60` | ~~Important~~ | ~~DAC plot LSB uses wrong formula for default DACs~~ | FALSE POSITIVE |
 | R4-I2 | `components/capacitor.py:97`, `current_source.py:103` | Important | Silent clipping of negative mismatch draws | FIXED |
 | R4-I3 | `utils/characterization.py:92` | Important | Key rename creates inconsistency with source dict | FIXED |
-| R4-I4 | `architectures/SARADC.py:109,175` | Important | `cap_mismatch` silently ignored when `cdac` provided | Open |
+| R4-I4 | `architectures/SARADC.py:109,175` | Important | `cap_mismatch` silently ignored when `cdac` provided | FIXED |
 | R4-I5 | `components/cdac.py` | Important | Code bounds check only in `SegmentedCDAC`, not `SingleEndedCDAC`/`DifferentialCDAC` | Open |
 | R4-I6 | `utils/visualizations/visualize_SARADC.py:103` | Important | Assumes CDAC `get_voltage` returns tuple; fails for single-ended | Open |
 | R4-I7 | `architectures/R2RDAC.py:188` | Important | Double 2R-to-GND on LSB node when bit=0; verify linearity is unaffected | Needs verification |
@@ -412,16 +412,26 @@ The `OutputType.DIFFERENTIAL` value mismatch is the most serious documentation i
 
 ---
 
-**R4-I4 — `SARADC`: `cap_mismatch` silently ignored when custom `cdac` is provided**
-- **File:** `pyDataconverter/architectures/SARADC.py:109,175`
+**R4-I4 — `SARADC`: `cap_mismatch` silently ignored when custom `cdac` is provided** — **FIXED**
+- **Files:** `pyDataconverter/architectures/SARADC.py`, `pyDataconverter/components/cdac.py`, `pyDataconverter/components/capacitor.py`
 - **Severity:** Important
-- **Description:** When `cdac=None`, `cap_mismatch > 0` correctly seeds a mismatched CDAC. When `cdac` is provided (not `None`), `cap_mismatch` is accepted without complaint but never applied. A caller passing both expects the mismatch to be active; it will not be.
-- **Fix:**
+- **Description:** When `cdac=None`, `cap_mismatch > 0` correctly seeded a mismatched CDAC. When `cdac` was provided, `cap_mismatch` was documented as "ignored" — but that meant a caller building a topology with one CDAC and then constructing SARADC with a different `cap_mismatch` would silently lose the SARADC-level value. This blocked the natural Monte Carlo workflow of reusing one CDAC topology across many statistical draws.
+- **Design change:** Promoted mismatch from a construction-time immutable to a re-drawable property on the CDAC.
+  - **`UnitCapacitorBase.redraw_mismatch(stddev, rng)`** — new method (default raises `NotImplementedError`). `IdealCapacitor` implements it: preserves `_c_nominal`, draws a fresh ε ~ N(0, stddev), sets `_capacitance = c_nominal * (1 + ε)`. Same negative-clip warning as the construction-time path.
+  - **`CDACBase.apply_mismatch(cap_mismatch, seed=None)`** — new method (default raises `NotImplementedError`). Implemented concretely in:
+    - `SingleEndedCDAC` (inherited by `RedundantSARCDAC` and `SplitCapCDAC` — the redundant CDAC's DEC lookup uses ideal radix weights and is unaffected by re-draw)
+    - `SegmentedCDAC` (delegates to the inner `SingleEndedCDAC`)
+    - `DifferentialCDAC` (re-draws both positive and negative arrays independently from the same `Generator`, so `(pos, neg)` pair is reproducible from a single seed)
+  - Each implementation refreshes the cached `_cap_weights` / `_cap_total` arrays after re-drawing.
+- **`SARADC.__init__` change:** When `cdac is not None and cap_mismatch > 0`, SARADC now emits a `RuntimeWarning` (so the override is visible) and calls `cdac.apply_mismatch(cap_mismatch)`. The CDAC's nominal topology is preserved, the SARADC-level stddev wins. `cap_mismatch=0` with a supplied cdac is unchanged (no warning, cdac used as-is).
+- **Tests added (22 new):** `test_capacitor.py::TestRedrawMismatch` (5 tests), `test_cdac.py::TestApplyMismatch*` (15 tests covering SingleEnded, Differential, Segmented, and base-class default), `test_sar_generalisation.py::TestSARADCCapMismatchPassthrough` (4 tests covering the warning, topology preservation, no-warn on zero, and differential passthrough). 965 tests passing (was 943; +22 new).
+- **Monte Carlo workflow now supported:**
   ```python
-  if cdac is not None and cap_mismatch > 0:
-      raise ValueError(
-          "cap_mismatch must be 0 when providing a custom cdac; "
-          "configure mismatch in the cdac instance directly")
+  cdac = SingleEndedCDAC(n_bits=12, v_ref=1.0)  # ideal topology
+  for seed in range(1000):
+      cdac.apply_mismatch(0.002, seed=seed)  # fresh realization, same topology
+      adc = SARADC(n_bits=12, cdac=cdac)     # no SARADC-level override needed
+      # ... run one Monte Carlo iteration ...
   ```
 
 ---

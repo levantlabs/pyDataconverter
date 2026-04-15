@@ -294,3 +294,123 @@ class TestDifferentialCDACProperties:
         w = cdac.cap_weights_neg
         assert isinstance(w, np.ndarray)
         assert len(w) == 4
+
+
+# ===========================================================================
+# apply_mismatch — Monte Carlo workflow
+# ===========================================================================
+
+class TestApplyMismatchSingleEnded:
+
+    def test_preserves_nominal_topology(self):
+        """Nominal c_nominal of each cap is unchanged across re-draws."""
+        cdac = SingleEndedCDAC(n_bits=6, v_ref=1.0, cap_mismatch=0.0)
+        nominals_before = [c.c_nominal for c in cdac.cap_instances]
+        cdac.apply_mismatch(0.05, seed=1)
+        cdac.apply_mismatch(0.10, seed=2)
+        nominals_after = [c.c_nominal for c in cdac.cap_instances]
+        assert nominals_before == nominals_after
+
+    def test_effective_caps_change(self):
+        cdac = SingleEndedCDAC(n_bits=6, v_ref=1.0, cap_mismatch=0.0)
+        weights_ideal = cdac.cap_weights.copy()
+        cdac.apply_mismatch(0.05, seed=1)
+        weights_drawn = cdac.cap_weights
+        assert not np.allclose(weights_ideal, weights_drawn)
+
+    def test_cap_total_refreshed(self):
+        cdac = SingleEndedCDAC(n_bits=6, v_ref=1.0, cap_mismatch=0.0)
+        total_ideal = cdac.cap_total
+        cdac.apply_mismatch(0.05, seed=1)
+        total_drawn = cdac.cap_total
+        expected = float(np.sum(cdac.cap_weights) + 1.0)
+        assert total_drawn == pytest.approx(expected)
+        assert total_drawn != total_ideal
+
+    def test_seeded_reproducibility(self):
+        c1 = SingleEndedCDAC(n_bits=6, v_ref=1.0, cap_mismatch=0.0)
+        c2 = SingleEndedCDAC(n_bits=6, v_ref=1.0, cap_mismatch=0.0)
+        c1.apply_mismatch(0.03, seed=42)
+        c2.apply_mismatch(0.03, seed=42)
+        np.testing.assert_array_equal(c1.cap_weights, c2.cap_weights)
+
+    def test_zero_stddev_restores_nominal(self):
+        cdac = SingleEndedCDAC(n_bits=6, v_ref=1.0, cap_mismatch=0.1)
+        cdac.apply_mismatch(0.0)
+        nominals = np.array([c.c_nominal for c in cdac.cap_instances])
+        np.testing.assert_array_equal(cdac.cap_weights, nominals)
+
+    def test_monte_carlo_loop(self):
+        """Reusing one CDAC for many statistical draws produces distinct realizations."""
+        cdac = SingleEndedCDAC(n_bits=8, v_ref=1.0, cap_mismatch=0.0)
+        realizations = []
+        for seed in range(5):
+            cdac.apply_mismatch(0.02, seed=seed)
+            realizations.append(cdac.cap_weights.copy())
+        for i in range(len(realizations)):
+            for j in range(i + 1, len(realizations)):
+                assert not np.allclose(realizations[i], realizations[j])
+
+    def test_negative_stddev_raises(self):
+        cdac = SingleEndedCDAC(n_bits=4, v_ref=1.0)
+        with pytest.raises(ValueError):
+            cdac.apply_mismatch(-0.01)
+
+
+class TestApplyMismatchDifferential:
+
+    def test_both_arrays_redrawn(self):
+        cdac = DifferentialCDAC(n_bits=6, v_ref=1.0, cap_mismatch=0.0)
+        pos_before = cdac.cap_weights.copy()
+        neg_before = cdac.cap_weights_neg.copy()
+        cdac.apply_mismatch(0.05, seed=1)
+        assert not np.allclose(cdac.cap_weights, pos_before)
+        assert not np.allclose(cdac.cap_weights_neg, neg_before)
+
+    def test_independent_draws(self):
+        """Pos and neg arrays must receive different realizations (not correlated)."""
+        cdac = DifferentialCDAC(n_bits=8, v_ref=1.0, cap_mismatch=0.0)
+        cdac.apply_mismatch(0.05, seed=7)
+        assert not np.allclose(cdac.cap_weights, cdac.cap_weights_neg)
+
+    def test_nominal_preserved(self):
+        cdac = DifferentialCDAC(n_bits=6, v_ref=1.0, cap_mismatch=0.0)
+        nominals_pos = [c.c_nominal for c in cdac.cap_instances]
+        nominals_neg = [c.c_nominal for c in cdac.cap_instances_neg]
+        cdac.apply_mismatch(0.1, seed=3)
+        assert [c.c_nominal for c in cdac.cap_instances] == nominals_pos
+        assert [c.c_nominal for c in cdac.cap_instances_neg] == nominals_neg
+
+
+class TestApplyMismatchSegmented:
+
+    def test_delegates_to_inner(self):
+        cdac = SegmentedCDAC(n_bits=8, v_ref=1.0, n_therm=3, cap_mismatch=0.0)
+        weights_before = cdac.cap_weights.copy()
+        cdac.apply_mismatch(0.05, seed=1)
+        assert not np.allclose(cdac.cap_weights, weights_before)
+
+    def test_seeded_reproducibility(self):
+        c1 = SegmentedCDAC(n_bits=8, v_ref=1.0, n_therm=3, cap_mismatch=0.0)
+        c2 = SegmentedCDAC(n_bits=8, v_ref=1.0, n_therm=3, cap_mismatch=0.0)
+        c1.apply_mismatch(0.02, seed=42)
+        c2.apply_mismatch(0.02, seed=42)
+        np.testing.assert_array_equal(c1.cap_weights, c2.cap_weights)
+
+
+class TestApplyMismatchBaseClassDefault:
+
+    def test_raises_not_implemented(self):
+        """CDACBase.apply_mismatch raises by default for non-overriding subclasses."""
+        class DummyCDAC(CDACBase):
+            @property
+            def n_bits(self): return 4
+            @property
+            def v_ref(self): return 1.0
+            @property
+            def cap_weights(self): return np.ones(4)
+            @property
+            def cap_total(self): return 5.0
+            def get_voltage(self, code): return (0.0, 0.0)
+        with pytest.raises(NotImplementedError):
+            DummyCDAC().apply_mismatch(0.01)

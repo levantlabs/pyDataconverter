@@ -127,6 +127,33 @@ class CDACBase(ABC):
         return np.array([vp - vn
                          for vp, vn in (self.get_voltage(c) for c in range(n_codes))])
 
+    def apply_mismatch(self,
+                       cap_mismatch: float,
+                       seed: Optional[int] = None) -> None:
+        """
+        Re-draw multiplicative capacitor mismatch on the existing topology.
+
+        The nominal cap values (the topology passed at construction) are
+        preserved per-capacitor; a fresh ε ~ N(0, cap_mismatch) is drawn for
+        each, and the effective ``cap_weights`` / ``cap_total`` used by
+        ``get_voltage()`` are refreshed.  This enables Monte Carlo workflows
+        where one CDAC topology is re-used across many statistical runs.
+
+        Passing ``cap_mismatch=0`` restores the ideal nominal values.
+
+        Args:
+            cap_mismatch: New mismatch standard deviation (>= 0).
+            seed: Optional seed for reproducibility.
+
+        Raises:
+            NotImplementedError: If the subclass does not support in-place
+                re-draw.  Built-in SingleEndedCDAC, DifferentialCDAC, and
+                SegmentedCDAC all support it.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__}.apply_mismatch is not implemented; "
+            f"subclasses must override to support in-place mismatch re-draw.")
+
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(n_bits={self.n_bits}, v_ref={self.v_ref})"
 
@@ -231,6 +258,19 @@ class SingleEndedCDAC(CDACBase):
         bits  = self._code_to_bits(code)
         v_dac = float(np.dot(bits, self._cap_weights) / self._cap_total * self._v_ref)
         return (v_dac, 0.0)
+
+    def apply_mismatch(self,
+                       cap_mismatch: float,
+                       seed: Optional[int] = None) -> None:
+        if not isinstance(cap_mismatch, (int, float)) or cap_mismatch < 0:
+            raise ValueError(f"cap_mismatch must be >= 0, got {cap_mismatch}")
+        rng = np.random.default_rng(seed)
+        for cap in self._cap_instances:
+            cap.redraw_mismatch(float(cap_mismatch), rng)
+        self._cap_weights = np.array(
+            [c.capacitance for c in self._cap_instances])
+        self._cap_total = float(np.sum(self._cap_weights) + 1.0)
+        self.cap_mismatch = float(cap_mismatch)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -530,6 +570,12 @@ class SegmentedCDAC(CDACBase):
         v_dac = float(np.dot(bits, cap_weights) / cap_total * self._v_ref)
         return (v_dac, 0.0)
 
+    def apply_mismatch(self,
+                       cap_mismatch: float,
+                       seed: Optional[int] = None) -> None:
+        """Delegate to the inner SingleEndedCDAC that holds the physical caps."""
+        self._cdac.apply_mismatch(cap_mismatch, seed=seed)
+
     def __repr__(self) -> str:
         return (f"SegmentedCDAC(n_bits={self._n_bits}, v_ref={self._v_ref}, "
                 f"n_therm={self._n_therm})")
@@ -677,6 +723,31 @@ class DifferentialCDAC(CDACBase):
         v_dacn = float((self._cap_total_neg - np.dot(bits, self._cap_weights_neg))
                        / self._cap_total_neg * half)
         return (v_dacp, v_dacn)
+
+    def apply_mismatch(self,
+                       cap_mismatch: float,
+                       seed: Optional[int] = None) -> None:
+        """
+        Re-draw independent mismatch on both the positive and negative arrays.
+
+        The positive and negative sub-arrays are drawn consecutively from the
+        same Generator, so for a given seed the (pos, neg) realization pair
+        is reproducible.
+        """
+        if not isinstance(cap_mismatch, (int, float)) or cap_mismatch < 0:
+            raise ValueError(f"cap_mismatch must be >= 0, got {cap_mismatch}")
+        rng = np.random.default_rng(seed)
+        for cap in self._cap_instances_pos:
+            cap.redraw_mismatch(float(cap_mismatch), rng)
+        for cap in self._cap_instances_neg:
+            cap.redraw_mismatch(float(cap_mismatch), rng)
+        self._cap_weights_pos = np.array(
+            [c.capacitance for c in self._cap_instances_pos])
+        self._cap_weights_neg = np.array(
+            [c.capacitance for c in self._cap_instances_neg])
+        self._cap_total_pos = float(np.sum(self._cap_weights_pos) + 1.0)
+        self._cap_total_neg = float(np.sum(self._cap_weights_neg) + 1.0)
+        self.cap_mismatch = float(cap_mismatch)
 
     # ------------------------------------------------------------------
     # Internal helpers

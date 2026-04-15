@@ -395,3 +395,45 @@ class TestSARAdcBaseLineCoverage:
         assert "offset" in r
         assert "gain_error" in r
         assert "t_jitter" in r
+
+
+class TestSARADCCapMismatchPassthrough:
+    """When both cdac and cap_mismatch are supplied, SARADC overrides the
+    CDAC's mismatch realization with a fresh draw at the SAR-level stddev."""
+
+    def test_mismatch_is_applied_to_user_cdac(self):
+        from pyDataconverter.architectures.SARADC import SARADC
+        cdac = SingleEndedCDAC(n_bits=8, v_ref=1.0, cap_mismatch=0.0)
+        weights_before = cdac.cap_weights.copy()
+        with pytest.warns(RuntimeWarning, match="cap_mismatch"):
+            SARADC(n_bits=8, v_ref=1.0, cdac=cdac, cap_mismatch=0.02)
+        assert not np.allclose(cdac.cap_weights, weights_before)
+
+    def test_nominal_topology_preserved_through_override(self):
+        from pyDataconverter.architectures.SARADC import SARADC
+        cdac = SingleEndedCDAC(n_bits=8, v_ref=1.0, cap_mismatch=0.0)
+        nominals_before = [c.c_nominal for c in cdac.cap_instances]
+        with pytest.warns(RuntimeWarning):
+            SARADC(n_bits=8, v_ref=1.0, cdac=cdac, cap_mismatch=0.02)
+        nominals_after = [c.c_nominal for c in cdac.cap_instances]
+        assert nominals_before == nominals_after
+
+    def test_no_warning_when_cap_mismatch_is_zero(self):
+        from pyDataconverter.architectures.SARADC import SARADC
+        import warnings
+        cdac = SingleEndedCDAC(n_bits=8, v_ref=1.0, cap_mismatch=0.01)
+        weights_before = cdac.cap_weights.copy()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # any warning would fail
+            SARADC(n_bits=8, v_ref=1.0, cdac=cdac, cap_mismatch=0.0)
+        np.testing.assert_array_equal(cdac.cap_weights, weights_before)
+
+    def test_differential_passthrough(self):
+        from pyDataconverter.architectures.SARADC import SARADC
+        cdac = DifferentialCDAC(n_bits=6, v_ref=1.0, cap_mismatch=0.0)
+        pos_before = cdac.cap_weights.copy()
+        with pytest.warns(RuntimeWarning):
+            SARADC(n_bits=6, v_ref=1.0,
+                   input_type=InputType.DIFFERENTIAL,
+                   cdac=cdac, cap_mismatch=0.05)
+        assert not np.allclose(cdac.cap_weights, pos_before)

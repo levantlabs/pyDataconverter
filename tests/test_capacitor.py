@@ -73,3 +73,43 @@ class TestIdealCapacitorEdgeCases:
         # IdealCapacitor overrides __repr__, but base class one should also work
         base_repr = UnitCapacitorBase.__repr__(cap)
         assert 'IdealCapacitor' in base_repr
+
+
+class TestRedrawMismatch:
+
+    def test_preserves_nominal(self):
+        cap = IdealCapacitor(c_nominal=2.0, mismatch=0.0)
+        rng = np.random.default_rng(1)
+        cap.redraw_mismatch(0.05, rng)
+        assert cap.c_nominal == 2.0  # nominal unchanged
+        assert cap.capacitance != 2.0  # but effective value differs (almost always)
+        assert cap.mismatch == 0.05
+
+    def test_zero_stddev_restores_nominal(self):
+        cap = IdealCapacitor(c_nominal=3.0, mismatch=0.1)
+        rng = np.random.default_rng(0)
+        cap.redraw_mismatch(0.0, rng)
+        assert cap.capacitance == 3.0
+        assert cap.mismatch == 0.0
+
+    def test_seeded_is_reproducible(self):
+        cap1 = IdealCapacitor(c_nominal=1.0)
+        cap2 = IdealCapacitor(c_nominal=1.0)
+        cap1.redraw_mismatch(0.02, np.random.default_rng(42))
+        cap2.redraw_mismatch(0.02, np.random.default_rng(42))
+        assert cap1.capacitance == cap2.capacitance
+
+    def test_negative_stddev_raises(self):
+        cap = IdealCapacitor(c_nominal=1.0)
+        with pytest.raises(ValueError):
+            cap.redraw_mismatch(-0.01, np.random.default_rng(0))
+
+    def test_base_class_default_raises_not_implemented(self):
+        """Subclasses that don't override redraw_mismatch should error."""
+        class DummyCap(UnitCapacitorBase):
+            @property
+            def c_nominal(self): return 1.0
+            @property
+            def capacitance(self): return 1.0
+        with pytest.raises(NotImplementedError):
+            DummyCap().redraw_mismatch(0.01, np.random.default_rng(0))

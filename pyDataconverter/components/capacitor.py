@@ -51,6 +51,30 @@ class UnitCapacitorBase(ABC):
         Subclasses may compute this dynamically (e.g. voltage-dependent Cgg).
         """
 
+    def redraw_mismatch(self,
+                        stddev: float,
+                        rng: "np.random.Generator") -> None:
+        """
+        Re-draw mismatch from the stored nominal value.
+
+        The nominal value (``c_nominal``) is preserved; a fresh multiplicative
+        Gaussian ε ~ N(0, stddev) is generated and the effective
+        ``capacitance`` is updated to ``c_nominal * (1 + ε)``.  Used by CDAC
+        ``apply_mismatch()`` to refresh a statistical draw without rebuilding
+        the topology.
+
+        Subclasses that do not support in-place re-draw (e.g. voltage-
+        dependent or time-varying models) should override with a
+        ``NotImplementedError`` and document their limitation.
+
+        Args:
+            stddev: New mismatch standard deviation (>= 0).
+            rng: NumPy random Generator used to draw ε.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__}.redraw_mismatch is not implemented; "
+            f"subclasses must override to support in-place mismatch re-draw.")
+
     def __repr__(self) -> str:
         return (f"{self.__class__.__name__}("
                 f"c_nominal={self.c_nominal:.4g}, "
@@ -116,12 +140,43 @@ class IdealCapacitor(UnitCapacitorBase):
 
     @property
     def mismatch(self) -> float:
-        """Standard deviation of mismatch used at construction."""
+        """Standard deviation of mismatch used at the latest draw."""
         return self._mismatch
 
     @property
     def capacitance(self) -> float:
         return self._capacitance
+
+    def redraw_mismatch(self,
+                        stddev: float,
+                        rng: "np.random.Generator") -> None:
+        """
+        Re-draw ε ~ N(0, stddev) on the preserved nominal value.
+
+        The new effective capacitance is ``c_nominal * (1 + ε)``.  The
+        prior realization is discarded; ``c_nominal`` is unchanged so the
+        topology is preserved across re-draws.  ``stddev=0`` restores the
+        ideal value.
+        """
+        if not isinstance(stddev, (int, float)) or stddev < 0:
+            raise ValueError(f"stddev must be >= 0, got {stddev}")
+        self._mismatch = float(stddev)
+        if stddev == 0:
+            self._capacitance = self._c_nominal
+            return
+        drawn = self._c_nominal * (1.0 + rng.normal(0.0, stddev))
+        if drawn < 0.0:
+            import warnings
+            warnings.warn(
+                f"IdealCapacitor.redraw_mismatch: draw produced negative "
+                f"capacitance ({drawn:.3e} F); clipping to 0 F. Mismatch "
+                f"stddev ({stddev}) is too large — a realistic fractional "
+                f"mismatch should be much less than 1.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            drawn = 0.0
+        self._capacitance = drawn
 
     def __repr__(self) -> str:
         return (f"IdealCapacitor(c_nominal={self._c_nominal:.4g}, "
