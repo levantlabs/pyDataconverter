@@ -53,10 +53,17 @@ def measure_dynamic_range(
 
     Returns:
         Dict with keys:
-            DR_dB          : Dynamic range in dB.
-            Amplitudes_dBFS: np.ndarray of sweep amplitudes (dBFS).
-            SNR_values     : np.ndarray of measured SNR (dB) at each step.
-            AmplitudeAtSNR0_dBFS: Amplitude where SNR interpolates to 0 dB.
+            DR_dB                 : Dynamic range in dB.
+            Amplitudes_dBFS       : np.ndarray of sweep amplitudes (dBFS).
+            SNR_values            : np.ndarray of measured SNR (dB) at each step.
+            AmplitudeAtSNR0_dBFS  : Amplitude where SNR = 0 dB, expressed
+                                    relative to full-scale (dBFS). This is
+                                    the raw interpolation on the sweep axis.
+            AmplitudeAtSNR0_dB    : Same amplitude converted to absolute
+                                    dBV-style units by adding
+                                    20·log₁₀(full_scale_amp), where
+                                    full_scale_amp = v_ref/2. Reflects the
+                                    physical signal level in dB re 1 V.
     """
     full_scale_amp = v_ref / 2.0
     offset         = v_ref / 2.0
@@ -87,9 +94,16 @@ def measure_dynamic_range(
 
     dr_result = calculate_dynamic_range_from_curve(amplitudes_dBFS, snr_values)
 
+    # The sweep axis is dBFS, so the source function's 'AmplitudeAtSNR0_dB'
+    # is natively in dBFS. Expose it under both the dBFS name (raw sweep
+    # value) and the absolute-dB name (converted to dBV-style units).
+    amp_at_snr0_dBFS = dr_result['AmplitudeAtSNR0_dB']
+    amp_at_snr0_dB   = amp_at_snr0_dBFS + 20.0 * np.log10(full_scale_amp)
+
     return {
         'DR_dB':               dr_result['DR_dB'],
-        'AmplitudeAtSNR0_dBFS': dr_result['AmplitudeAtSNR0_dB'],
+        'AmplitudeAtSNR0_dBFS': amp_at_snr0_dBFS,
+        'AmplitudeAtSNR0_dB':   amp_at_snr0_dB,
         'Amplitudes_dBFS':     amplitudes_dBFS,
         'SNR_values':          snr_values,
     }

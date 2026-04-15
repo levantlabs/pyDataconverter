@@ -94,7 +94,19 @@ class IdealCapacitor(UnitCapacitorBase):
         self._mismatch  = float(mismatch)
 
         if mismatch > 0:
-            self._capacitance = max(0.0, self._c_nominal * (1.0 + np.random.normal(0.0, mismatch)))
+            drawn = self._c_nominal * (1.0 + np.random.normal(0.0, mismatch))
+            if drawn < 0.0:
+                import warnings
+                warnings.warn(
+                    f"IdealCapacitor: mismatch draw produced negative capacitance "
+                    f"({drawn:.3e} F); clipping to 0 F. This usually means the "
+                    f"mismatch stddev ({mismatch}) is too large relative to unity — "
+                    f"a realistic fractional mismatch should be much less than 1.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                drawn = 0.0
+            self._capacitance = drawn
         else:
             self._capacitance = self._c_nominal
 

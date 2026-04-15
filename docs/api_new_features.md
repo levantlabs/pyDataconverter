@@ -557,7 +557,8 @@ Measure ADC dynamic range by sweeping coherent sine amplitudes and measuring SNR
 | Key | Type | Description |
 |-----|------|-------------|
 | `DR_dB` | `float` | Dynamic range (dB). |
-| `AmplitudeAtSNR0_dBFS` | `float` | Amplitude where SNR = 0 dB (dBFS). |
+| `AmplitudeAtSNR0_dBFS` | `float` | Amplitude where SNR = 0 dB, relative to full-scale (dBFS). |
+| `AmplitudeAtSNR0_dB` | `float` | Same amplitude converted to absolute dBV-style units (dBFS + 20·log₁₀(v_ref/2)). |
 | `Amplitudes_dBFS` | `np.ndarray` | Sweep amplitudes used (dBFS). |
 | `SNR_values` | `np.ndarray` | Measured SNR (dB) at each amplitude step. |
 

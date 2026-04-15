@@ -100,7 +100,19 @@ class IdealCurrentSource(UnitCurrentSourceBase):
         self._mismatch  = float(mismatch)
 
         if mismatch > 0:
-            self._current = max(0.0, self._i_nominal * (1.0 + np.random.normal(0.0, mismatch)))
+            drawn = self._i_nominal * (1.0 + np.random.normal(0.0, mismatch))
+            if drawn < 0.0:
+                import warnings
+                warnings.warn(
+                    f"IdealCurrentSource: mismatch draw produced negative current "
+                    f"({drawn:.3e} A); clipping to 0 A. This usually means the "
+                    f"mismatch stddev ({mismatch}) is too large relative to unity — "
+                    f"a realistic fractional mismatch should be much less than 1.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                drawn = 0.0
+            self._current = drawn
         else:
             self._current = self._i_nominal
 

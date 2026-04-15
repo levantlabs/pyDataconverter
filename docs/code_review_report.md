@@ -349,9 +349,9 @@ The `OutputType.DIFFERENTIAL` value mismatch is the most serious documentation i
 | ID | File | Severity | Title | Status |
 |----|------|----------|-------|--------|
 | R4-C1 | `utils/fft_analysis.py:242,266` | Minor (not Critical) | `duration` undefined in `demo_fft_analysis()` | FIXED |
-| R4-I1 | `utils/visualizations/dac_plots.py:60` | Important | DAC plot LSB uses wrong formula for default DACs | Open |
-| R4-I2 | `components/capacitor.py:97`, `current_source.py:103` | Important | Silent clipping of negative mismatch draws | Open |
-| R4-I3 | `utils/characterization.py:92` | Important | Key rename creates inconsistency with source dict | Open |
+| R4-I1 | `utils/visualizations/dac_plots.py:60` | ~~Important~~ | ~~DAC plot LSB uses wrong formula for default DACs~~ | FALSE POSITIVE |
+| R4-I2 | `components/capacitor.py:97`, `current_source.py:103` | Important | Silent clipping of negative mismatch draws | FIXED |
+| R4-I3 | `utils/characterization.py:92` | Important | Key rename creates inconsistency with source dict | FIXED |
 | R4-I4 | `architectures/SARADC.py:109,175` | Important | `cap_mismatch` silently ignored when `cdac` provided | Open |
 | R4-I5 | `components/cdac.py` | Important | Code bounds check only in `SegmentedCDAC`, not `SingleEndedCDAC`/`DifferentialCDAC` | Open |
 | R4-I6 | `utils/visualizations/visualize_SARADC.py:103` | Important | Assumes CDAC `get_voltage` returns tuple; fails for single-ended | Open |
@@ -385,31 +385,30 @@ The `OutputType.DIFFERENTIAL` value mismatch is the most serious documentation i
 
 ---
 
-**R4-I1 — `dac_plots.py` LSB formula wrong for default DACs**
+**R4-I1 — `dac_plots.py` LSB formula wrong for default DACs** — **FALSE POSITIVE (closed)**
 - **File:** `pyDataconverter/utils/visualizations/dac_plots.py:60`
-- **Severity:** Important
-- **Description:** `lsb = dac.v_ref / (n_codes - 1)` is the symmetric endpoint formula (voltage at code 0 = 0, voltage at code n_codes-1 = v_ref). The default `SimpleDAC` (and most architectures with `n_levels=None`) uses `lsb = v_ref / n_codes`. This makes the displayed LSB value in the plot title and the error-in-LSB axis slightly wrong for all standard DACs: a 12-bit DAC at 1 V would show LSB = 244.07 µV instead of 244.14 µV — small, but enough to make DNL/INL appear non-zero at code 0 and n_codes-1 for a perfect DAC.
-- **Fix:** Check the DAC's actual formula: if `hasattr(dac, 'n_levels') and dac.n_levels is not None` use the symmetric formula; otherwise use `v_ref / n_codes`. Alternatively add a `get_lsb()` method to `DACBase` (see R4-I1b below).
+- **Verification:** `DACBase.__init__` at `dataconverter.py:207` sets `self.lsb = v_ref / (n_levels - 1)` where `n_levels` defaults to `2**n_bits`. So the default LSB **is** `v_ref / (2**n_bits - 1) = v_ref / (n_codes - 1)` — exactly what `dac_plots.py:60` computes. The `SimpleDAC` docstring at line 54 also states this. Original review finding misidentified the default formula. No code change.
+- **Follow-up (deferred):** `dac_plots.py` could use `dac.lsb` directly instead of recomputing, as a single-source-of-truth cleanup. Not filed as an issue.
 
 ---
 
-**R4-I2 — Silent clipping of negative capacitance / current from large mismatch draws**
-- **Files:** `pyDataconverter/components/capacitor.py:97`, `pyDataconverter/components/current_source.py:103`
+**R4-I2 — Silent clipping of negative capacitance / current from large mismatch draws** — **FIXED**
+- **Files:** `pyDataconverter/components/capacitor.py:97-109`, `pyDataconverter/components/current_source.py:103-115`
 - **Severity:** Important
-- **Description:** Both components clip values to 0 silently when a large mismatch draw produces a negative result:
-  ```python
-  self._capacitance = max(0.0, self._c_nominal * (1.0 + np.random.normal(0.0, mismatch)))
-  ```
-  A 0 F capacitor or 0 A current source is not a realistic mismatch model — it means the component is missing entirely. This masks over-large mismatch specifications (e.g., `mismatch=2.0`) with wrong simulation results rather than a user-visible error.
-- **Fix:** Add a `mismatch <= 1.0` validation in `__init__` (3σ draw is at most 3× nominal, always positive), or at minimum log a warning when the clip fires.
+- **Description:** Both components clip values to 0 silently when a large mismatch draw produces a negative result. A 0 F capacitor or 0 A current source is not a realistic mismatch model — it means the component is missing entirely. This masks over-large mismatch specifications (e.g., `mismatch=2.0`) with wrong simulation results rather than a user-visible error.
+- **Fix:** Emit a `RuntimeWarning` at `stacklevel=2` whenever the clip fires, naming the drawn value and the mismatch stddev that produced it. Numerical behavior unchanged (still clips to zero); the component now tells the user that the clip happened so they can shrink the mismatch parameter. No input-validation rejection was added — per user request, warning only.
 
 ---
 
-**R4-I3 — `characterization.measure_dynamic_range` renames key inconsistently**
-- **File:** `pyDataconverter/utils/characterization.py:92`
+**R4-I3 — `characterization.measure_dynamic_range` exposes amplitude in only one unit** — **FIXED**
+- **File:** `pyDataconverter/utils/characterization.py:88-106`
 - **Severity:** Important
-- **Description:** `measure_dynamic_range()` wraps `calculate_dynamic_range_from_curve()` and returns `'AmplitudeAtSNR0_dBFS'` for the key that the source function returns as `'AmplitudeAtSNR0_dB'`. This silent rename means callers looking for `'AmplitudeAtSNR0_dB'` get a `KeyError`, and callers looking for `'AmplitudeAtSNR0_dBFS'` are relying on an undocumented key.
-- **Fix:** Either pass the source key through unchanged, or document the rename in the `measure_dynamic_range` docstring.
+- **Description:** `measure_dynamic_range()` previously returned only `AmplitudeAtSNR0_dBFS` (silently renamed from the source function's `AmplitudeAtSNR0_dB` key). The sweep axis is in dBFS, so the renamed value was truthful — but callers working in absolute dBV units had no key available, and the `_dB` vs `_dBFS` pairing seen elsewhere in the metrics layer (e.g., `SNR_dB` / `SNR_dBFS` in `metrics/_dynamic.py`) was missing here.
+- **Fix:** Expose both keys:
+  - `AmplitudeAtSNR0_dBFS` — raw interpolation on the dBFS sweep axis (amplitude relative to full-scale).
+  - `AmplitudeAtSNR0_dB` — same value converted to absolute dBV-style units via `+ 20·log₁₀(v_ref/2)`. For `v_ref=1 V` this is `dBFS − 6.02`. Reflects the physical signal level in dB re 1 V.
+
+  Docstring updated to document both keys. `docs/api_new_features.md` return-key table updated. New regression test `test_measure_dynamic_range_amplitude_key_relationship` verifies the `20·log10(v_ref/2)` offset holds. 943 tests passing (+1 new).
 
 ---
 

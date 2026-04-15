@@ -17,6 +17,20 @@ def test_measure_dynamic_range_returns_dict():
     assert 'DR_dB' in result
     assert 'Amplitudes_dBFS' in result
     assert 'SNR_values' in result
+    assert 'AmplitudeAtSNR0_dBFS' in result
+    assert 'AmplitudeAtSNR0_dB' in result
+
+
+def test_measure_dynamic_range_amplitude_key_relationship():
+    """AmplitudeAtSNR0_dB = AmplitudeAtSNR0_dBFS + 20·log10(v_ref/2)."""
+    from pyDataconverter.utils.characterization import measure_dynamic_range
+    v_ref = 1.0
+    adc = _make_adc(n_bits=8)
+    result = measure_dynamic_range(adc, n_bits=8, v_ref=v_ref, fs=1e6,
+                                   n_fft=1024, n_fin=13, n_amplitudes=15)
+    expected_offset = 20.0 * np.log10(v_ref / 2.0)
+    actual_offset = result['AmplitudeAtSNR0_dB'] - result['AmplitudeAtSNR0_dBFS']
+    assert np.isclose(actual_offset, expected_offset, atol=1e-9)
 
 
 def test_measure_dynamic_range_ideal_adc():
