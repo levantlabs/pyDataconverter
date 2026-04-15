@@ -90,14 +90,14 @@ def main():
               f"mismatch ENOB={enob_mismatch[i]:.2f}")
 
     fig, ax = plt.subplots(figsize=(9, 5))
-    ax.plot(f_targets / 1e6, enob_ideal,    "o-", color="silver",
-            linewidth=1.5, label="Ideal (zero BW mismatch)")
-    ax.plot(f_targets / 1e6, enob_mismatch, "s-", color="C0",
-            linewidth=1.5, label="Bandwidth mismatch")
+    ax.semilogx(f_targets / 1e6, enob_ideal,    "o-", color="silver",
+                linewidth=1.5, label="Ideal (zero BW mismatch)")
+    ax.semilogx(f_targets / 1e6, enob_mismatch, "s-", color="C0",
+                linewidth=1.5, label="Bandwidth mismatch")
     ax.axvline(BW_MEAN / 1e6, color="C3", linestyle="--", linewidth=1.0)
 
     # Use data-derived y position to ensure the annotation is visible
-    y_pos = min(enob_mismatch.min(), enob_ideal.min()) - 0.3
+    y_pos = min(enob_mismatch.min(), enob_ideal.min()) + 0.3
     ax.text(BW_MEAN / 1e6 + 3, y_pos, "mean BW cutoff",
             color="C3", fontsize=9)
 
