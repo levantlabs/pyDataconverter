@@ -104,7 +104,7 @@ def main():
     t = np.arange(N_FFT) / FS
 
     # Ideal spectrum (same ADC, zero mismatch)
-    ideal_ti = TimeInterleavedADC(_build_template(), M=M, fs=FS)
+    ideal_ti = TimeInterleavedADC(M, _build_template(), fs=FS)
     ideal_codes = _run_pointwise(ideal_ti, signal)
     freqs, ideal_db = _spectrum_db(ideal_codes)
 
@@ -113,16 +113,16 @@ def main():
 
     panels = [
         ("Offset only",    "Offset spur @ fs/M",      f_spur_offset,
-         TimeInterleavedADC(_build_template(), M=M, fs=FS,
+         TimeInterleavedADC(M, _build_template(), fs=FS,
                             offset=OFFSET_MISMATCH), _run_pointwise),
         ("Gain only",      "Gain image @ fs/M−f_in",  f_spur_image,
-         TimeInterleavedADC(_build_template(), M=M, fs=FS,
+         TimeInterleavedADC(M, _build_template(), fs=FS,
                             gain_error=GAIN_MISMATCH), _run_pointwise),
         ("Timing skew only", "Skew image @ fs/M−f_in", f_spur_image,
-         TimeInterleavedADC(_build_template(), M=M, fs=FS,
+         TimeInterleavedADC(M, _build_template(), fs=FS,
                             timing_skew=SKEW_MISMATCH), _run_pointwise),
         ("Bandwidth only", "BW image @ fs/M−f_in",    f_spur_image,
-         TimeInterleavedADC(_build_template(), M=M, fs=FS,
+         TimeInterleavedADC(M, _build_template(), fs=FS,
                             bandwidth=BW_MISMATCH), _run_waveform),
     ]
 
@@ -247,12 +247,12 @@ def _sweep(param: str, magnitudes: np.ndarray, signal: np.ndarray) -> np.ndarray
     for i, mag in enumerate(magnitudes):
         offsets = rng.standard_normal(M) * mag
         if param == "offset":
-            ti = TimeInterleavedADC(_build_template(), M=M, fs=FS, offset=offsets)
+            ti = TimeInterleavedADC(M, _build_template(), fs=FS, offset=offsets)
         elif param == "gain":
-            ti = TimeInterleavedADC(_build_template(), M=M, fs=FS,
+            ti = TimeInterleavedADC(M, _build_template(), fs=FS,
                                     gain_error=rng.standard_normal(M) * mag)
         else:  # skew
-            ti = TimeInterleavedADC(_build_template(), M=M, fs=FS,
+            ti = TimeInterleavedADC(M, _build_template(), fs=FS,
                                     timing_skew=rng.standard_normal(M) * mag)
         sfdr_vals[i] = _measure_sfdr(ti, signal)
     return sfdr_vals
@@ -417,8 +417,8 @@ def _measure_enob(ti: TimeInterleavedADC, signal: np.ndarray,
 def main():
     f_targets = np.logspace(np.log10(F_MIN), np.log10(F_MAX), N_FREQS)
 
-    ideal_ti = TimeInterleavedADC(_build_template(), M=M, fs=FS)
-    mismatch_ti = TimeInterleavedADC(_build_template(), M=M, fs=FS,
+    ideal_ti = TimeInterleavedADC(M, _build_template(), fs=FS)
+    mismatch_ti = TimeInterleavedADC(M, _build_template(), fs=FS,
                                      bandwidth=BW_ARRAY)
 
     enob_ideal    = np.zeros(N_FREQS)
@@ -697,7 +697,7 @@ from pyDataconverter.architectures.TimeInterleavedADC import TimeInterleavedADC
 from pyDataconverter.dataconverter import InputType
 
 template = FlashADC(n_bits=10, v_ref=1.0, input_type=InputType.SINGLE)
-ti = TimeInterleavedADC(template, M=4, fs=1e9)
+ti = TimeInterleavedADC(4, template, fs=1e9)
 
 codes = np.array([ti.convert(v) for v in signal])
 ```
@@ -816,7 +816,7 @@ git commit -m "docs(quickstart): add TimeInterleavedADC section and update Next 
 
 ### Type consistency
 
-- `TimeInterleavedADC(template, M=M, fs=FS, ...)` — consistent with Phase 1 implementation
+- `TimeInterleavedADC(M, template, fs=FS, ...)` — consistent with Phase 1 implementation (`channels` is first positional arg)
 - `TimeInterleavedADC.hierarchical(channels_per_level=[...], sub_adc_template=..., fs=..., offset_std_per_level=[...], seed=...)` — consistent with Phase 1 `hierarchical` classmethod signature
 - `ti.convert_waveform(signal, t)` — consistent with Phase 1 implementation (signal first, t second)
 - `calculate_adc_dynamic_metrics(time_data=..., fs=..., full_scale=...)` — consistent with spec and pipelined example

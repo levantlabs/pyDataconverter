@@ -37,6 +37,7 @@ pip install -e .
    - [DAC Plots](#dac-plots)
    - [Flash ADC Visualization](#flash-adc-visualization)
    - [SAR ADC Visualization](#sar-adc-visualization)
+10. [TimeInterleavedADC](#timeinterleavedadc) — M-channel time-interleaved ADC with per-channel mismatch control
 
 ---
 
@@ -592,6 +593,82 @@ animate_sar_adc(adc, input_voltages=v_in)
 
 ---
 
+## TimeInterleavedADC
+
+A `TimeInterleavedADC` runs M sub-ADCs in round-robin rotation to achieve
+a combined sampling rate M× higher than any single converter. It handles
+offset, gain, timing-skew, and bandwidth mismatches — the four dominant
+error sources in real TI-ADC designs.
+
+### Basic construction
+
+```python
+import numpy as np
+from pyDataconverter.architectures.FlashADC import FlashADC
+from pyDataconverter.architectures.TimeInterleavedADC import TimeInterleavedADC
+from pyDataconverter.dataconverter import InputType
+
+from pyDataconverter.utils.signal_gen import generate_coherent_sine
+
+template = FlashADC(n_bits=10, v_ref=1.0, input_type=InputType.SINGLE)
+ti = TimeInterleavedADC(4, template, fs=1e9)
+
+signal, _ = generate_coherent_sine(1e9, 4096, 97, amplitude=0.4, offset=0.5)
+codes = np.array([ti.convert(v) for v in signal])
+```
+
+Each call to `convert()` rotates to the next sub-ADC automatically. All M
+sub-ADCs are deep-copied from the template so they are independent.
+
+### Mismatch
+
+Pass per-channel arrays for offset, gain error, or timing skew, or a scalar
+standard deviation (seeded for reproducibility):
+
+```python
+ti = TimeInterleavedADC(
+    4, template, fs=1e9,
+    offset=np.array([1e-3, -1e-3, 0.5e-3, -0.5e-3]),   # V per channel
+    gain_error=1e-3,                                       # scalar std → random per channel
+    timing_skew=np.array([5e-13, -5e-13, 2e-13, -2e-13]),# s per channel
+    seed=42,
+)
+```
+
+Scalar mismatches are expanded to random per-channel values drawn from
+`N(0, σ)` using the given seed.
+
+### Bandwidth mismatch requires `convert_waveform`
+
+Bandwidth mismatch models a first-order low-pass filter inside each sub-ADC
+channel. The filter needs dvdt (time-derivative of the input), so you must
+supply a time vector via the waveform path:
+
+```python
+# signal and fs from the Mismatch snippet above; ti has bandwidth= set
+t = np.arange(len(signal)) / fs
+codes = ti.convert_waveform(signal, t)   # returns np.ndarray of int
+```
+
+Calling `convert()` when bandwidth mismatch is active raises a `RuntimeError`.
+
+### Hierarchical interleaving
+
+```python
+ti = TimeInterleavedADC.hierarchical(
+    channels_per_level=[4, 2],   # outer M=4, inner M=2 → 8 total channels
+    sub_adc_template=template,
+    fs=2e9,
+    offset_std_per_level=[1e-3, 0.0],  # mismatch at outer level only
+    seed=7,
+)
+```
+
+Outer-level offset mismatches produce spurs at `fs/4`; inner-level mismatches
+produce spurs at `fs/8`.
+
+---
+
 ## Putting It All Together
 
 A complete ADC characterization flow in ~30 lines:
@@ -641,4 +718,9 @@ plt.show()
   - `simple_dac_example.py` — DAC non-ideality and spectrum examples
   - `flash_adc_example.py` — Flash ADC with non-idealities and animation
   - `sar_adc_example.py` — SAR ADC with C-DAC mismatch, static/dynamic metrics, and visualization
+  - `ti_adc_example.py` — TI-ADC spectrum with offset, gain, and skew spurs
+  - `ti_adc_spurs.py` — spur anatomy for all four mismatch types
+  - `ti_adc_sfdr_sweep.py` — SFDR degradation vs. mismatch magnitude
+  - `ti_adc_bandwidth_sweep.py` — ENOB vs. f_in under bandwidth mismatch
+  - `ti_adc_hierarchical.py` — outer vs. inner mismatch in a 2-level tree
 - See `docs/api_reference.md` for full parameter documentation on every class and function.
