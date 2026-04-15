@@ -37,6 +37,7 @@ pip install -e .
    - [DAC Plots](#dac-plots)
    - [Flash ADC Visualization](#flash-adc-visualization)
    - [SAR ADC Visualization](#sar-adc-visualization)
+10. [TimeInterleavedADC](#timeinterleavedadc) — M-channel time-interleaved ADC with per-channel mismatch control
 
 ---
 
@@ -625,7 +626,7 @@ standard deviation (seeded for reproducibility):
 ti = TimeInterleavedADC(
     4, template, fs=1e9,
     offset=np.array([1e-3, -1e-3, 0.5e-3, -0.5e-3]),   # V per channel
-    gain_error=1e-3,                                       # scalar std, seed=42
+    gain_error=1e-3,                                       # scalar std → random per channel
     timing_skew=np.array([5e-13, -5e-13, 2e-13, -2e-13]),# s per channel
     seed=42,
 )
