@@ -353,7 +353,7 @@ The `OutputType.DIFFERENTIAL` value mismatch is the most serious documentation i
 | R4-I2 | `components/capacitor.py:97`, `current_source.py:103` | Important | Silent clipping of negative mismatch draws | FIXED |
 | R4-I3 | `utils/characterization.py:92` | Important | Key rename creates inconsistency with source dict | FIXED |
 | R4-I4 | `architectures/SARADC.py:109,175` | Important | `cap_mismatch` silently ignored when `cdac` provided | FIXED |
-| R4-I5 | `components/cdac.py` | Important | Code bounds check only in `SegmentedCDAC`, not `SingleEndedCDAC`/`DifferentialCDAC` | Open |
+| R4-I5 | `components/cdac.py` | Important | Code bounds check only in `SegmentedCDAC`, not `SingleEndedCDAC`/`DifferentialCDAC` | **FIXED** |
 | R4-I6 | `utils/visualizations/visualize_SARADC.py:103` | Important | Assumes CDAC `get_voltage` returns tuple; fails for single-ended | Open |
 | R4-I7 | `architectures/R2RDAC.py:188` | Important | Double 2R-to-GND on LSB node when bit=0; verify linearity is unaffected | Needs verification |
 | R4-I8 | `architectures/TimeInterleavedADC.py:290` | Important | `convert_waveform` assumes uniform time spacing; silently wrong for non-uniform `t` | Open |
@@ -436,11 +436,11 @@ The `OutputType.DIFFERENTIAL` value mismatch is the most serious documentation i
 
 ---
 
-**R4-I5 — CDAC code-range check exists only in `SegmentedCDAC`**
+**R4-I5 — CDAC code-range check exists only in `SegmentedCDAC`** ✅ FIXED
 - **File:** `pyDataconverter/components/cdac.py`
 - **Severity:** Important
-- **Description:** `SegmentedCDAC.get_voltage()` validates that the code is in `[0, 2^n_bits - 1]` and raises `ValueError` on violation. `SingleEndedCDAC.get_voltage()` and `DifferentialCDAC.get_voltage()` have no such check; an out-of-range code silently passes to bit-extraction, where NumPy's shift arithmetic produces a wrong bit pattern rather than an error.
-- **Fix:** Add the same bounds check to `SingleEndedCDAC.get_voltage()` and `DifferentialCDAC.get_voltage()` to match the `SegmentedCDAC` behavior.
+- **Description:** `SegmentedCDAC.get_voltage()` validates that the code is in `[0, 2^n_bits - 1]` and raises `ValueError` on violation. `SingleEndedCDAC.get_voltage()` and `DifferentialCDAC.get_voltage()` had no such check; an out-of-range code silently passed to bit-extraction, where NumPy's shift arithmetic produces a wrong bit pattern rather than an error.
+- **Fix applied:** Added `if not (0 <= code < 2 ** self._n_bits): raise ValueError(...)` to both `SingleEndedCDAC.get_voltage()` and `DifferentialCDAC.get_voltage()`, matching the existing `SegmentedCDAC` check. Five new tests added to `tests/test_cdac.py` covering negative codes, overflow codes, and the max valid code.
 
 ---
 

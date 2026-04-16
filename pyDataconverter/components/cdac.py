@@ -255,6 +255,9 @@ class SingleEndedCDAC(CDACBase):
         Returns:
             Tuple[float, float]: (v_dac, 0.0).
         """
+        if not (0 <= code < 2 ** self._n_bits):
+            raise ValueError(
+                f"code {code} out of range [0, {2 ** self._n_bits - 1}]")
         bits  = self._code_to_bits(code)
         v_dac = float(np.dot(bits, self._cap_weights) / self._cap_total * self._v_ref)
         return (v_dac, 0.0)
@@ -717,6 +720,9 @@ class DifferentialCDAC(CDACBase):
         Returns:
             Tuple[float, float]: (v_dacp, v_dacn).
         """
+        if not (0 <= code < 2 ** self._n_bits):
+            raise ValueError(
+                f"code {code} out of range [0, {2 ** self._n_bits - 1}]")
         bits   = self._code_to_bits(code)
         half   = self._v_ref / 2.0
         v_dacp = float(np.dot(bits, self._cap_weights_pos) / self._cap_total_pos * half)

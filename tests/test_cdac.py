@@ -71,6 +71,21 @@ class TestSingleEndedCDACValidation:
         assert 'n_bits=3' in r
         assert 'v_ref=1.5' in r
 
+    def test_get_voltage_negative_code_raises(self):
+        cdac = SingleEndedCDAC(n_bits=4, v_ref=1.0)
+        with pytest.raises(ValueError, match="out of range"):
+            cdac.get_voltage(-1)
+
+    def test_get_voltage_overflow_code_raises(self):
+        cdac = SingleEndedCDAC(n_bits=4, v_ref=1.0)
+        with pytest.raises(ValueError, match="out of range"):
+            cdac.get_voltage(16)
+
+    def test_get_voltage_max_code_ok(self):
+        cdac = SingleEndedCDAC(n_bits=4, v_ref=1.0)
+        v, _ = cdac.get_voltage(15)
+        assert v > 0
+
 
 # ===========================================================================
 # DifferentialCDAC — validation edge cases
@@ -85,6 +100,16 @@ class TestDifferentialCDACValidation:
     def test_zero_vref_raises(self):
         with pytest.raises(ValueError):
             DifferentialCDAC(n_bits=3, v_ref=0.0)
+
+    def test_get_voltage_negative_code_raises(self):
+        cdac = DifferentialCDAC(n_bits=4, v_ref=1.0)
+        with pytest.raises(ValueError, match="out of range"):
+            cdac.get_voltage(-1)
+
+    def test_get_voltage_overflow_code_raises(self):
+        cdac = DifferentialCDAC(n_bits=4, v_ref=1.0)
+        with pytest.raises(ValueError, match="out of range"):
+            cdac.get_voltage(16)
 
     def test_string_vref_raises(self):
         with pytest.raises(ValueError):
