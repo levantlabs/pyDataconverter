@@ -96,8 +96,8 @@ class DifferentialComparator(ComparatorBase):
     at FlashADC construction time via the comparator_type argument.
 
     Attributes:
-        offset:        DC input-referred offset voltage (V).
-        noise_rms:     RMS input-referred noise voltage (V).
+        offset:        DC offset voltage added to the filtered differential signal (V).
+        noise_rms:     RMS noise voltage (V).
         bandwidth:     -3 dB bandwidth (Hz); None for infinite bandwidth.
         hysteresis:    Hysteresis window (V), symmetric around the threshold.
         time_constant: Reserved for future temporal modelling (s).

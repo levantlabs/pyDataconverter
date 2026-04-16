@@ -8,6 +8,10 @@ Functions for calculating ADC static and dynamic performance metrics.
 import warnings
 import numpy as np
 from typing import Dict, List, Optional
+
+# Exclude bins within this fractional distance of ±full-scale to avoid the
+# 1/sqrt(1-u²) singularity in the sinusoidal PDF.
+_PDF_SINGULARITY_GUARD = 0.999
 from ..fft_analysis import compute_fft
 from ...dataconverter import QuantizationMode
 from ._dynamic import _calculate_dynamic_metrics
@@ -291,7 +295,7 @@ def calculate_histogram(codes: np.ndarray,
         normalized_amp = (code_centers - n_codes / 2) / (n_codes / 2)
 
         # Calculate ideal sine wave PDF (avoiding division by zero)
-        valid_mask = np.abs(normalized_amp) < 0.999  # Avoid edges
+        valid_mask = np.abs(normalized_amp) < _PDF_SINGULARITY_GUARD  # Avoid edges
         pdf = np.zeros_like(normalized_amp)
         pdf[valid_mask] = 1 / (np.pi * np.sqrt(1 - normalized_amp[valid_mask] ** 2))
 
@@ -422,7 +426,7 @@ def calculate_adc_static_metrics_histogram(
     code_centers_v = (np.arange(n_codes) + 0.5) * ideal_lsb
     u = (code_centers_v - offset) / amplitude
 
-    in_range = np.abs(u) < 0.999          # exclude near-singular edge bins
+    in_range = np.abs(u) < _PDF_SINGULARITY_GUARD          # exclude near-singular edge bins
     pdf = np.zeros(n_codes)
     pdf[in_range] = 1.0 / (np.pi * np.sqrt(1.0 - u[in_range] ** 2))
 

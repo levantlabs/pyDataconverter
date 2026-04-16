@@ -119,7 +119,7 @@ code = adc_diff.convert((0.25, 0.75))   # v_diff = -0.5 V → code 0
 import numpy as np
 from pyDataconverter.utils.signal_gen import generate_sine
 
-signal = generate_sine(frequency=1e3, sampling_rate=1e6, amplitude=0.4, offset=0.5)
+signal = generate_sine(frequency=1e3, fs=1e6, amplitude=0.4, offset=0.5)
 codes = np.array([adc.convert(v) for v in signal])
 ```
 
@@ -385,11 +385,11 @@ import numpy as np
 fs = 1e6   # 1 MHz sampling rate
 
 # --- Simple sine ---
-sig = generate_sine(frequency=10e3, sampling_rate=fs, amplitude=0.4, offset=0.5)
+sig = generate_sine(frequency=10e3, fs=fs, amplitude=0.4, offset=0.5)
 
 # --- Coherent sine (no spectral leakage — use this for FFT metrics) ---
 n_fft = 4096
-sig, f_in = generate_coherent_sine(sampling_rate=fs, n_fft=n_fft, n_fin=97,
+sig, f_in = generate_coherent_sine(fs=fs, n_fft=n_fft, n_fin=97,
                                     amplitude=0.4, offset=0.5)
 # f_in = 97 / 4096 * 1e6 ≈ 23.7 kHz, exactly on an FFT bin
 
@@ -397,12 +397,12 @@ sig, f_in = generate_coherent_sine(sampling_rate=fs, n_fft=n_fft, n_fin=97,
 ramp = generate_ramp(samples=10000, v_min=0.0, v_max=1.0)
 
 # --- Two-tone (for IMD testing) ---
-two_tone = generate_two_tone(f1=9.9e3, f2=10.1e3, sampling_rate=fs,
+two_tone = generate_two_tone(f1=9.9e3, f2=10.1e3, fs=fs,
                               amplitude1=0.2, amplitude2=0.2)
 
 # --- IMD signal with expected product frequencies ---
 imd_sig, imd_freqs = generate_imd_tones(f1=100e3, delta_f=1e3,
-                                         sampling_rate=fs, amplitude=0.4)
+                                         fs=fs, amplitude=0.4)
 print(imd_freqs['imd3'])   # {'2f1-f2': 99000.0, '2f2-f1': 101000.0, ...}
 
 # --- Single-ended to differential ---
@@ -454,7 +454,7 @@ n_fft = 4096
 adc   = SimpleADC(n_bits=12, v_ref=1.0, input_type=InputType.SINGLE,
                   noise_rms=100e-6)
 
-sig, f_in = generate_coherent_sine(sampling_rate=fs, n_fft=n_fft, n_fin=97,
+sig, f_in = generate_coherent_sine(fs=fs, n_fft=n_fft, n_fin=97,
                                     amplitude=0.4, offset=0.5)
 codes = np.array([adc.convert(v) for v in sig])
 
@@ -497,7 +497,7 @@ plt.show()
 
 # Time-domain: input signal vs output codes
 fs = 100e3
-sig = generate_sine(frequency=1e3, sampling_rate=fs, amplitude=0.4, offset=0.5,
+sig = generate_sine(frequency=1e3, fs=fs, amplitude=0.4, offset=0.5,
                     duration=2e-3)
 t   = np.arange(len(sig)) / fs
 codes = np.array([adc.convert(v) for v in sig])

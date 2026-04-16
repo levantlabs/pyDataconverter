@@ -957,7 +957,7 @@ Convert a single-ended signal to a differential pair with a specified common-mod
 ```python
 from pyDataconverter.utils.signal_gen import generate_sine, convert_to_differential
 
-sine = generate_sine(frequency=1e3, sampling_rate=1e6, amplitude=0.5)
+sine = generate_sine(frequency=1e3, fs=1e6, amplitude=0.5)
 v_pos, v_neg = convert_to_differential(sine, vcm=0.5)
 ```
 
@@ -974,7 +974,7 @@ Generate a sinusoidal test signal.
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | frequency | float | — | Signal frequency (Hz). |
-| sampling_rate | float | — | Sampling rate (Hz). |
+| fs | float | — | Sampling rate (Hz). |
 | amplitude | float | 1.0 | Peak amplitude (V). |
 | offset | float | 0.0 | DC offset (V). |
 | duration | float | 1.0 | Signal duration (s). |
@@ -983,14 +983,14 @@ Generate a sinusoidal test signal.
 
 | Type | Description |
 |------|-------------|
-| np.ndarray | Signal array of length `int(duration * sampling_rate)`. |
+| np.ndarray | Signal array of length `int(duration * fs)`. |
 
 **Examples**
 
 ```python
 from pyDataconverter.utils.signal_gen import generate_sine
 
-signal = generate_sine(frequency=1e3, sampling_rate=1e6, amplitude=0.5, duration=0.01)
+signal = generate_sine(frequency=1e3, fs=1e6, amplitude=0.5, duration=0.01)
 print(len(signal))  # 10000
 ```
 
@@ -1076,7 +1076,7 @@ Generate a two-tone test signal for intermodulation and linearity testing.
 |------|------|---------|-------------|
 | f1 | float | — | First tone frequency (Hz). |
 | f2 | float | — | Second tone frequency (Hz). |
-| sampling_rate | float | — | Sampling rate (Hz). |
+| fs | float | — | Sampling rate (Hz). |
 | amplitude1 | float | 0.5 | First tone amplitude (V). |
 | amplitude2 | float | 0.5 | Second tone amplitude (V). |
 | phase1 | float | 0.0 | First tone phase (rad). |
@@ -1094,7 +1094,7 @@ Generate a two-tone test signal for intermodulation and linearity testing.
 ```python
 from pyDataconverter.utils.signal_gen import generate_two_tone
 
-signal = generate_two_tone(f1=1e3, f2=1.1e3, sampling_rate=1e6, duration=0.01)
+signal = generate_two_tone(f1=1e3, f2=1.1e3, fs=1e6, duration=0.01)
 ```
 
 ---
@@ -1110,7 +1110,7 @@ Generate a multitone test signal composed of an arbitrary number of sinusoids.
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | frequencies | List[float] | — | Tone frequencies (Hz). |
-| sampling_rate | float | — | Sampling rate (Hz). |
+| fs | float | — | Sampling rate (Hz). |
 | amplitudes | List[float] | None | Per-tone amplitudes (V). Defaults to `1/N` for each tone. |
 | phases | List[float] | None | Per-tone phases (rad). Defaults to 0.0 for each tone. |
 | duration | float | 1.0 | Signal duration (s). |
@@ -1132,7 +1132,7 @@ Generate a multitone test signal composed of an arbitrary number of sinusoids.
 ```python
 from pyDataconverter.utils.signal_gen import generate_multitone
 
-signal = generate_multitone(frequencies=[1e3, 2e3, 3e3], sampling_rate=1e6, duration=0.01)
+signal = generate_multitone(frequencies=[1e3, 2e3, 3e3], fs=1e6, duration=0.01)
 ```
 
 ---
@@ -1151,7 +1151,7 @@ Two tones are generated at `f1` and `f1 + delta_f`, each with half the specified
 |------|------|---------|-------------|
 | f1 | float | — | First tone frequency (Hz). |
 | delta_f | float | — | Frequency spacing between tones (Hz). |
-| sampling_rate | float | — | Sampling rate (Hz). |
+| fs | float | — | Sampling rate (Hz). |
 | amplitude | float | 0.5 | Total amplitude, split equally between tones (V). |
 | duration | float | 1.0 | Signal duration (s). |
 | order | int | 3 | IMD order to calculate (2 or 3). |
@@ -1167,7 +1167,7 @@ Two tones are generated at `f1` and `f1 + delta_f`, each with half the specified
 ```python
 from pyDataconverter.utils.signal_gen import generate_imd_tones
 
-signal, imd_freqs = generate_imd_tones(f1=1e6, delta_f=1e3, sampling_rate=10e6)
+signal, imd_freqs = generate_imd_tones(f1=1e6, delta_f=1e3, fs=10e6)
 print(imd_freqs['imd3']['2f1-f2'])  # 999000.0
 ```
 
@@ -1255,7 +1255,7 @@ The analog sine is scaled by `amplitude` (fraction of full scale), offset by `of
 |------|------|---------|-------------|
 | n_bits | int | — | DAC resolution in bits. |
 | frequency | float | — | Signal frequency (Hz). |
-| sampling_rate | float | — | Sampling rate (Hz). |
+| fs | float | — | Sampling rate (Hz). |
 | amplitude | float | 0.9 | Amplitude as fraction of full scale. |
 | offset | float | 0.5 | DC offset as fraction of full scale. |
 | duration | float | 1.0 | Signal duration (s). |
@@ -1271,7 +1271,7 @@ The analog sine is scaled by `amplitude` (fraction of full scale), offset by `of
 ```python
 from pyDataconverter.utils.signal_gen import generate_digital_sine
 
-codes = generate_digital_sine(n_bits=12, frequency=1e3, sampling_rate=1e6, duration=0.005)
+codes = generate_digital_sine(n_bits=12, frequency=1e3, fs=1e6, duration=0.005)
 ```
 
 ---
@@ -1291,7 +1291,7 @@ The signal is centered at code mid-scale (0.5 offset) and clipped to the valid r
 | n_bits | int | — | DAC resolution in bits. |
 | f1 | float | — | First tone frequency (Hz). |
 | f2 | float | — | Second tone frequency (Hz). |
-| sampling_rate | float | — | Sampling rate (Hz). |
+| fs | float | — | Sampling rate (Hz). |
 | amplitude1 | float | 0.45 | First tone amplitude as fraction of full scale. |
 | amplitude2 | float | 0.45 | Second tone amplitude as fraction of full scale. |
 | duration | float | 1.0 | Signal duration (s). |
@@ -1307,7 +1307,7 @@ The signal is centered at code mid-scale (0.5 offset) and clipped to the valid r
 ```python
 from pyDataconverter.utils.signal_gen import generate_digital_two_tone
 
-codes = generate_digital_two_tone(n_bits=12, f1=1e3, f2=1.1e3, sampling_rate=1e6, duration=0.01)
+codes = generate_digital_two_tone(n_bits=12, f1=1e3, f2=1.1e3, fs=1e6, duration=0.01)
 ```
 
 ---
@@ -1326,7 +1326,7 @@ If amplitudes are not provided, each tone gets `0.9 / N` of full scale. The sign
 |------|------|---------|-------------|
 | n_bits | int | — | DAC resolution in bits. |
 | frequencies | List[float] | — | Tone frequencies (Hz). |
-| sampling_rate | float | — | Sampling rate (Hz). |
+| fs | float | — | Sampling rate (Hz). |
 | amplitudes | List[float] | None | Per-tone amplitudes as fraction of full scale. Defaults to `0.9 / N` per tone. |
 | duration | float | 1.0 | Signal duration (s). |
 
@@ -1341,7 +1341,7 @@ If amplitudes are not provided, each tone gets `0.9 / N` of full scale. The sign
 ```python
 from pyDataconverter.utils.signal_gen import generate_digital_multitone
 
-codes = generate_digital_multitone(n_bits=12, frequencies=[1e3, 2e3, 3e3], sampling_rate=1e6)
+codes = generate_digital_multitone(n_bits=12, frequencies=[1e3, 2e3, 3e3], fs=1e6)
 ```
 
 ---
@@ -1359,7 +1359,7 @@ Generate a digital IMD test signal as integer DAC codes along with expected IMD 
 | n_bits | int | — | DAC resolution in bits. |
 | f1 | float | — | First tone frequency (Hz). |
 | delta_f | float | — | Frequency spacing (Hz). |
-| sampling_rate | float | — | Sampling rate (Hz). |
+| fs | float | — | Sampling rate (Hz). |
 | amplitude | float | 0.9 | Total amplitude as fraction of full scale. |
 | duration | float | 1.0 | Signal duration (s). |
 
@@ -1374,7 +1374,7 @@ Generate a digital IMD test signal as integer DAC codes along with expected IMD 
 ```python
 from pyDataconverter.utils.signal_gen import generate_digital_imd_tones
 
-codes, imd_freqs = generate_digital_imd_tones(n_bits=12, f1=1e6, delta_f=1e3, sampling_rate=10e6)
+codes, imd_freqs = generate_digital_imd_tones(n_bits=12, f1=1e6, delta_f=1e3, fs=10e6)
 ```
 
 ---
@@ -1391,8 +1391,8 @@ Coherent sampling places the signal at an exact FFT bin frequency (`f_in = n_fin
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| sampling_rate | float | — | Sampling rate (Hz). |
-| n_fft | int | — | FFT size. Sets duration to `n_fft / sampling_rate`. |
+| fs | float | — | Sampling rate (Hz). |
+| n_fft | int | — | FFT size. Sets duration to `n_fft / fs`. |
 | n_fin | int | — | Input frequency bin number (1 ≤ `n_fin` < `n_fft / 2`). |
 | amplitude | float | 1.0 | Peak amplitude (V). |
 | offset | float | 0.0 | DC offset (V). |
@@ -1408,7 +1408,7 @@ Coherent sampling places the signal at an exact FFT bin frequency (`f_in = n_fin
 ```python
 from pyDataconverter.utils.signal_gen import generate_coherent_sine
 
-signal, f_in = generate_coherent_sine(sampling_rate=1e6, n_fft=1024, n_fin=11)
+signal, f_in = generate_coherent_sine(fs=1e6, n_fft=1024, n_fin=11)
 print(f_in)  # 10742.1875
 ```
 
@@ -1430,8 +1430,8 @@ Both tones land on exact FFT bin frequencies, eliminating spectral leakage. Usef
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| sampling_rate | float | — | Sampling rate (Hz). |
-| n_fft | int | — | FFT size. Duration = `n_fft / sampling_rate`. |
+| fs | float | — | Sampling rate (Hz). |
+| n_fft | int | — | FFT size. Duration = `n_fft / fs`. |
 | n_fin1 | int | — | First tone frequency bin number. |
 | n_fin2 | int | — | Second tone frequency bin number. |
 | amplitude1 | float | 0.5 | First tone peak amplitude (V). |
@@ -1450,7 +1450,7 @@ Both tones land on exact FFT bin frequencies, eliminating spectral leakage. Usef
 ```python
 from pyDataconverter.utils.signal_gen import generate_coherent_two_tone
 
-signal, f1, f2 = generate_coherent_two_tone(sampling_rate=1e6, n_fft=1024, n_fin1=11, n_fin2=23)
+signal, f1, f2 = generate_coherent_two_tone(fs=1e6, n_fft=1024, n_fin1=11, n_fin2=23)
 ```
 
 **See Also**
@@ -1531,7 +1531,7 @@ Returns only positive frequencies. DC is optionally removed before the transform
 from pyDataconverter.utils.fft_analysis import compute_fft
 from pyDataconverter.utils.signal_gen import generate_sine
 
-signal = generate_sine(frequency=1e3, sampling_rate=1e6, duration=0.01)
+signal = generate_sine(frequency=1e3, fs=1e6, duration=0.01)
 freqs, mags = compute_fft(signal, fs=1e6, window='hann')
 ```
 
@@ -1691,7 +1691,7 @@ Computes SNR, SNDR, SFDR, THD, ENOB, noise floor, and fundamental/harmonic infor
 from pyDataconverter.utils.metrics import calculate_adc_dynamic_metrics
 from pyDataconverter.utils.signal_gen import generate_coherent_sine
 
-signal, f_in = generate_coherent_sine(sampling_rate=1e6, n_fft=1024, n_fin=11)
+signal, f_in = generate_coherent_sine(fs=1e6, n_fft=1024, n_fin=11)
 metrics = calculate_adc_dynamic_metrics(time_data=signal, fs=1e6, f0=f_in)
 print(f"SNR: {metrics['SNR']:.1f} dB, ENOB: {metrics['ENOB']:.1f} bits")
 ```

@@ -26,7 +26,7 @@ def convert_to_differential(signal: np.ndarray, vcm: float = 0.0) -> Tuple[np.nd
 
 
 def generate_sine(frequency: float,
-                  sampling_rate: float,
+                  fs: float,
                   amplitude: float = 1.0,
                   offset: float = 0.0,
                   duration: float = 1.0,
@@ -36,7 +36,7 @@ def generate_sine(frequency: float,
 
     Args:
         frequency: Signal frequency in Hz
-        sampling_rate: Sampling rate in Hz
+        fs: Sampling rate in Hz
         amplitude: Peak amplitude in volts
         offset: DC offset in volts
         duration: Signal duration in seconds
@@ -45,7 +45,7 @@ def generate_sine(frequency: float,
     Returns:
         Signal array
     """
-    t = np.arange(0, duration, 1 / sampling_rate)
+    t = np.arange(0, duration, 1 / fs)
     return amplitude * np.sin(2 * np.pi * frequency * t + phase) + offset
 
 
@@ -149,7 +149,7 @@ def generate_step(samples: int,
 
 def generate_two_tone(f1: float,
                       f2: float,
-                      sampling_rate: float,
+                      fs: float,
                       amplitude1: float = 0.5,
                       amplitude2: float = 0.5,
                       phase1: float = 0.0,
@@ -161,7 +161,7 @@ def generate_two_tone(f1: float,
     Args:
         f1: First tone frequency in Hz
         f2: Second tone frequency in Hz
-        sampling_rate: Sampling rate in Hz
+        fs: Sampling rate in Hz
         amplitude1: First tone amplitude in volts
         amplitude2: Second tone amplitude in volts
         phase1: First tone phase in radians
@@ -171,14 +171,14 @@ def generate_two_tone(f1: float,
     Returns:
         Signal array
     """
-    t = np.arange(0, duration, 1 / sampling_rate)
+    t = np.arange(0, duration, 1 / fs)
     tone1 = amplitude1 * np.sin(2 * np.pi * f1 * t + phase1)
     tone2 = amplitude2 * np.sin(2 * np.pi * f2 * t + phase2)
     return tone1 + tone2
 
 
 def generate_multitone(frequencies: List[float],
-                       sampling_rate: float,
+                       fs: float,
                        amplitudes: List[float] = None,
                        phases: List[float] = None,
                        duration: float = 1.0) -> np.ndarray:
@@ -187,7 +187,7 @@ def generate_multitone(frequencies: List[float],
 
     Args:
         frequencies: List of frequencies in Hz
-        sampling_rate: Sampling rate in Hz
+        fs: Sampling rate in Hz
         amplitudes: List of amplitudes in volts. If None, all tones have amplitude 1/N
         phases: List of phases in radians. If None, all phases are 0
         duration: Signal duration in seconds
@@ -208,7 +208,7 @@ def generate_multitone(frequencies: List[float],
     if len(frequencies) != len(amplitudes) or len(frequencies) != len(phases):
         raise ValueError("Number of frequencies must match number of amplitudes and phases")
 
-    t = np.arange(0, duration, 1 / sampling_rate)
+    t = np.arange(0, duration, 1 / fs)
     frequencies = np.asarray(frequencies)
     amplitudes = np.asarray(amplitudes)
     phases = np.asarray(phases)
@@ -223,7 +223,7 @@ def generate_multitone(frequencies: List[float],
 
 def generate_imd_tones(f1: float,
                       delta_f: float,
-                      sampling_rate: float,
+                      fs: float,
                       amplitude: float = 0.5,
                       duration: float = 1.0,
                       order: int = 3) -> Tuple[np.ndarray, dict]:
@@ -233,7 +233,7 @@ def generate_imd_tones(f1: float,
     Args:
         f1: First tone frequency in Hz
         delta_f: Frequency spacing in Hz
-        sampling_rate: Sampling rate in Hz
+        fs: Sampling rate in Hz
         amplitude: Total amplitude of both tones (split equally)
         duration: Signal duration in seconds
         order: IMD order to calculate expected frequencies (2 or 3)
@@ -249,7 +249,7 @@ def generate_imd_tones(f1: float,
     amp_per_tone = amplitude / 2
 
     # Generate two-tone signal
-    signal = generate_two_tone(f1, f2, sampling_rate, amp_per_tone, amp_per_tone, duration=duration)
+    signal = generate_two_tone(f1, f2, fs, amp_per_tone, amp_per_tone, duration=duration)
 
     # Calculate expected IMD frequencies
     imd_freqs = {
@@ -355,7 +355,7 @@ def generate_digital_step(n_bits: int,
 
 def generate_digital_sine(n_bits: int,
                           frequency: float,
-                          sampling_rate: float,
+                          fs: float,
                           amplitude: float = 0.9,  # 90% of full scale
                           offset: float = 0.5,  # centered
                           duration: float = 1.0) -> np.ndarray:
@@ -365,7 +365,7 @@ def generate_digital_sine(n_bits: int,
     Args:
         n_bits: DAC resolution
         frequency: Signal frequency in Hz
-        sampling_rate: Sampling rate in Hz
+        fs: Sampling rate in Hz
         amplitude: Amplitude as fraction of full scale
         offset: DC offset as fraction of full scale
         duration: Signal duration in seconds
@@ -374,7 +374,7 @@ def generate_digital_sine(n_bits: int,
         Array of digital codes
     """
     max_code = 2 ** n_bits - 1
-    t = np.arange(0, duration, 1 / sampling_rate)
+    t = np.arange(0, duration, 1 / fs)
 
     # Generate analog sine wave
     analog_sine = amplitude/2 * np.sin(2 * np.pi * frequency * t) + offset
@@ -389,7 +389,7 @@ def generate_digital_sine(n_bits: int,
 def generate_digital_two_tone(n_bits: int,
                               f1: float,
                               f2: float,
-                              sampling_rate: float,
+                              fs: float,
                               amplitude1: float = 0.45,  # 45% each
                               amplitude2: float = 0.45,
                               duration: float = 1.0) -> np.ndarray:
@@ -400,7 +400,7 @@ def generate_digital_two_tone(n_bits: int,
         n_bits: DAC resolution
         f1: First tone frequency in Hz
         f2: Second tone frequency in Hz
-        sampling_rate: Sampling rate in Hz
+        fs: Sampling rate in Hz
         amplitude1: First tone amplitude as fraction of full scale
         amplitude2: Second tone amplitude as fraction of full scale
         duration: Signal duration in seconds
@@ -409,7 +409,7 @@ def generate_digital_two_tone(n_bits: int,
         Array of digital codes
     """
     max_code = 2 ** n_bits - 1
-    t = np.arange(0, duration, 1 / sampling_rate)
+    t = np.arange(0, duration, 1 / fs)
 
     # Generate analog two-tone
     analog_signal = (amplitude1 * np.sin(2 * np.pi * f1 * t) +
@@ -424,7 +424,7 @@ def generate_digital_two_tone(n_bits: int,
 
 def generate_digital_multitone(n_bits: int,
                                frequencies: List[float],
-                               sampling_rate: float,
+                               fs: float,
                                amplitudes: List[float] = None,
                                duration: float = 1.0) -> np.ndarray:
     """
@@ -433,7 +433,7 @@ def generate_digital_multitone(n_bits: int,
     Args:
         n_bits: DAC resolution
         frequencies: List of frequencies in Hz
-        sampling_rate: Sampling rate in Hz
+        fs: Sampling rate in Hz
         amplitudes: List of amplitudes as fraction of full scale
         duration: Signal duration in seconds
 
@@ -446,7 +446,7 @@ def generate_digital_multitone(n_bits: int,
         amplitudes = [0.9 / n_tones] * n_tones
 
     max_code = 2 ** n_bits - 1
-    t = np.arange(0, duration, 1 / sampling_rate)
+    t = np.arange(0, duration, 1 / fs)
 
     # Generate analog multitone — vectorized
     frequencies_arr = np.asarray(frequencies)
@@ -468,7 +468,7 @@ def generate_digital_multitone(n_bits: int,
 def generate_digital_imd_tones(n_bits: int,
                                f1: float,
                                delta_f: float,
-                               sampling_rate: float,
+                               fs: float,
                                amplitude: float = 0.9,
                                duration: float = 1.0) -> Tuple[np.ndarray, dict]:
     """
@@ -478,7 +478,7 @@ def generate_digital_imd_tones(n_bits: int,
         n_bits: DAC resolution
         f1: First tone frequency in Hz
         delta_f: Frequency spacing in Hz
-        sampling_rate: Sampling rate in Hz
+        fs: Sampling rate in Hz
         amplitude: Total amplitude as fraction of full scale
         duration: Signal duration in seconds
 
@@ -489,7 +489,7 @@ def generate_digital_imd_tones(n_bits: int,
     amp_per_tone = amplitude / 2
 
     # Generate digital two-tone
-    signal = generate_digital_two_tone(n_bits, f1, f2, sampling_rate,
+    signal = generate_digital_two_tone(n_bits, f1, f2, fs,
                                        amp_per_tone, amp_per_tone, duration)
 
     # Calculate expected IMD frequencies
@@ -654,7 +654,7 @@ def apply_window(signal: np.ndarray, window_type: str) -> np.ndarray:
     return signal * w
 
 
-def generate_coherent_sine(sampling_rate: float,
+def generate_coherent_sine(fs: float,
                            n_fft: int,
                            n_fin: int,
                            amplitude: float = 1.0,
@@ -668,24 +668,24 @@ def generate_coherent_sine(sampling_rate: float,
     accurately from a single FFT window.
 
     Args:
-        sampling_rate: Sampling rate in Hz
-        n_fft: FFT size. Sets duration = n_fft / sampling_rate so that
+        fs: Sampling rate in Hz
+        n_fft: FFT size. Sets duration = n_fft / fs so that
                exactly one FFT window is captured.
         n_fin: Input frequency bin number (integer, 1 <= n_fin < n_fft/2).
-               The actual frequency is f_in = n_fin / n_fft * sampling_rate.
+               The actual frequency is f_in = n_fin / n_fft * fs.
         amplitude: Peak amplitude in volts (default 1.0)
         offset: DC offset in volts (default 0.0)
 
     Returns:
         Tuple of (signal array, input frequency in Hz)
     """
-    f_in = n_fin / n_fft * sampling_rate
-    duration = n_fft / sampling_rate
-    signal = generate_sine(f_in, sampling_rate, amplitude, offset, duration)
+    f_in = n_fin / n_fft * fs
+    duration = n_fft / fs
+    signal = generate_sine(f_in, fs, amplitude, offset, duration)
     return signal, f_in
 
 
-def generate_coherent_two_tone(sampling_rate: float,
+def generate_coherent_two_tone(fs: float,
                                n_fft: int,
                                n_fin1: int,
                                n_fin2: int,
@@ -701,8 +701,8 @@ def generate_coherent_two_tone(sampling_rate: float,
     where the in-band IMD products must be resolved accurately.
 
     Args:
-        sampling_rate: Sampling rate in Hz
-        n_fft: FFT size. Duration = n_fft / sampling_rate.
+        fs: Sampling rate in Hz
+        n_fft: FFT size. Duration = n_fft / fs.
         n_fin1: First tone frequency bin number
         n_fin2: Second tone frequency bin number
         amplitude1: First tone peak amplitude in volts (default 0.5)
@@ -713,10 +713,10 @@ def generate_coherent_two_tone(sampling_rate: float,
     Returns:
         Tuple of (signal array, f1 in Hz, f2 in Hz)
     """
-    f1 = n_fin1 / n_fft * sampling_rate
-    f2 = n_fin2 / n_fft * sampling_rate
-    duration = n_fft / sampling_rate
-    signal = generate_two_tone(f1, f2, sampling_rate, amplitude1, amplitude2,
+    f1 = n_fin1 / n_fft * fs
+    f2 = n_fin2 / n_fft * fs
+    duration = n_fft / fs
+    signal = generate_two_tone(f1, f2, fs, amplitude1, amplitude2,
                                phase1, phase2, duration)
     return signal, f1, f2
 
@@ -724,7 +724,7 @@ def generate_coherent_two_tone(sampling_rate: float,
 # Usage example
 if __name__ == "__main__":  # pragma: no cover
     # Generate a sine wave
-    sine = generate_sine(frequency=1e3, sampling_rate=1e6, amplitude=0.5)
+    sine = generate_sine(frequency=1e3, fs=1e6, amplitude=0.5)
 
     # Convert to differential with different common mode voltages
     v_pos1, v_neg1 = convert_to_differential(sine)  # vcm = 0
@@ -735,7 +735,7 @@ if __name__ == "__main__":  # pragma: no cover
     signal_2tone = generate_two_tone(
         f1=1e3,
         f2=1.1e3,
-        sampling_rate=1e6,
+        fs=1e6,
         amplitude1=0.4,
         amplitude2=0.4,
         phase1=0,
@@ -747,7 +747,7 @@ if __name__ == "__main__":  # pragma: no cover
     imd_signal, imd_frequencies = generate_imd_tones(
         f1=1e6,  # 1 MHz
         delta_f=1e3,  # 1 kHz spacing
-        sampling_rate=10e6,
+        fs=10e6,
         amplitude=0.8,
         order=3
     )
@@ -774,7 +774,7 @@ if __name__ == "__main__":  # pragma: no cover
     sine = generate_digital_sine(
         n_bits=n_bits,
         frequency=1e3,  # 1 kHz
-        sampling_rate=fs,
+        fs=fs,
         amplitude=0.9,
         duration=0.005
     )
@@ -795,7 +795,7 @@ if __name__ == "__main__":  # pragma: no cover
         n_bits=n_bits,
         f1=1e3,  # 1 kHz
         f2=1.1e3,  # 1.1 kHz
-        sampling_rate=fs,
+        fs=fs,
         amplitude1=0.4,
         amplitude2=0.4,
         duration=0.01
@@ -817,7 +817,7 @@ if __name__ == "__main__":  # pragma: no cover
         n_bits=n_bits,
         f1=1e6,  # 1 MHz
         delta_f=1e3,  # 1 kHz spacing
-        sampling_rate=10e6,
+        fs=10e6,
         amplitude=0.8,
         duration=0.01
     )
@@ -868,7 +868,7 @@ if __name__ == "__main__":  # pragma: no cover
     signal_multi = generate_digital_multitone(
         n_bits=n_bits,
         frequencies=freqs,
-        sampling_rate=fs,
+        fs=fs,
         amplitudes=amps,
         duration=0.01
     )

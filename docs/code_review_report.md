@@ -357,12 +357,12 @@ The `OutputType.DIFFERENTIAL` value mismatch is the most serious documentation i
 | R4-I6 | `utils/visualizations/visualize_SARADC.py:103` | Important | Assumes CDAC `get_voltage` returns tuple; fails for single-ended | FALSE POSITIVE |
 | R4-I7 | `architectures/R2RDAC.py:188` | Important | Double 2R-to-GND on LSB node when bit=0; verify linearity is unaffected | FALSE POSITIVE |
 | R4-I8 | `architectures/TimeInterleavedADC.py:290` | Important | `convert_waveform` assumes uniform time spacing; silently wrong for non-uniform `t` | **FIXED** |
-| R4-M1 | `utils/signal_gen.py` | Minor | Inconsistent parameter names (`sampling_rate` vs `fs`) across functions | Open |
-| R4-M2 | `components/comparator.py:99` | Minor | Docstring says "input-referred" but offset is applied post-bandwidth-filter | Open |
-| R4-M3 | `utils/visualizations/adc_plots.py:88-99` | Minor | LSB calculated from swept `v_range` instead of `adc.v_ref`; wrong for differential ADCs | Open |
-| R4-M4 | `architectures/TimeInterleavedADC.py:_resolve_mismatch` | Minor | Negative scalar stddev not rejected; silently treated as positive | Open |
-| R4-M5 | `utils/metrics/adc.py:425` | Minor | PDF singularity threshold 0.999 is a magic number | Open |
-| R4-M6 | `utils/signal_gen.py:559` | Minor | PRBS error message does not state the valid order range (2–20) | Open |
+| R4-M1 | `utils/signal_gen.py` | Minor | Inconsistent parameter names (`sampling_rate` vs `fs`) across functions | **FIXED** |
+| R4-M2 | `components/comparator.py:99` | Minor | Docstring says "input-referred" but offset is applied post-bandwidth-filter | **FIXED** |
+| R4-M3 | `utils/visualizations/adc_plots.py:88-99` | Minor | LSB calculated from swept `v_range` instead of `adc.v_ref`; wrong for differential ADCs | **FIXED** |
+| R4-M4 | `architectures/TimeInterleavedADC.py:_resolve_mismatch` | Minor | Negative scalar stddev not rejected; silently treated as positive | **FIXED** |
+| R4-M5 | `utils/metrics/adc.py:425` | Minor | PDF singularity threshold 0.999 is a magic number | **FIXED** |
+| R4-M6 | `utils/signal_gen.py:559` | Minor | PRBS error message does not state the valid order range (2–20) | FALSE POSITIVE |
 
 **False positives (verified against source, not bugs):**
 
@@ -466,51 +466,50 @@ The `OutputType.DIFFERENTIAL` value mismatch is the most serious documentation i
 
 ---
 
-**R4-M1 — `signal_gen.py` inconsistent parameter names across functions**
+**R4-M1 — `signal_gen.py` inconsistent parameter names across functions** ✅ FIXED
 - **File:** `pyDataconverter/utils/signal_gen.py`
 - **Severity:** Minor
-- **Description:** `generate_sine()` and `generate_multitone()` use `sampling_rate`; `generate_chirp()`, `generate_step()`, `generate_prbs()`, and `generate_coherent_sine()` use `fs`. Both mean the same thing, but the inconsistency forces callers to check each function's signature.
-- **Fix:** Standardize to `fs` (shorter, matches scipy and NumPy conventions) in a single pass. Maintain backward compatibility with a deprecated `sampling_rate` alias if needed.
+- **Description:** Several functions used `sampling_rate` while others used `fs` for the same concept, forcing callers to check each signature.
+- **Fix applied:** Renamed all `sampling_rate` occurrences to `fs` throughout `signal_gen.py`, its docstrings, `docs/quickstart.md`, and `docs/api_reference.md`.
 
 ---
 
-**R4-M2 — Comparator docstring says "input-referred" but offset is applied post-filter**
+**R4-M2 — Comparator docstring says "input-referred" but offset is applied post-filter** ✅ FIXED
 - **File:** `pyDataconverter/components/comparator.py:99`
 - **Severity:** Minor
-- **Description:** The `offset` parameter docstring says "DC input-referred offset voltage (V)". In the implementation, offset is added to `v_diff` after the bandwidth-limiting IIR filter. For a high-bandwidth signal, the pre-filter and post-filter values are identical, so this is only misleading for configurations with both `bandwidth` and `offset` active. The term "input-referred" implies the offset appears before all signal processing.
-- **Fix:** Change the docstring to "DC offset voltage added to the filtered differential signal" to match the actual implementation.
+- **Description:** Class-level docstring said "DC input-referred offset voltage (V)" but offset is added after bandwidth filtering.
+- **Fix applied:** Updated to "DC offset voltage added to the filtered differential signal (V)".
 
 ---
 
-**R4-M3 — `adc_plots.plot_transfer_function` uses swept range, not `v_ref`, for LSB**
+**R4-M3 — `adc_plots.plot_transfer_function` uses swept range, not `v_ref`, for LSB** ✅ FIXED
 - **File:** `pyDataconverter/utils/visualizations/adc_plots.py:88-99`
 - **Severity:** Minor
-- **Description:** The function computes `lsb = v_range / n_codes` where `v_range = v_max - v_min` is the sweep range. For a single-ended ADC tested at full range this is correct, but for a differential ADC (where v_range is the full differential swing but internal v_ref is per-rail) the LSB is wrong, and the plotted error axis will be miscalibrated.
-- **Fix:** Prefer `lsb = adc.v_ref / n_codes` (or the symmetric variant when applicable) over the swept range.
+- **Description:** LSB was computed from `v_range = v_max - v_min` (sweep range), which is wrong for partial sweeps and differential ADCs.
+- **Fix applied:** Changed to `adc.v_ref / n_codes` (FLOOR) and `adc.v_ref / (n_codes - 1)` (SYMMETRIC), using the ADC's authoritative reference voltage.
 
 ---
 
-**R4-M4 — `TimeInterleavedADC._resolve_mismatch` accepts negative scalar stddev**
+**R4-M4 — `TimeInterleavedADC._resolve_mismatch` accepts negative scalar stddev** ✅ FIXED
 - **File:** `pyDataconverter/architectures/TimeInterleavedADC.py` (`_resolve_mismatch` helper)
 - **Severity:** Minor
-- **Description:** A negative scalar (e.g., `-0.001`) is interpreted as a standard deviation and passed directly to `rng.normal(scale=negative)`, which raises `ValueError: scale < 0` deep inside NumPy — not at the TI-ADC constructor boundary.
-- **Fix:** Add `if scalar < 0: raise ValueError(f"{name} scalar must be >= 0 (stddev), got {scalar}")` before the `rng.normal` call.
+- **Description:** A negative scalar was passed directly to `rng.normal(scale=negative)`, raising a cryptic NumPy error deep in the call stack instead of at the constructor boundary.
+- **Fix applied:** Added `if scalar < 0: raise ValueError(...)` before `rng.normal`. One new parametrised test covers all four mismatch parameters (`offset`, `gain_error`, `timing_skew`, `bandwidth`).
 
 ---
 
-**R4-M5 — PDF singularity threshold 0.999 in `metrics/adc.py` is a magic number**
+**R4-M5 — PDF singularity threshold 0.999 in `metrics/adc.py` is a magic number** ✅ FIXED
 - **File:** `pyDataconverter/utils/metrics/adc.py:425`
 - **Severity:** Minor
-- **Description:** `in_range = np.abs(u) < 0.999` avoids the `1/sqrt(1-u²)` singularity at ±1. The value 0.999 is undocumented. The threshold affects INL accuracy near the rails.
-- **Fix:** Extract as `_PDF_SINGULARITY_GUARD = 0.999  # avoid 1/sqrt(1-u²) divergence within 0.1% of ±full-scale` and add a brief comment.
+- **Description:** Two occurrences of `0.999` guarded the `1/sqrt(1-u²)` singularity without explanation.
+- **Fix applied:** Extracted to module-level `_PDF_SINGULARITY_GUARD = 0.999` with an explanatory comment. Both call sites updated.
 
 ---
 
-**R4-M6 — PRBS error message does not indicate valid order range**
+**R4-M6 — PRBS error message does not indicate valid order range** ❌ FALSE POSITIVE
 - **File:** `pyDataconverter/utils/signal_gen.py:559`
 - **Severity:** Minor
-- **Description:** `generate_prbs(order=21)` raises `ValueError` with a message that lists only the unsupported value, not the supported range.
-- **Fix:** `raise ValueError(f"order must be between 2 and 20, got {order}")`.
+- **Resolution:** The current message already reads `"order must be between 2 and 20, got {order}"` — the fix described in the review was already in place. No code change required.
 
 ---
 

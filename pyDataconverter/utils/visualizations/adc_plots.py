@@ -84,18 +84,19 @@ def plot_transfer_function(adc,
     vin = np.linspace(v_min, v_max, n_points)
     codes = np.array([adc.convert(v) for v in vin])
 
-    # Determine LSB and error formula based on quantization mode
+    # Determine LSB and error formula based on quantization mode.
+    # Use adc.v_ref (not v_range) so the LSB is correct for partial sweeps
+    # and for differential ADCs where v_range != v_ref.
     n_codes = 2 ** adc.n_bits
-    v_range = v_max - v_min
     quant_mode = getattr(adc, 'quant_mode', None)
 
     if quant_mode == QuantizationMode.SYMMETRIC:
         # Code k represents voltage level k * lsb; error is already centered
-        lsb = v_range / (n_codes - 1)
+        lsb = adc.v_ref / (n_codes - 1)
         error_lsb = codes - (vin - v_min) / lsb
     else:
         # FLOOR (default): use bin midpoint (code + 0.5) * lsb to center error
-        lsb = v_range / n_codes
+        lsb = adc.v_ref / n_codes
         error_lsb = (codes + 0.5) - (vin - v_min) / lsb
 
     plot_title = title if title is not None else repr(adc)

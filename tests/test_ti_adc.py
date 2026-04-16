@@ -77,6 +77,13 @@ class TestTIADCConstruction(unittest.TestCase):
             TimeInterleavedADC(channels=4, sub_adc_template=_make_template(),
                                fs=1e9, offset=explicit)
 
+    def test_negative_scalar_mismatch_raises(self):
+        """Negative scalar is invalid as a stddev; error must be raised at construction."""
+        for kw in ("offset", "gain_error", "timing_skew", "bandwidth"):
+            with self.assertRaises(ValueError, msg=f"negative {kw} scalar should raise"):
+                TimeInterleavedADC(channels=4, sub_adc_template=_make_template(),
+                                   fs=1e9, **{kw: -0.001})
+
     def test_same_seed_gives_same_mismatch(self):
         ti1 = TimeInterleavedADC(channels=8, sub_adc_template=_make_template(),
                                  fs=1e9, offset=1e-3, gain_error=0.001, seed=123)

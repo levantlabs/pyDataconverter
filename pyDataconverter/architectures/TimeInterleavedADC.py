@@ -46,6 +46,9 @@ def _resolve_mismatch(value, M: int, rng: np.random.Generator, name: str) -> np.
         scalar = float(arr)
         if scalar == 0.0:
             return np.zeros(M, dtype=float)
+        if scalar < 0:
+            raise ValueError(
+                f"{name} scalar must be >= 0 (standard deviation), got {scalar}")
         # Scalar = stddev. Draw from N(0, scalar).
         return rng.normal(loc=0.0, scale=scalar, size=M)
     if arr.ndim != 1:
