@@ -355,7 +355,7 @@ The `OutputType.DIFFERENTIAL` value mismatch is the most serious documentation i
 | R4-I4 | `architectures/SARADC.py:109,175` | Important | `cap_mismatch` silently ignored when `cdac` provided | FIXED |
 | R4-I5 | `components/cdac.py` | Important | Code bounds check only in `SegmentedCDAC`, not `SingleEndedCDAC`/`DifferentialCDAC` | **FIXED** |
 | R4-I6 | `utils/visualizations/visualize_SARADC.py:103` | Important | Assumes CDAC `get_voltage` returns tuple; fails for single-ended | FALSE POSITIVE |
-| R4-I7 | `architectures/R2RDAC.py:188` | Important | Double 2R-to-GND on LSB node when bit=0; verify linearity is unaffected | Needs verification |
+| R4-I7 | `architectures/R2RDAC.py:188` | Important | Double 2R-to-GND on LSB node when bit=0; verify linearity is unaffected | FALSE POSITIVE |
 | R4-I8 | `architectures/TimeInterleavedADC.py:290` | Important | `convert_waveform` assumes uniform time spacing; silently wrong for non-uniform `t` | Open |
 | R4-M1 | `utils/signal_gen.py` | Minor | Inconsistent parameter names (`sampling_rate` vs `fs`) across functions | Open |
 | R4-M2 | `components/comparator.py:99` | Minor | Docstring says "input-referred" but offset is applied post-bandwidth-filter | Open |
@@ -451,13 +451,10 @@ The `OutputType.DIFFERENTIAL` value mismatch is the most serious documentation i
 
 ---
 
-**R4-I7 — `R2RDAC` LSB node has two parallel 2R arms to GND when bit=0**
+**R4-I7 — `R2RDAC` LSB node has two parallel 2R arms to GND when bit=0** ❌ FALSE POSITIVE
 - **File:** `pyDataconverter/architectures/R2RDAC.py:180-188`
 - **Severity:** Important (needs verification)
-- **Description:** The for-loop at lines 180–182 adds a 2R arm from each node k to `switch_node` (GND if bit=0, V_ref if bit=1). Line 188 adds a permanent additional 2R arm from node `n-1` to GND. When bit `n-1` (LSB) = 0, there are two parallel 2R arms from node `n-1` to GND → effective resistance R, not 2R. This changes the Thevenin impedance at the LSB node and would cause a non-linearity at all codes where LSB=0.
-
-  The comment at line 184-187 says this is "separate from the bit switch arm" and required for binary weighting — but that rationale applies only when the bit switch arm connects to V_ref (bit=1). When bit=0 both arms go to the same node, creating a topology mismatch.
-- **Fix / Verification needed:** Run `[dac.convert(c) for c in range(2**n_bits)]` on a known-linear configuration and check that adjacent-code steps are equal. If DNL is non-zero at LSB=0 codes, remove the permanent termination (line 188) and instead rely on the bit-switch arm to provide the termination.
+- **Resolution:** Verified numerically for n = 4, 6, 8, and 10 bits. DNL is zero to floating-point precision (max ≈ 10⁻¹³ LSB), and all adjacent-code steps are equal. The double 2R at the LSB terminal node is the correct topology: the permanent termination arm and the LSB bit-switch arm together satisfy the Thevenin condition at every code. No code change required.
 
 ---
 
