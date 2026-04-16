@@ -287,7 +287,12 @@ class TimeInterleavedADC(ADCBase):
 
         # Build per-channel filtered waveforms if any channel has bandwidth set.
         if np.any(self.bandwidth != 0):
-            dt = float(t_dense[1] - t_dense[0])
+            dt_all = np.diff(t_dense)
+            if not np.allclose(dt_all, dt_all[0], rtol=1e-4, atol=0):
+                raise ValueError(
+                    "convert_waveform requires uniformly spaced t_dense when "
+                    "bandwidth filtering is enabled")
+            dt = float(dt_all[0])
             fs_dense = 1.0 / dt
             nyquist = fs_dense / 2.0
             v_per_channel = np.empty((self.M, N))

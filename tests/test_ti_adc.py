@@ -301,6 +301,26 @@ class TestTIADCWaveform(unittest.TestCase):
         self.assertTrue(np.all(codes >= 0))
         self.assertTrue(np.all(codes <= 2**10 - 1))
 
+    def test_nonuniform_t_dense_raises_when_bandwidth_active(self):
+        """Non-uniform t_dense must raise ValueError when bandwidth filtering is on."""
+        ti = TimeInterleavedADC(channels=4, sub_adc_template=_make_template(n_bits=8),
+                                fs=1e9, bandwidth=np.array([1e8, 1e8, 1e8, 1e8]))
+        rng = np.random.default_rng(0)
+        t_nonuniform = np.cumsum(np.abs(rng.normal(1e-9, 1e-10, 64)))
+        v = 0.5 * np.ones(64)
+        with self.assertRaises(ValueError, msg="expected ValueError for non-uniform t_dense"):
+            ti.convert_waveform(v, t_nonuniform)
+
+    def test_nonuniform_t_dense_ok_when_no_bandwidth(self):
+        """Non-uniform t_dense is fine when no bandwidth filtering is needed."""
+        ti = TimeInterleavedADC(channels=4, sub_adc_template=_make_template(n_bits=8),
+                                fs=1e9)
+        rng = np.random.default_rng(1)
+        t_nonuniform = np.cumsum(np.abs(rng.normal(1e-9, 1e-10, 32)))
+        v = 0.5 * np.ones(32)
+        codes = ti.convert_waveform(v, t_nonuniform)
+        self.assertEqual(len(codes), 32)
+
     def test_waveform_advances_channel_counter(self):
         ti = TimeInterleavedADC(channels=4, sub_adc_template=_make_template(), fs=1e9)
         t = np.linspace(0, 1e-6, 8)

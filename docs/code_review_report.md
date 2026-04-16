@@ -356,7 +356,7 @@ The `OutputType.DIFFERENTIAL` value mismatch is the most serious documentation i
 | R4-I5 | `components/cdac.py` | Important | Code bounds check only in `SegmentedCDAC`, not `SingleEndedCDAC`/`DifferentialCDAC` | **FIXED** |
 | R4-I6 | `utils/visualizations/visualize_SARADC.py:103` | Important | Assumes CDAC `get_voltage` returns tuple; fails for single-ended | FALSE POSITIVE |
 | R4-I7 | `architectures/R2RDAC.py:188` | Important | Double 2R-to-GND on LSB node when bit=0; verify linearity is unaffected | FALSE POSITIVE |
-| R4-I8 | `architectures/TimeInterleavedADC.py:290` | Important | `convert_waveform` assumes uniform time spacing; silently wrong for non-uniform `t` | Open |
+| R4-I8 | `architectures/TimeInterleavedADC.py:290` | Important | `convert_waveform` assumes uniform time spacing; silently wrong for non-uniform `t` | **FIXED** |
 | R4-M1 | `utils/signal_gen.py` | Minor | Inconsistent parameter names (`sampling_rate` vs `fs`) across functions | Open |
 | R4-M2 | `components/comparator.py:99` | Minor | Docstring says "input-referred" but offset is applied post-bandwidth-filter | Open |
 | R4-M3 | `utils/visualizations/adc_plots.py:88-99` | Minor | LSB calculated from swept `v_range` instead of `adc.v_ref`; wrong for differential ADCs | Open |
@@ -458,17 +458,11 @@ The `OutputType.DIFFERENTIAL` value mismatch is the most serious documentation i
 
 ---
 
-**R4-I8 — `TimeInterleavedADC.convert_waveform` assumes uniform time spacing**
+**R4-I8 — `TimeInterleavedADC.convert_waveform` assumes uniform time spacing** ✅ FIXED
 - **File:** `pyDataconverter/architectures/TimeInterleavedADC.py:290`
 - **Severity:** Important
-- **Description:** `dt = float(t_dense[1] - t_dense[0])` is computed once and used as the uniform sample period for all IIR bandwidth filters. If the caller passes a non-uniformly-spaced `t_dense` array (e.g., from a non-uniform resampler or a simulation with variable step size), every filter cutoff frequency is wrong, silently.
-- **Fix:** Validate that `t_dense` is uniformly spaced before using it:
-  ```python
-  dt_all = np.diff(t_dense)
-  if not np.allclose(dt_all, dt_all[0], rtol=1e-4):
-      raise ValueError("convert_waveform requires uniformly spaced t_dense")
-  dt = float(dt_all[0])
-  ```
+- **Description:** `dt = float(t_dense[1] - t_dense[0])` was computed once and used as the uniform sample period for all IIR bandwidth filters. If the caller passes a non-uniformly-spaced `t_dense` array, every filter cutoff frequency is silently wrong.
+- **Fix applied:** Added a purely-relative uniformity check (`atol=0` required since intervals can be nanosecond-scale, where the default `atol=1e-8` would mask real non-uniformity) immediately before `dt` is computed, inside the bandwidth-filtering branch. Two new tests added to `TestTIADCWaveform`: one confirms `ValueError` is raised for non-uniform `t_dense` when bandwidth is active, one confirms non-uniform `t_dense` is still accepted when no bandwidth filtering is needed.
 
 ---
 
