@@ -354,7 +354,7 @@ The `OutputType.DIFFERENTIAL` value mismatch is the most serious documentation i
 | R4-I3 | `utils/characterization.py:92` | Important | Key rename creates inconsistency with source dict | FIXED |
 | R4-I4 | `architectures/SARADC.py:109,175` | Important | `cap_mismatch` silently ignored when `cdac` provided | FIXED |
 | R4-I5 | `components/cdac.py` | Important | Code bounds check only in `SegmentedCDAC`, not `SingleEndedCDAC`/`DifferentialCDAC` | **FIXED** |
-| R4-I6 | `utils/visualizations/visualize_SARADC.py:103` | Important | Assumes CDAC `get_voltage` returns tuple; fails for single-ended | Open |
+| R4-I6 | `utils/visualizations/visualize_SARADC.py:103` | Important | Assumes CDAC `get_voltage` returns tuple; fails for single-ended | FALSE POSITIVE |
 | R4-I7 | `architectures/R2RDAC.py:188` | Important | Double 2R-to-GND on LSB node when bit=0; verify linearity is unaffected | Needs verification |
 | R4-I8 | `architectures/TimeInterleavedADC.py:290` | Important | `convert_waveform` assumes uniform time spacing; silently wrong for non-uniform `t` | Open |
 | R4-M1 | `utils/signal_gen.py` | Minor | Inconsistent parameter names (`sampling_rate` vs `fs`) across functions | Open |
@@ -444,15 +444,10 @@ The `OutputType.DIFFERENTIAL` value mismatch is the most serious documentation i
 
 ---
 
-**R4-I6 — `visualize_SARADC._bit_contributions` assumes differential CDAC**
+**R4-I6 — `visualize_SARADC._bit_contributions` assumes differential CDAC** ❌ FALSE POSITIVE
 - **File:** `pyDataconverter/utils/visualizations/visualize_SARADC.py:103`
 - **Severity:** Important
-- **Description:** Line 103 does `diff_base = v_base[0] - v_base[1]` where `v_base = adc.cdac.get_voltage(0)`. For a `SingleEndedCDAC`, `get_voltage` returns a scalar `float`, not a tuple; `v_base[0]` then indexes the first character of the float's string representation (via Python's iterator fallback) and raises `TypeError`. The visualization silently works only when the SAR uses a differential CDAC.
-- **Fix:**
-  ```python
-  v_base = adc.cdac.get_voltage(0)
-  diff_base = (v_base[0] - v_base[1]) if isinstance(v_base, tuple) else float(v_base)
-  ```
+- **Resolution:** `CDACBase.get_voltage()` is declared as returning `Tuple[float, float]` and all concrete implementations honour this contract. `SingleEndedCDAC.get_voltage()` returns `(v_dac, 0.0)`, `SegmentedCDAC.get_voltage()` returns `(v_dac, 0.0)`, and `DifferentialCDAC.get_voltage()` returns `(v_dacp, v_dacn)`. The indexing in `_bit_contributions` (`v_base[0] - v_base[1]`) is therefore correct for every CDAC type. No code change required.
 
 ---
 
