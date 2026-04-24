@@ -29,6 +29,17 @@ The Flash ADC model includes:
     - Resistor ladder mismatch
     - Reference noise modeling
     - Choice of thermometer-to-binary encoder
+
+Quantisation:
+    FlashADC is a *structural* model — its output comes from a bank of
+    comparators firing against uniformly-spaced ReferenceLadder taps.
+    Quantisation is FLOOR-by-construction (LSB = v_ref / 2^N) and is not
+    configurable.  The ``QuantizationMode`` enum from
+    ``pyDataconverter.dataconverter`` does not apply here; to compute
+    zero-mean (SYMMETRIC) metrics on a FlashADC's output, pass
+    ``quant_mode=QuantizationMode.SYMMETRIC`` to the relevant function in
+    ``pyDataconverter.utils.metrics``.
+
 TODO:
     - Bandwidth modeling: Comparator.compare() accepts time_step for bandwidth
       limiting, but FlashADC does not yet pass it.

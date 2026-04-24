@@ -59,9 +59,19 @@ Differential:
 
 Quantisation
 ------------
-The binary search naturally implements FLOOR quantisation:
+SARADC is a *structural* model — its output code is produced by the CDAC
+binary search, not by a quantization formula.  The binary search naturally
+implements FLOOR quantisation and this is not configurable:
+
   code = floor(vin * 2^N / v_ref)   (single-ended)
   code = floor((v_diff + v_ref/2) * 2^N / v_ref)   (differential)
+
+LSB is always v_ref / 2^N, matching physical SAR silicon.  The
+``QuantizationMode`` enum defined in ``pyDataconverter.dataconverter`` does
+not apply here — it parameterises behavioural ADCs (``SimpleADC``) and
+metric helpers.  To compute DSP-style (zero-mean) metrics on a SARADC's
+code stream, pass ``quant_mode=QuantizationMode.SYMMETRIC`` to the
+relevant function in ``pyDataconverter.utils.metrics``.
 
 Component dependencies
 ----------------------

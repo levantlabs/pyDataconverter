@@ -15,6 +15,14 @@ Full design rationale: docs/superpowers/specs/2026-04-14-ti-adc-design.md
 
 Classes:
     TimeInterleavedADC: N-channel TI-ADC wrapping any ADCBase as its template.
+
+Quantisation:
+    TimeInterleavedADC delegates quantisation to its channel template.  A
+    template built from a structural architecture (SARADC, FlashADC,
+    PipelinedADC) is FLOOR-by-construction; one built from ``SimpleADC``
+    honours whatever ``quant_mode`` it was constructed with.  The
+    ``QuantizationMode`` enum from ``pyDataconverter.dataconverter`` is not
+    a parameter of the TI-ADC itself.
 """
 
 import copy

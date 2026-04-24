@@ -13,6 +13,15 @@ Full design: docs/superpowers/specs/2026-04-13-pipelined-adc-design.md
 Classes:
     PipelineStage:  One stage of the cascade (helper, not ADCBase).
     PipelinedADC:   Top-level N-stage pipelined ADC (inherits ADCBase) — added in Task 9.
+
+Quantisation:
+    PipelinedADC is a *structural* model.  Each stage's sub-ADC and the
+    backend quantise per their own architectures (typically FLOOR); the
+    digital combiner accumulates shifted codes without any post-hoc
+    remapping.  The ``QuantizationMode`` enum from
+    ``pyDataconverter.dataconverter`` does not apply to the pipeline as a
+    whole; use it only when computing metrics on the final code stream via
+    ``pyDataconverter.utils.metrics``.
 """
 
 from typing import List, Optional, Tuple, Union

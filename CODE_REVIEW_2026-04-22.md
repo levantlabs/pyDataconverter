@@ -15,7 +15,7 @@ Legend: PENDING · DECIDED (plan agreed, code not changed) · FIXED · FALSE POS
 | 1-W1 | Empty top-level `__init__.py` | FIXED | Fully-namespaced approach. Added module docstring + `__version__` via `importlib.metadata`. Public API remains under `pyDataconverter.architectures`, `pyDataconverter.components`, `pyDataconverter.dataconverter`, `pyDataconverter.utils`. |
 | 1-W2 | Empty `utils/__init__.py` | FIXED | Added explicit submodule re-exports (signal_gen, fft_analysis, characterization, nodal_solver, metrics, visualizations) with `__all__`. Created `utils/visualizations/__init__.py`. Broke an incidental util→architecture circular import in `dac_plots.py` by localising the `SimpleDAC` import. |
 | 2.1 | ADC `input_type` default inconsistency | FIXED | Harmonised SARADC / FlashADC / PipelinedADC defaults to `InputType.DIFFERENTIAL` (matching `ADCBase`). Updated test fixtures (test_SARADC, test_FlashADC, test_sar_generalisation, test_metrics, test_characterization) to explicitly pin `input_type=InputType.SINGLE` where they were relying on the old default. FlashADC `__main__` demo also pinned. All 973 tests pass. |
-| 2.2 | Quantization mode not unified | PENDING | |
+| 2.2 | Quantization mode not unified | WON'T FIX (documented) | Architectural distinction is intentional: `QuantizationMode` parameterises behavioural ADCs (`SimpleADC`) and metric helpers; structural ADCs (SARADC/FlashADC/PipelinedADC/TI-ADC) are FLOOR-by-construction. Documented the applicability in `QuantizationMode`'s docstring and in each structural-ADC module docstring. |
 | 2.3 | `n_levels` support inconsistent across DACs | PENDING | |
 | 2.4 | `__repr__` inconsistency | PENDING | |
 | 3.1 | FlashADC differential ref range `±v_ref/4` | PENDING | |
@@ -98,6 +98,39 @@ Tests that relied on the old SINGLE default (scalar `vin` inputs) were updated t
 - Other ADCs do not expose this parameter at all
 
 **Issue**: No unified quantization mode abstraction across architectures.
+
+**Status: WON'T FIX — documented as an architectural distinction (2026-04-24)**
+
+The split is intentional, not an oversight:
+
+- `SimpleADC` is a *behavioural* ADC — it applies the quantization formula
+  directly (see `SimpleADC._quantize`), so both FLOOR and SYMMETRIC are cheap
+  parametric choices.
+- `SARADC` / `FlashADC` / `PipelinedADC` / `TimeInterleavedADC` are
+  *structural* ADC models. Their output comes from hardware dynamics
+  (CDAC binary search, uniform ReferenceLadder comparator thresholds,
+  residue-amp chains). LSB = v_ref / 2^N is baked into the physics —
+  changing it would require shifting every comparator threshold (not what
+  SYMMETRIC conventionally means) or post-processing codes arithmetically
+  (a pedagogical fiction that misrepresents real silicon, which is itself
+  FLOOR-like).
+- DSP-style (zero-mean / SYMMETRIC) analysis of a structural ADC's code
+  stream is already supported: `pyDataconverter.utils.metrics` functions
+  (`calculate_gain_offset_error`, `calculate_adc_static_metrics`, etc.)
+  accept `quant_mode` at metric-computation time. Use that path rather
+  than expecting the ADC to remap codes.
+
+Documentation updated (2026-04-24):
+- `pyDataconverter/dataconverter.py` — `QuantizationMode` docstring now
+  has an "Applicability" section spelling out which ADCs/helpers honour it.
+- `pyDataconverter/architectures/SARADC.py` — existing "Quantisation"
+  section expanded to state FLOOR is architectural and not configurable,
+  with a pointer to the metric-time override.
+- `pyDataconverter/architectures/FlashADC.py` — new "Quantisation" note in
+  module docstring.
+- `pyDataconverter/architectures/PipelinedADC.py` — new "Quantisation" note.
+- `pyDataconverter/architectures/TimeInterleavedADC.py` — new "Quantisation"
+  note explaining delegation to the channel template.
 
 ### 2.3 `n_levels` Parameter
 - `DACBase` accepts optional `n_levels` (defaults to `2**n_bits`)
