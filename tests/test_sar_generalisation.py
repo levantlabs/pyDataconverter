@@ -53,7 +53,7 @@ class TestRedundantSARCDAC:
         """RedundantSARCDAC inside SARADC gives monotone ideal transfer."""
         from pyDataconverter.architectures.SARADC import SARADC
         cdac = RedundantSARCDAC(n_bits=6, v_ref=1.0, radix=1.8)
-        adc  = SARADC(n_bits=6, v_ref=1.0, cdac=cdac)
+        adc  = SARADC(n_bits=6, v_ref=1.0, input_type=InputType.SINGLE, cdac=cdac)
         vin  = np.linspace(0, 1.0, 200)
         codes = [adc.convert(float(v)) for v in vin]
         # codes should be non-decreasing
@@ -125,7 +125,7 @@ class TestSegmentedCDAC:
 class TestMultibitSARADC:
     def test_construction(self):
         from pyDataconverter.architectures.SARADC import MultibitSARADC
-        adc = MultibitSARADC(n_bits=8, v_ref=1.0, bits_per_cycle=2)
+        adc = MultibitSARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE, bits_per_cycle=2)
         assert adc.n_bits == 8
         assert adc.bits_per_cycle == 2
 
@@ -133,18 +133,18 @@ class TestMultibitSARADC:
         """bits_per_cycle=0 must raise ValueError (line 397)."""
         from pyDataconverter.architectures.SARADC import MultibitSARADC
         with pytest.raises(ValueError, match="bits_per_cycle"):
-            MultibitSARADC(n_bits=6, v_ref=1.0, bits_per_cycle=0)
+            MultibitSARADC(n_bits=6, v_ref=1.0, input_type=InputType.SINGLE, bits_per_cycle=0)
 
     def test_invalid_bits_per_cycle_too_large(self):
         """bits_per_cycle > n_bits must raise ValueError (line 397)."""
         from pyDataconverter.architectures.SARADC import MultibitSARADC
         with pytest.raises(ValueError, match="bits_per_cycle"):
-            MultibitSARADC(n_bits=4, v_ref=1.0, bits_per_cycle=5)
+            MultibitSARADC(n_bits=4, v_ref=1.0, input_type=InputType.SINGLE, bits_per_cycle=5)
 
     def test_repr_basic(self):
         """__repr__ without optional params covers lines 437-442, 451."""
         from pyDataconverter.architectures.SARADC import MultibitSARADC
-        adc = MultibitSARADC(n_bits=6, v_ref=1.0, bits_per_cycle=2)
+        adc = MultibitSARADC(n_bits=6, v_ref=1.0, input_type=InputType.SINGLE, bits_per_cycle=2)
         r = repr(adc)
         assert "MultibitSARADC" in r
         assert "n_bits=6" in r
@@ -154,7 +154,7 @@ class TestMultibitSARADC:
         """__repr__ with noise_rms, offset, gain_error, t_jitter covers lines 443-450."""
         from pyDataconverter.architectures.SARADC import MultibitSARADC
         adc = MultibitSARADC(
-            n_bits=6, v_ref=1.0, bits_per_cycle=2,
+            n_bits=6, v_ref=1.0, input_type=InputType.SINGLE, bits_per_cycle=2,
             noise_rms=1e-4, offset=0.001, gain_error=0.002, t_jitter=1e-10
         )
         r = repr(adc)
@@ -165,14 +165,14 @@ class TestMultibitSARADC:
 
     def test_monotone_ideal(self):
         from pyDataconverter.architectures.SARADC import MultibitSARADC
-        adc = MultibitSARADC(n_bits=6, v_ref=1.0, bits_per_cycle=2)
+        adc = MultibitSARADC(n_bits=6, v_ref=1.0, input_type=InputType.SINGLE, bits_per_cycle=2)
         vin = np.linspace(0.01, 0.99, 200)
         codes = [adc.convert(float(v)) for v in vin]
         assert all(b >= a for a, b in zip(codes, codes[1:]))
 
     def test_output_range(self):
         from pyDataconverter.architectures.SARADC import MultibitSARADC
-        adc = MultibitSARADC(n_bits=6, v_ref=1.0, bits_per_cycle=3)
+        adc = MultibitSARADC(n_bits=6, v_ref=1.0, input_type=InputType.SINGLE, bits_per_cycle=3)
         codes = [adc.convert(float(v)) for v in np.linspace(0, 1, 100)]
         assert min(codes) >= 0
         assert max(codes) <= 2**6 - 1
@@ -181,8 +181,8 @@ class TestMultibitSARADC:
         """bits_per_cycle=1 should behave identically to standard SARADC."""
         from pyDataconverter.architectures.SARADC import SARADC, MultibitSARADC
         np.random.seed(0)
-        sar    = SARADC(n_bits=6, v_ref=1.0)
-        mbit   = MultibitSARADC(n_bits=6, v_ref=1.0, bits_per_cycle=1)
+        sar    = SARADC(n_bits=6, v_ref=1.0, input_type=InputType.SINGLE)
+        mbit   = MultibitSARADC(n_bits=6, v_ref=1.0, input_type=InputType.SINGLE, bits_per_cycle=1)
         vins   = np.linspace(0.01, 0.99, 63)
         codes_sar  = [sar.convert(float(v))  for v in vins]
         codes_mbit = [mbit.convert(float(v)) for v in vins]
@@ -192,27 +192,27 @@ class TestMultibitSARADC:
 class TestNoiseshapingSARADC:
     def test_construction(self):
         from pyDataconverter.architectures.SARADC import NoiseshapingSARADC
-        adc = NoiseshapingSARADC(n_bits=6, v_ref=1.0)
+        adc = NoiseshapingSARADC(n_bits=6, v_ref=1.0, input_type=InputType.SINGLE)
         assert adc.n_bits == 6
         assert adc.integrator_state == 0.0
 
     def test_reset_clears_state(self):
         from pyDataconverter.architectures.SARADC import NoiseshapingSARADC
-        adc = NoiseshapingSARADC(n_bits=6, v_ref=1.0)
+        adc = NoiseshapingSARADC(n_bits=6, v_ref=1.0, input_type=InputType.SINGLE)
         adc.convert(0.5)  # leave some integrator state
         adc.reset()
         assert adc.integrator_state == 0.0
 
     def test_output_range(self):
         from pyDataconverter.architectures.SARADC import NoiseshapingSARADC
-        adc = NoiseshapingSARADC(n_bits=6, v_ref=1.0)
+        adc = NoiseshapingSARADC(n_bits=6, v_ref=1.0, input_type=InputType.SINGLE)
         codes = [adc.convert(0.5) for _ in range(100)]
         assert all(0 <= c <= 2**6 - 1 for c in codes)
 
     def test_repr_basic(self):
         """__repr__ without optional params covers lines 499-504, 514."""
         from pyDataconverter.architectures.SARADC import NoiseshapingSARADC
-        adc = NoiseshapingSARADC(n_bits=6, v_ref=1.0)
+        adc = NoiseshapingSARADC(n_bits=6, v_ref=1.0, input_type=InputType.SINGLE)
         r = repr(adc)
         assert "NoiseshapingSARADC" in r
         assert "n_bits=6" in r
@@ -222,7 +222,7 @@ class TestNoiseshapingSARADC:
         """__repr__ with noise_rms, offset, gain_error, t_jitter covers lines 506-513."""
         from pyDataconverter.architectures.SARADC import NoiseshapingSARADC
         adc = NoiseshapingSARADC(
-            n_bits=6, v_ref=1.0,
+            n_bits=6, v_ref=1.0, input_type=InputType.SINGLE,
             noise_rms=1e-4, offset=0.001, gain_error=0.002, t_jitter=1e-10
         )
         r = repr(adc)
@@ -240,8 +240,8 @@ class TestNoiseshapingSARADC:
         import numpy as np
         n_bits, v_ref, fs, n_fft = 6, 1.0, 1e6, 2048
         vin, _ = generate_coherent_sine(fs, n_fft, n_fin=5, amplitude=0.45, offset=0.5)
-        adc_std = SARADC(n_bits=n_bits, v_ref=v_ref)
-        adc_ns  = NoiseshapingSARADC(n_bits=n_bits, v_ref=v_ref)
+        adc_std = SARADC(n_bits=n_bits, input_type=InputType.SINGLE, v_ref=v_ref)
+        adc_ns  = NoiseshapingSARADC(n_bits=n_bits, input_type=InputType.SINGLE, v_ref=v_ref)
         codes_std = np.array([adc_std.convert(float(v)) for v in vin], dtype=float)
         codes_ns  = np.array([adc_ns.convert(float(v))  for v in vin], dtype=float)
         m_std = calculate_adc_dynamic_metrics(time_data=codes_std, fs=fs)
@@ -280,17 +280,17 @@ class TestSARAdcBaseLineCoverage:
     def test_negative_noise_rms_raises(self):
         from pyDataconverter.architectures.SARADC import SARADC
         with pytest.raises(ValueError, match="noise_rms"):
-            SARADC(n_bits=6, noise_rms=-0.001)
+            SARADC(n_bits=6, input_type=InputType.SINGLE, noise_rms=-0.001)
 
     def test_negative_t_jitter_raises(self):
         from pyDataconverter.architectures.SARADC import SARADC
         with pytest.raises(ValueError, match="t_jitter"):
-            SARADC(n_bits=6, t_jitter=-1e-12)
+            SARADC(n_bits=6, input_type=InputType.SINGLE, t_jitter=-1e-12)
 
     def test_negative_cap_mismatch_raises(self):
         from pyDataconverter.architectures.SARADC import SARADC
         with pytest.raises(ValueError, match="cap_mismatch"):
-            SARADC(n_bits=6, cap_mismatch=-0.01)
+            SARADC(n_bits=6, input_type=InputType.SINGLE, cap_mismatch=-0.01)
 
     # Line 165 — TypeError for non-CDACBase cdac
     def test_cdac_wrong_type_raises(self):
@@ -321,7 +321,7 @@ class TestSARAdcBaseLineCoverage:
     # Line 193 — dac_voltages property
     def test_dac_voltages_property(self):
         from pyDataconverter.architectures.SARADC import SARADC
-        adc = SARADC(n_bits=6, v_ref=1.0)
+        adc = SARADC(n_bits=6, v_ref=1.0, input_type=InputType.SINGLE)
         vols = adc.dac_voltages
         assert vols.shape == (2**6,)
         assert np.all(np.diff(vols) > 0)
@@ -329,7 +329,7 @@ class TestSARAdcBaseLineCoverage:
     # Lines 246-251 — convert_with_trace
     def test_convert_with_trace_keys(self):
         from pyDataconverter.architectures.SARADC import SARADC
-        adc = SARADC(n_bits=6, v_ref=1.0)
+        adc = SARADC(n_bits=6, v_ref=1.0, input_type=InputType.SINGLE)
         trace = adc.convert_with_trace(0.4)
         assert set(trace.keys()) == {
             'code', 'sampled_voltage', 'dac_voltages',
@@ -348,22 +348,22 @@ class TestSARAdcBaseLineCoverage:
     # Line 291 — gain_error branch in _sample_input
     def test_gain_error_applied(self):
         from pyDataconverter.architectures.SARADC import SARADC
-        adc_ideal = SARADC(n_bits=8, v_ref=1.0)
-        adc_gain = SARADC(n_bits=8, v_ref=1.0, gain_error=0.05)
+        adc_ideal = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE)
+        adc_gain = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE, gain_error=0.05)
         assert adc_ideal.convert(0.4) != adc_gain.convert(0.4)
 
     # Line 293 — offset branch in _sample_input
     def test_offset_applied(self):
         from pyDataconverter.architectures.SARADC import SARADC
-        adc_ideal = SARADC(n_bits=8, v_ref=1.0)
-        adc_offset = SARADC(n_bits=8, v_ref=1.0, offset=0.05)
+        adc_ideal = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE)
+        adc_offset = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE, offset=0.05)
         assert adc_ideal.convert(0.4) != adc_offset.convert(0.4)
 
     # Line 295 — noise_rms branch in _sample_input
     def test_noise_rms_applied(self):
         from pyDataconverter.architectures.SARADC import SARADC
         np.random.seed(0)
-        adc = SARADC(n_bits=8, v_ref=1.0, noise_rms=0.02)
+        adc = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE, noise_rms=0.02)
         codes = {adc.convert(0.5) for _ in range(30)}
         assert len(codes) > 1
 
@@ -371,7 +371,7 @@ class TestSARAdcBaseLineCoverage:
     def test_t_jitter_with_dvdt_applied(self):
         from pyDataconverter.architectures.SARADC import SARADC
         np.random.seed(0)
-        adc = SARADC(n_bits=8, v_ref=1.0, t_jitter=1e-9)
+        adc = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE, t_jitter=1e-9)
         dvdt = 0.5 * 2 * np.pi * 1e6
         codes = {adc.convert(0.4, dvdt=dvdt) for _ in range(30)}
         assert len(codes) > 1
@@ -379,7 +379,7 @@ class TestSARAdcBaseLineCoverage:
     # Lines 359-373 — SARADC.__repr__ with optional non-idealities
     def test_repr_basic(self):
         from pyDataconverter.architectures.SARADC import SARADC
-        adc = SARADC(n_bits=6, v_ref=1.0)
+        adc = SARADC(n_bits=6, v_ref=1.0, input_type=InputType.SINGLE)
         r = repr(adc)
         assert "SARADC" in r
         assert "n_bits=6" in r
@@ -387,7 +387,7 @@ class TestSARAdcBaseLineCoverage:
     def test_repr_with_all_nonidealities(self):
         from pyDataconverter.architectures.SARADC import SARADC
         adc = SARADC(
-            n_bits=6, v_ref=1.0,
+            n_bits=6, v_ref=1.0, input_type=InputType.SINGLE,
             noise_rms=1e-4, offset=0.001, gain_error=0.002, t_jitter=1e-10
         )
         r = repr(adc)

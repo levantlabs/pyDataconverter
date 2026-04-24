@@ -83,7 +83,7 @@ class FlashADC(ADCBase):
     def __init__(self,
                  n_bits: int,
                  v_ref: float = 1.0,
-                 input_type: InputType = InputType.SINGLE,
+                 input_type: InputType = InputType.DIFFERENTIAL,
                  comparator_type: Type[ComparatorBase] = DifferentialComparator,
                  comparator_params: Optional[dict] = None,
                  offset_std: float = 0.0,
@@ -337,6 +337,7 @@ if __name__ == "__main__":
     adc = FlashADC(
         n_bits=3,
         v_ref=1.0,
+        input_type=InputType.SINGLE,
         comparator_params={
             'noise_rms': 0.001,  # 1mV RMS noise
             'hysteresis': 0.002  # 2mV hysteresis
@@ -393,6 +394,7 @@ if __name__ == "__main__":
     adc = FlashADC(
         n_bits=4,
         v_ref=1.0,
+        input_type=InputType.SINGLE,
         comparator_params={
             'offset': 0.001,  # 1mV offset
             'noise_rms': 0.0005  # 0.5mV noise

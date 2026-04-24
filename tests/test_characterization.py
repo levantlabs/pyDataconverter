@@ -2,10 +2,11 @@
 import numpy as np
 import pytest
 from pyDataconverter.architectures.FlashADC import FlashADC
+from pyDataconverter.dataconverter import InputType
 
 
 def _make_adc(n_bits=8, offset_std=0.0):
-    return FlashADC(n_bits=n_bits, v_ref=1.0, offset_std=offset_std)
+    return FlashADC(n_bits=n_bits, v_ref=1.0, input_type=InputType.SINGLE, offset_std=offset_std)
 
 
 def test_measure_dynamic_range_returns_dict():

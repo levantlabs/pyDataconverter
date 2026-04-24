@@ -232,20 +232,20 @@ class TestSARAdcConstruction:
             SARADC(n_bits=4, v_ref=1.0, cdac="not_a_cdac")
 
     def test_comparator_type_forwarded(self):
-        adc = SARADC(n_bits=4)
+        adc = SARADC(n_bits=4, input_type=InputType.SINGLE)
         assert isinstance(adc.comparator, DifferentialComparator)
 
     def test_negative_noise_rms_raises(self):
         with pytest.raises(ValueError):
-            SARADC(n_bits=4, noise_rms=-0.001)
+            SARADC(n_bits=4, input_type=InputType.SINGLE, noise_rms=-0.001)
 
     def test_negative_t_jitter_raises(self):
         with pytest.raises(ValueError):
-            SARADC(n_bits=4, t_jitter=-1e-12)
+            SARADC(n_bits=4, input_type=InputType.SINGLE, t_jitter=-1e-12)
 
     def test_negative_cap_mismatch_raises(self):
         with pytest.raises(ValueError):
-            SARADC(n_bits=4, cap_mismatch=-0.001)
+            SARADC(n_bits=4, input_type=InputType.SINGLE, cap_mismatch=-0.001)
 
 
 # ===========================================================================
@@ -333,7 +333,7 @@ class TestSARAdcDifferentialIdeal:
 class TestSARAdcTrace:
 
     def setup_method(self):
-        self.adc = SARADC(n_bits=4, v_ref=1.0)
+        self.adc = SARADC(n_bits=4, v_ref=1.0, input_type=InputType.SINGLE)
 
     def test_trace_keys(self):
         trace = self.adc.convert_with_trace(0.37)
@@ -394,21 +394,21 @@ class TestSARAdcNonidealities:
 
     def test_noise_rms_causes_code_spread(self):
         np.random.seed(0)
-        adc = SARADC(n_bits=8, v_ref=1.0, noise_rms=0.02)
+        adc = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE, noise_rms=0.02)
         codes = {adc.convert(0.5) for _ in range(50)}
         assert len(codes) > 1
 
     def test_offset_shifts_codes(self):
-        adc_ideal  = SARADC(n_bits=8, v_ref=1.0)
-        adc_offset = SARADC(n_bits=8, v_ref=1.0, offset=0.05)
+        adc_ideal  = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE)
+        adc_offset = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE, offset=0.05)
         v_in = np.linspace(0.1, 0.9, 50)
         codes_ideal  = [adc_ideal.convert(v)  for v in v_in]
         codes_offset = [adc_offset.convert(v) for v in v_in]
         assert codes_ideal != codes_offset
 
     def test_gain_error_changes_codes(self):
-        adc_ideal = SARADC(n_bits=8, v_ref=1.0)
-        adc_gain  = SARADC(n_bits=8, v_ref=1.0, gain_error=0.02)
+        adc_ideal = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE)
+        adc_gain  = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE, gain_error=0.02)
         v_in = np.linspace(0.1, 0.9, 50)
         codes_ideal = [adc_ideal.convert(v) for v in v_in]
         codes_gain  = [adc_gain.convert(v)  for v in v_in]
@@ -416,16 +416,16 @@ class TestSARAdcNonidealities:
 
     def test_comparator_noise_causes_spread(self):
         np.random.seed(0)
-        adc = SARADC(n_bits=8, v_ref=1.0,
+        adc = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE,
                      comparator_params={'noise_rms': 0.01})
         codes = {adc.convert(0.5) for _ in range(50)}
         assert len(codes) > 1
 
     def test_cap_mismatch_breaks_linearity(self):
         np.random.seed(42)
-        adc_ideal    = SARADC(n_bits=8, v_ref=1.0)
+        adc_ideal    = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE)
         np.random.seed(42)
-        adc_mismatch = SARADC(n_bits=8, v_ref=1.0, cap_mismatch=0.005)
+        adc_mismatch = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE, cap_mismatch=0.005)
         v_in = np.linspace(0.05, 0.95, 100)
         codes_ideal    = [adc_ideal.convert(v)    for v in v_in]
         codes_mismatch = [adc_mismatch.convert(v) for v in v_in]
@@ -433,13 +433,13 @@ class TestSARAdcNonidealities:
 
     def test_no_nonidealities_deterministic(self):
         """Without noise, identical conversions are identical."""
-        adc = SARADC(n_bits=8, v_ref=1.0)
+        adc = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE)
         codes = [adc.convert(0.5) for _ in range(10)]
         assert len(set(codes)) == 1
 
     def test_t_jitter_with_dvdt_causes_spread(self):
         np.random.seed(0)
-        adc = SARADC(n_bits=8, v_ref=1.0, t_jitter=1e-9)
+        adc = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE, t_jitter=1e-9)
         # 1 MHz sine, amplitude 0.5 V → peak dvdt ≈ 3.14e6 V/s
         # jitter voltage ≈ 3.14e6 * 1e-9 ≈ 3 mV ≈ 0.75 LSB → visible spread
         dvdt = 0.5 * 2 * np.pi * 1e6
@@ -448,7 +448,7 @@ class TestSARAdcNonidealities:
 
     def test_t_jitter_without_dvdt_no_effect(self):
         """Jitter has no effect when dvdt=0 (default)."""
-        adc = SARADC(n_bits=8, v_ref=1.0, t_jitter=1e-9)
+        adc = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE, t_jitter=1e-9)
         codes = [adc.convert(0.5) for _ in range(20)]
         assert len(set(codes)) == 1
 
@@ -460,7 +460,7 @@ class TestSARAdcNonidealities:
 class TestSARAdcReset:
 
     def test_reset_does_not_raise(self):
-        adc = SARADC(n_bits=4, v_ref=1.0,
+        adc = SARADC(n_bits=4, v_ref=1.0, input_type=InputType.SINGLE,
                      comparator_params={'hysteresis': 0.01})
         for v in np.linspace(0, 1, 20):
             adc.convert(v)
@@ -468,7 +468,7 @@ class TestSARAdcReset:
 
     def test_reset_restores_determinism(self):
         """After reset, same input gives same code regardless of history."""
-        adc = SARADC(n_bits=4, v_ref=1.0,
+        adc = SARADC(n_bits=4, v_ref=1.0, input_type=InputType.SINGLE,
                      comparator_params={'hysteresis': 0.05})
         for _ in range(10):
             adc.convert(1.0)
@@ -486,11 +486,11 @@ class TestSARAdcReset:
 class TestSARAdcRepr:
 
     def test_repr_contains_class_name(self):
-        adc = SARADC(n_bits=4)
+        adc = SARADC(n_bits=4, input_type=InputType.SINGLE)
         assert 'SARADC' in repr(adc)
 
     def test_repr_contains_n_bits(self):
-        adc = SARADC(n_bits=6)
+        adc = SARADC(n_bits=6, input_type=InputType.SINGLE)
         assert 'n_bits=6' in repr(adc)
 
     def test_repr_contains_input_type(self):
@@ -498,39 +498,39 @@ class TestSARAdcRepr:
         assert 'DIFFERENTIAL' in repr(adc)
 
     def test_repr_contains_noise_when_set(self):
-        adc = SARADC(n_bits=4, noise_rms=0.001)
+        adc = SARADC(n_bits=4, input_type=InputType.SINGLE, noise_rms=0.001)
         assert 'noise_rms' in repr(adc)
 
     def test_repr_omits_noise_when_zero(self):
-        adc = SARADC(n_bits=4, noise_rms=0.0)
+        adc = SARADC(n_bits=4, input_type=InputType.SINGLE, noise_rms=0.0)
         assert 'noise_rms' not in repr(adc)
 
     def test_repr_contains_offset_when_set(self):
-        adc = SARADC(n_bits=4, offset=0.01)
+        adc = SARADC(n_bits=4, input_type=InputType.SINGLE, offset=0.01)
         assert 'offset=0.01' in repr(adc)
 
     def test_repr_omits_offset_when_zero(self):
-        adc = SARADC(n_bits=4, offset=0.0)
+        adc = SARADC(n_bits=4, input_type=InputType.SINGLE, offset=0.0)
         assert 'offset=' not in repr(adc)
 
     def test_repr_contains_gain_error_when_set(self):
-        adc = SARADC(n_bits=4, gain_error=0.02)
+        adc = SARADC(n_bits=4, input_type=InputType.SINGLE, gain_error=0.02)
         assert 'gain_error=0.02' in repr(adc)
 
     def test_repr_omits_gain_error_when_zero(self):
-        adc = SARADC(n_bits=4, gain_error=0.0)
+        adc = SARADC(n_bits=4, input_type=InputType.SINGLE, gain_error=0.0)
         assert 'gain_error=' not in repr(adc)
 
     def test_repr_contains_t_jitter_when_set(self):
-        adc = SARADC(n_bits=4, t_jitter=1e-12)
+        adc = SARADC(n_bits=4, input_type=InputType.SINGLE, t_jitter=1e-12)
         assert 't_jitter=' in repr(adc)
 
     def test_repr_omits_t_jitter_when_zero(self):
-        adc = SARADC(n_bits=4, t_jitter=0.0)
+        adc = SARADC(n_bits=4, input_type=InputType.SINGLE, t_jitter=0.0)
         assert 't_jitter=' not in repr(adc)
 
     def test_repr_all_nonidealities(self):
-        adc = SARADC(n_bits=4, noise_rms=0.001, offset=0.01,
+        adc = SARADC(n_bits=4, input_type=InputType.SINGLE, noise_rms=0.001, offset=0.01,
                      gain_error=0.02, t_jitter=1e-12)
         r = repr(adc)
         assert 'noise_rms' in r
@@ -587,7 +587,7 @@ class TestSARAdcTraceDifferential:
 class TestSARAdcTraceWithDvdt:
 
     def test_trace_with_dvdt_returns_valid(self):
-        adc = SARADC(n_bits=4, v_ref=1.0, t_jitter=1e-9)
+        adc = SARADC(n_bits=4, v_ref=1.0, input_type=InputType.SINGLE, t_jitter=1e-9)
         trace = adc.convert_with_trace(0.5, dvdt=1e6)
         assert 'code' in trace
         assert 0 <= trace['code'] <= 15
@@ -595,7 +595,7 @@ class TestSARAdcTraceWithDvdt:
     def test_trace_dvdt_causes_spread(self):
         """With jitter and dvdt, repeated traces yield different codes."""
         np.random.seed(0)
-        adc = SARADC(n_bits=8, v_ref=1.0, t_jitter=1e-9)
+        adc = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE, t_jitter=1e-9)
         dvdt = 0.5 * 2 * np.pi * 1e6
         codes = {adc.convert_with_trace(0.5, dvdt=dvdt)['code']
                  for _ in range(50)}
@@ -603,7 +603,7 @@ class TestSARAdcTraceWithDvdt:
 
     def test_trace_dvdt_zero_no_jitter_effect(self):
         """dvdt=0 means jitter has no effect even when t_jitter > 0."""
-        adc = SARADC(n_bits=8, v_ref=1.0, t_jitter=1e-9)
+        adc = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE, t_jitter=1e-9)
         codes = {adc.convert_with_trace(0.5, dvdt=0.0)['code']
                  for _ in range(20)}
         assert len(codes) == 1

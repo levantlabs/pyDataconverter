@@ -14,7 +14,7 @@ from pyDataconverter.utils.metrics import (
     calculate_histogram,
     calculate_gain_offset_error,
 )
-from pyDataconverter.dataconverter import QuantizationMode
+from pyDataconverter.dataconverter import QuantizationMode, InputType
 
 
 def test_gain_offset_error_ideal():
@@ -48,7 +48,7 @@ def test_gain_offset_error_with_gain():
 def test_static_metrics_uses_gain_offset_helper():
     import numpy as np
     from pyDataconverter.architectures.FlashADC import FlashADC
-    adc = FlashADC(n_bits=6, v_ref=1.0, offset_std=0.002)
+    adc = FlashADC(n_bits=6, v_ref=1.0, input_type=InputType.SINGLE, offset_std=0.002)
     vin = np.linspace(0, 1.0, 10000)
     codes = np.array([adc.convert(float(v)) for v in vin])
     m_static = calculate_adc_static_metrics(vin, codes, 6, 1.0)
@@ -551,7 +551,7 @@ def test_missing_codes_ideal_adc():
     """Ideal ADC has no missing codes."""
     from pyDataconverter.architectures.FlashADC import FlashADC
     import numpy as np
-    adc = FlashADC(n_bits=6, v_ref=1.0, offset_std=0.0)
+    adc = FlashADC(n_bits=6, v_ref=1.0, input_type=InputType.SINGLE, offset_std=0.0)
     vin = np.linspace(0, 1.0, 10000)
     codes = np.array([adc.convert(float(v)) for v in vin])
     m = calculate_adc_static_metrics(vin, codes, 6, 1.0)
@@ -582,7 +582,7 @@ def test_dynamic_metrics_individual_harmonics():
     import numpy as np
     fs = 1e6
     n_fft = 1024
-    adc = FlashADC(n_bits=8, v_ref=1.0, offset_std=0.001)
+    adc = FlashADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE, offset_std=0.001)
     vin, _ = generate_coherent_sine(fs, n_fft, n_fin=13, amplitude=0.45, offset=0.5)
     codes = np.array([adc.convert(float(v)) for v in vin])
     from pyDataconverter.utils.metrics import calculate_adc_dynamic_metrics
@@ -598,7 +598,7 @@ def test_dynamic_metrics_nsd():
     import numpy as np
     fs = 1e6
     n_fft = 1024
-    adc = FlashADC(n_bits=8, v_ref=1.0, offset_std=0.0)
+    adc = FlashADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE, offset_std=0.0)
     vin, _ = generate_coherent_sine(fs, n_fft, n_fin=13, amplitude=0.45, offset=0.5)
     codes = np.array([adc.convert(float(v)) for v in vin])
     from pyDataconverter.utils.metrics import calculate_adc_dynamic_metrics
@@ -613,7 +613,7 @@ def test_dynamic_metrics_spurious():
     import numpy as np
     fs = 1e6
     n_fft = 1024
-    adc = FlashADC(n_bits=6, v_ref=1.0, offset_std=0.001)
+    adc = FlashADC(n_bits=6, v_ref=1.0, input_type=InputType.SINGLE, offset_std=0.001)
     vin, _ = generate_coherent_sine(fs, n_fft, n_fin=13, amplitude=0.45, offset=0.5)
     codes = np.array([adc.convert(float(v)) for v in vin])
     from pyDataconverter.utils.metrics import calculate_adc_dynamic_metrics
@@ -628,7 +628,7 @@ def test_calculate_adc_iip3_ideal():
     from pyDataconverter.utils.metrics import calculate_adc_iip3
     import numpy as np
     fs = 10e6
-    adc = FlashADC(n_bits=8, v_ref=1.0, offset_std=0.0)
+    adc = FlashADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE, offset_std=0.0)
     f1, f2 = 1e6, 1.1e6
     vin = generate_two_tone(f1, f2, fs, amplitude1=0.2, amplitude2=0.2,
                             duration=512/fs) + 0.5
@@ -647,8 +647,8 @@ def test_calculate_adc_iip3_nonlinear():
     fs = 10e6
     # 8-bit ADC has much lower quantization nonlinearity than 4-bit ADC;
     # coarser quantization deterministically raises IM3 and lowers IIP3.
-    adc_hires = FlashADC(n_bits=8, v_ref=1.0, offset_std=0.0)
-    adc_lores = FlashADC(n_bits=4, v_ref=1.0, offset_std=0.0)
+    adc_hires = FlashADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE, offset_std=0.0)
+    adc_lores = FlashADC(n_bits=4, v_ref=1.0, input_type=InputType.SINGLE, offset_std=0.0)
     f1, f2 = 1e6, 1.1e6
     vin = generate_two_tone(f1, f2, fs, amplitude1=0.15, amplitude2=0.15,
                             duration=512/fs) + 0.5

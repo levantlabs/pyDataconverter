@@ -102,7 +102,7 @@ class SARADC(ADCBase):
         self,
         n_bits: int,
         v_ref: float = 1.0,
-        input_type: InputType = InputType.SINGLE,
+        input_type: InputType = InputType.DIFFERENTIAL,
         comparator_type: Type[ComparatorBase] = DifferentialComparator,
         comparator_params: Optional[dict] = None,
         cdac: Optional[CDACBase] = None,

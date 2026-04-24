@@ -19,19 +19,19 @@ class TestFlashADCConstruction:
 
     def test_n_comparators(self):
         for n in [2, 3, 4]:
-            adc = FlashADC(n_bits=n)
+            adc = FlashADC(n_bits=n, input_type=InputType.SINGLE)
             assert adc.n_comparators == 2 ** n - 1
 
     def test_default_encoder_is_count_ones(self):
-        adc = FlashADC(n_bits=3)
+        adc = FlashADC(n_bits=3, input_type=InputType.SINGLE)
         assert adc.encoder_type == EncoderType.COUNT_ONES
 
     def test_invalid_encoder_type_raises(self):
         with pytest.raises(TypeError):
-            FlashADC(n_bits=3, encoder_type='count_ones')
+            FlashADC(n_bits=3, input_type=InputType.SINGLE, encoder_type='count_ones')
 
     def test_default_reference_is_ladder(self):
-        adc = FlashADC(n_bits=3, v_ref=1.0)
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE)
         assert isinstance(adc.reference, ReferenceLadder)
 
     def test_default_reference_single_ended_range(self):
@@ -48,21 +48,21 @@ class TestFlashADCConstruction:
 
     def test_custom_reference_accepted(self):
         ref = ArbitraryReference(np.linspace(0.125, 0.875, 7))
-        adc = FlashADC(n_bits=3, v_ref=1.0, reference=ref)
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE, reference=ref)
         assert adc.reference is ref
 
     def test_custom_reference_wrong_taps_raises(self):
         ref = ArbitraryReference([0.25, 0.5, 0.75])   # 3 taps != 7
         with pytest.raises(ValueError):
-            FlashADC(n_bits=3, v_ref=1.0, reference=ref)
+            FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE, reference=ref)
 
     def test_custom_reference_wrong_type_raises(self):
         with pytest.raises(TypeError):
-            FlashADC(n_bits=3, v_ref=1.0, reference="not_a_reference")
+            FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE, reference="not_a_reference")
 
     def test_reference_voltages_property(self):
         """Backward-compat alias for reference.voltages."""
-        adc = FlashADC(n_bits=3, v_ref=1.0)
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE)
         np.testing.assert_array_equal(adc.reference_voltages, adc.reference.voltages)
 
 
@@ -73,7 +73,7 @@ class TestFlashADCConstruction:
 class TestCountOnesEncoder:
 
     def setup_method(self):
-        self.adc = FlashADC(n_bits=3, v_ref=1.0, encoder_type=EncoderType.COUNT_ONES)
+        self.adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE, encoder_type=EncoderType.COUNT_ONES)
 
     def test_ramp_monotone(self):
         """Output codes on a ramp are non-decreasing."""
@@ -112,8 +112,8 @@ class TestCountOnesEncoder:
 class TestXorEncoder:
 
     def setup_method(self):
-        self.adc_xor    = FlashADC(n_bits=3, v_ref=1.0, encoder_type=EncoderType.XOR)
-        self.adc_co     = FlashADC(n_bits=3, v_ref=1.0, encoder_type=EncoderType.COUNT_ONES)
+        self.adc_xor    = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE, encoder_type=EncoderType.XOR)
+        self.adc_co     = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE, encoder_type=EncoderType.COUNT_ONES)
 
     def test_xor_matches_count_ones_on_valid_code(self):
         """XOR encoder must equal COUNT_ONES for every clean thermometer code."""
@@ -172,9 +172,9 @@ class TestComparatorNonidealities:
     def test_offset_std_shifts_thresholds(self):
         """With large offset_std, output on a ramp differs from ideal."""
         np.random.seed(7)
-        adc_ideal   = FlashADC(n_bits=3, v_ref=1.0)
+        adc_ideal   = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE)
         np.random.seed(7)
-        adc_offset  = FlashADC(n_bits=3, v_ref=1.0, offset_std=0.1)
+        adc_offset  = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE, offset_std=0.1)
 
         v_in = np.linspace(0.05, 0.95, 100)
         codes_ideal  = [adc_ideal.convert(v)  for v in v_in]
@@ -184,7 +184,7 @@ class TestComparatorNonidealities:
     def test_comparator_params_forwarded(self):
         """noise_rms in comparator_params should introduce code spread."""
         np.random.seed(0)
-        adc = FlashADC(n_bits=4, v_ref=1.0,
+        adc = FlashADC(n_bits=4, v_ref=1.0, input_type=InputType.SINGLE,
                        comparator_params={'noise_rms': 0.05})
         v = 0.5
         codes = {adc.convert(v) for _ in range(50)}
@@ -198,7 +198,7 @@ class TestComparatorNonidealities:
 class TestReset:
 
     def test_reset_does_not_raise(self):
-        adc = FlashADC(n_bits=3, v_ref=1.0,
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE,
                        comparator_params={'hysteresis': 0.01})
         for v in np.linspace(0, 1, 20):
             adc.convert(v)
@@ -206,7 +206,7 @@ class TestReset:
 
     def test_reset_clears_hysteresis(self):
         """After reset, converter behaves as fresh — hysteresis memory gone."""
-        adc = FlashADC(n_bits=3, v_ref=1.0,
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE,
                        comparator_params={'hysteresis': 0.05})
         # drive high to latch all comparators
         for _ in range(5):
@@ -226,7 +226,7 @@ class TestReset:
 class TestComparatorSubstitution:
 
     def test_default_comparator_is_differential(self):
-        adc = FlashADC(n_bits=3, v_ref=1.0)
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE)
         assert all(isinstance(c, DifferentialComparator) for c in adc.comparators)
 
     def test_custom_comparator_type_accepted(self):
@@ -234,7 +234,7 @@ class TestComparatorSubstitution:
         class MyComp(DifferentialComparator):
             pass
 
-        adc = FlashADC(n_bits=3, v_ref=1.0, comparator_type=MyComp)
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE, comparator_type=MyComp)
         assert all(isinstance(c, MyComp) for c in adc.comparators)
 
     def test_invalid_comparator_type_raises(self):
@@ -246,7 +246,7 @@ class TestComparatorSubstitution:
         # FlashADC does not enforce this at construction, but the type hint documents it.
         # At minimum, conversion must not silently succeed with wrong results.
         # This test just verifies no crash for a duck-typed replacement.
-        adc = FlashADC(n_bits=3, v_ref=1.0, comparator_type=NotAComparator)
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE, comparator_type=NotAComparator)
         # If it has a compatible compare() it works; if not it raises on convert()
         assert len(adc.comparators) == 7
 
@@ -325,7 +325,7 @@ class TestResetClearsHysteresis:
 
     def test_reset_makes_conversion_deterministic(self):
         """After reset, two fresh conversions of the same voltage give the same code."""
-        adc = FlashADC(n_bits=3, v_ref=1.0,
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE,
                        comparator_params={'hysteresis': 0.05})
         # Drive high then low to build hysteresis history
         for _ in range(10):
@@ -347,7 +347,7 @@ class TestXorEncoderAllOnes:
 
     def test_xor_all_ones_thermometer_3bit(self):
         """XOR encoder with all-ones thermometer for 3-bit ADC gives max code 7."""
-        adc = FlashADC(n_bits=3, v_ref=1.0, encoder_type=EncoderType.XOR)
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE, encoder_type=EncoderType.XOR)
         therm = np.ones(7, dtype=int)
         assert adc._encode(therm) == 7
 
@@ -355,8 +355,8 @@ class TestXorEncoderAllOnes:
         """XOR all-ones result matches COUNT_ONES for 3-bit and 4-bit ADCs."""
         for n in [3, 4]:
             n_comp = 2**n - 1
-            adc_xor = FlashADC(n_bits=n, v_ref=1.0, encoder_type=EncoderType.XOR)
-            adc_co  = FlashADC(n_bits=n, v_ref=1.0, encoder_type=EncoderType.COUNT_ONES)
+            adc_xor = FlashADC(n_bits=n, v_ref=1.0, input_type=InputType.SINGLE, encoder_type=EncoderType.XOR)
+            adc_co  = FlashADC(n_bits=n, v_ref=1.0, input_type=InputType.SINGLE, encoder_type=EncoderType.COUNT_ONES)
             therm = np.ones(n_comp, dtype=int)
             assert adc_xor._encode(therm) == adc_co._encode(therm)
 
@@ -365,7 +365,7 @@ class TestOffsetStdZeroDeterministic:
 
     def test_offset_std_zero_produces_identical_results(self):
         """With offset_std=0, repeated conversions of the same voltage are identical."""
-        adc = FlashADC(n_bits=3, v_ref=1.0, offset_std=0.0)
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE, offset_std=0.0)
         codes = [adc.convert(0.5) for _ in range(20)]
         assert len(set(codes)) == 1, "offset_std=0 should produce identical results"
 
@@ -373,11 +373,11 @@ class TestOffsetStdZeroDeterministic:
 class TestRepr:
 
     def test_repr_contains_class_name(self):
-        adc = FlashADC(n_bits=3)
+        adc = FlashADC(n_bits=3, input_type=InputType.SINGLE)
         assert 'FlashADC' in repr(adc)
 
     def test_repr_contains_n_bits(self):
-        adc = FlashADC(n_bits=4)
+        adc = FlashADC(n_bits=4, input_type=InputType.SINGLE)
         assert 'n_bits=4' in repr(adc)
 
 
@@ -452,11 +452,11 @@ class TestFlashADCRelaxedNComparators(unittest.TestCase):
 
     def test_n_comparators_not_int_raises(self):
         with self.assertRaises(TypeError):
-            FlashADC(n_bits=3, v_ref=1.0, n_comparators=7.5)
+            FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE, n_comparators=7.5)
 
     def test_n_comparators_zero_raises(self):
         with self.assertRaises(ValueError):
-            FlashADC(n_bits=3, v_ref=1.0, n_comparators=0)
+            FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE, n_comparators=0)
 
 
 class TestFlashADCMetastabilityHooks(unittest.TestCase):

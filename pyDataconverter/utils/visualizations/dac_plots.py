@@ -17,7 +17,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from typing import Tuple, Optional
 
-from pyDataconverter.architectures.SimpleDAC import SimpleDAC
 from pyDataconverter.dataconverter import OutputType
 from pyDataconverter.utils.visualizations.fft_plots import plot_fft
 import pyDataconverter.utils.metrics as metrics
@@ -50,7 +49,10 @@ def plot_transfer_curve(dac,
     n_codes = 2 ** dac.n_bits
     codes = np.arange(n_codes)
 
-    # Ideal reference: same n_bits and v_ref, no non-idealities, single-ended
+    # Ideal reference: same n_bits and v_ref, no non-idealities, single-ended.
+    # Imported locally to avoid a utils→architectures→components→utils cycle at
+    # package import time.
+    from pyDataconverter.architectures.SimpleDAC import SimpleDAC
     ideal_dac = SimpleDAC(dac.n_bits, dac.v_ref, OutputType.SINGLE)
     ideal_voltages = np.array([ideal_dac.convert(c) for c in codes])
 

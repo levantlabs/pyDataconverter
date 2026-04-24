@@ -173,7 +173,7 @@ class PipelinedADC(ADCBase):
     def __init__(self,
                  n_bits: int,
                  v_ref: float = 1.0,
-                 input_type: InputType = InputType.SINGLE,
+                 input_type: InputType = InputType.DIFFERENTIAL,
                  stages: Optional[List[PipelineStage]] = None,
                  backend: Optional[ADCBase] = None,
                  backend_H: float = 1.0,
