@@ -188,6 +188,25 @@ class DACBase(ABC):
         output_type (OutputType): Single-ended or differential
         n_levels (int): Number of output codes (default 2**n_bits).
         lsb (float): Least significant bit size (v_ref / (n_levels - 1)).
+
+    Level count (n_levels)
+    ----------------------
+    The ``n_levels`` parameter decouples the number of output codes from
+    ``n_bits``. It is honoured by *behavioural* DACs (``SimpleDAC``) that
+    compute the output by formula and can therefore represent an arbitrary
+    number of levels. The primary use case is pipelined / TI-ADC sub-DACs,
+    where a flash sub-ADC with N comparators feeds a sub-DAC that must
+    produce N+1 distinct levels (typically not a power of two).
+
+    ``n_levels`` does **not** apply to *structural* DACs
+    (``ResistorStringDAC``, ``R2RDAC``, ``SegmentedResistorDAC``,
+    ``CurrentSteeringDAC``). Their topology fixes the level count to
+    ``2**n_bits``: R-2R is binary-weighted by construction, and the other
+    structural DACs are wired for power-of-two codes in their current
+    implementations. Those classes therefore do not expose ``n_levels`` in
+    their constructor signatures; attempting to pass it raises
+    ``TypeError``. When you need a non-power-of-two DAC (e.g., a pipeline
+    sub-DAC matching a 3-bit / 8-comparator flash), use ``SimpleDAC``.
     """
 
     def __init__(self,

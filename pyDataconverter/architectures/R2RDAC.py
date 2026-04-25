@@ -54,6 +54,19 @@ class R2RDAC(DACBase):
     Tap voltages are pre-computed at construction for all 2^N codes so
     that repeated calls to ``convert`` are O(1).
 
+    Level count: R-2R is binary-weighted by construction, so ``n_levels``
+    is strictly ``2**n_bits``.  The ``n_levels`` constructor kwarg from
+    ``DACBase`` is not exposed here; for non-power-of-two DAC sub-blocks
+    (e.g., a pipeline stage matching a 3-bit / 8-comparator flash sub-ADC),
+    use ``SimpleDAC``.
+
+    Output type: single-ended only.  An R-2R ladder is inherently
+    single-ended; for differential output instantiate two ``R2RDAC``
+    objects and combine their outputs externally.  The ``output_type``
+    kwarg is exposed in the constructor so the constraint is visible in
+    the signature; passing ``OutputType.DIFFERENTIAL`` raises
+    ``ValueError`` with a pointer to the composition pattern.
+
     Attributes:
         r_unit (float): Nominal R value (Ω).
         r_mismatch (float): Std of multiplicative mismatch for R (horizontal) arms.
@@ -71,6 +84,7 @@ class R2RDAC(DACBase):
         r_unit: float = 1e3,
         r_mismatch: float = 0.0,
         r2_mismatch: float = 0.0,
+        output_type: OutputType = OutputType.SINGLE,
         seed: Optional[int] = None,
     ):
         """
@@ -83,13 +97,28 @@ class R2RDAC(DACBase):
                          (e.g. 0.01 = 1 %).  Must be >= 0.
             r2_mismatch: Std of multiplicative mismatch for 2R (vertical) arms
                          (e.g. 0.01 = 1 %).  Must be >= 0.
+            output_type: Must be ``OutputType.SINGLE``.  An R-2R ladder is
+                         inherently single-ended; for differential output,
+                         instantiate two ``R2RDAC`` objects and combine
+                         their outputs externally.  Accepted as an explicit
+                         kwarg so the constraint is visible in the
+                         signature and rejected with a clear error instead
+                         of silently raising ``TypeError`` on the base class.
             seed:        Random seed for mismatch draw (None = non-deterministic).
 
         Raises:
             TypeError:  If n_bits is not an integer or v_ref is not a number.
             ValueError: If n_bits is out of range, v_ref <= 0, r_unit <= 0,
-                        r_mismatch < 0, or r2_mismatch < 0.
+                        r_mismatch < 0, r2_mismatch < 0, or output_type is
+                        not SINGLE.
         """
+        if output_type != OutputType.SINGLE:
+            raise ValueError(
+                "R2RDAC models a single-ended R-2R ladder and only supports "
+                "output_type=OutputType.SINGLE. For a differential output, "
+                "instantiate two R2RDAC objects and combine their outputs "
+                "externally."
+            )
         super().__init__(n_bits=n_bits, v_ref=v_ref, output_type=OutputType.SINGLE)
 
         if not isinstance(r_unit, (int, float)) or r_unit <= 0:
@@ -102,6 +131,7 @@ class R2RDAC(DACBase):
         self.r_unit = float(r_unit)
         self.r_mismatch = float(r_mismatch)
         self.r2_mismatch = float(r2_mismatch)
+        self.seed = seed
 
         rng = np.random.default_rng(seed)
 
@@ -221,8 +251,13 @@ class R2RDAC(DACBase):
     # ------------------------------------------------------------------
 
     def __repr__(self) -> str:
-        return (
-            f"R2RDAC(n_bits={self.n_bits}, v_ref={self.v_ref}, "
-            f"r_unit={self.r_unit}, r_mismatch={self.r_mismatch}, "
-            f"r2_mismatch={self.r2_mismatch})"
-        )
+        parts = [
+            f"n_bits={self.n_bits}",
+            f"v_ref={self.v_ref}",
+            f"r_unit={self.r_unit}",
+            f"r_mismatch={self.r_mismatch}",
+            f"r2_mismatch={self.r2_mismatch}",
+        ]
+        if self.seed is not None:
+            parts.append(f"seed={self.seed}")
+        return f"R2RDAC({', '.join(parts)})"

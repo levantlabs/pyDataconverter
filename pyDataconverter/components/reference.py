@@ -18,6 +18,7 @@ Version History:
 """
 
 from abc import ABC, abstractmethod
+from typing import Optional
 import numpy as np
 
 
@@ -81,7 +82,8 @@ class ReferenceLadder(ReferenceBase):
                  v_min: float,
                  v_max: float,
                  resistor_mismatch: float = 0.0,
-                 noise_rms: float = 0.0):
+                 noise_rms: float = 0.0,
+                 seed: Optional[int] = None):
         """
         Args:
             n_bits: ADC resolution; determines the number of taps (2^n_bits - 1).
@@ -91,6 +93,11 @@ class ReferenceLadder(ReferenceBase):
                 mismatch (e.g. 0.01 = 1 %).  Drawn once at construction.
             noise_rms: RMS dynamic noise added to every reference voltage on
                 each call to get_voltages() (V).
+            seed: Optional integer seed for the construction-time mismatch
+                draw.  ``None`` (default) uses OS entropy
+                (non-deterministic); an integer makes the mismatch
+                realisation reproducible.  Per-call noise (``noise_rms``)
+                continues to use ``np.random`` global state.
         """
         if v_max <= v_min:
             raise ValueError("v_max must be greater than v_min")
@@ -101,11 +108,13 @@ class ReferenceLadder(ReferenceBase):
 
         self._n_references = 2 ** n_bits - 1
         self.noise_rms = noise_rms
+        self.seed = seed
 
         ideal = np.linspace(v_min, v_max, self._n_references + 2)[1:-1]
 
         if resistor_mismatch > 0:
-            mismatch = np.random.normal(0, resistor_mismatch, self._n_references)
+            rng = np.random.default_rng(seed)
+            mismatch = rng.normal(0, resistor_mismatch, self._n_references)
             self._voltages = ideal * (1.0 + mismatch)
         else:
             self._voltages = ideal.copy()
@@ -132,8 +141,13 @@ class ReferenceLadder(ReferenceBase):
         return self._voltages_ro
 
     def __repr__(self) -> str:
-        return (f"ReferenceLadder(n_references={self._n_references}, "
-                f"noise_rms={self.noise_rms})")
+        parts = [
+            f"n_references={self._n_references}",
+            f"noise_rms={self.noise_rms}",
+        ]
+        if self.seed is not None:
+            parts.append(f"seed={self.seed}")
+        return f"ReferenceLadder({', '.join(parts)})"
 
 
 class ArbitraryReference(ReferenceBase):

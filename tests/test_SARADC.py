@@ -199,6 +199,75 @@ class TestCDACBaseInterface:
 
 
 # ===========================================================================
+# CDAC seed reproducibility (added 2026-04-25)
+# ===========================================================================
+
+class TestCDACSeed:
+    """Construction-time seed parameter on CDAC classes (§3.2 review item)."""
+
+    def test_single_ended_same_seed_matches(self):
+        a = SingleEndedCDAC(n_bits=8, cap_mismatch=0.01, seed=42)
+        b = SingleEndedCDAC(n_bits=8, cap_mismatch=0.01, seed=42)
+        np.testing.assert_array_equal(a.cap_weights, b.cap_weights)
+
+    def test_single_ended_diff_seed_distinguishes(self):
+        a = SingleEndedCDAC(n_bits=8, cap_mismatch=0.01, seed=1)
+        b = SingleEndedCDAC(n_bits=8, cap_mismatch=0.01, seed=2)
+        assert not np.array_equal(a.cap_weights, b.cap_weights)
+
+    def test_single_ended_seed_in_repr_when_set(self):
+        cdac = SingleEndedCDAC(n_bits=4, cap_mismatch=0.01, seed=99)
+        assert "seed=99" in repr(cdac)
+
+    def test_single_ended_seed_omitted_from_repr_when_none(self):
+        cdac = SingleEndedCDAC(n_bits=4, cap_mismatch=0.01)
+        assert "seed=" not in repr(cdac)
+
+    def test_differential_same_seed_matches(self):
+        a = DifferentialCDAC(n_bits=8, cap_mismatch=0.01, seed=42)
+        b = DifferentialCDAC(n_bits=8, cap_mismatch=0.01, seed=42)
+        np.testing.assert_array_equal(a.cap_weights, b.cap_weights)
+        np.testing.assert_array_equal(a.cap_weights_neg, b.cap_weights_neg)
+
+    def test_differential_pos_neg_independent_within_instance(self):
+        """With the same seed, pos and neg arrays must still differ
+        (independent draws from the same Generator stream)."""
+        cdac = DifferentialCDAC(n_bits=8, cap_mismatch=0.01, seed=42)
+        assert not np.array_equal(cdac.cap_weights, cdac.cap_weights_neg)
+
+    def test_differential_seed_in_repr_when_set(self):
+        cdac = DifferentialCDAC(n_bits=4, cap_mismatch=0.01, seed=7)
+        assert "seed=7" in repr(cdac)
+
+    def test_redundant_sar_seed_propagates(self):
+        from pyDataconverter.components.cdac import RedundantSARCDAC
+        a = RedundantSARCDAC(n_bits=6, radix=1.85, cap_mismatch=0.01, seed=11)
+        b = RedundantSARCDAC(n_bits=6, radix=1.85, cap_mismatch=0.01, seed=11)
+        np.testing.assert_array_equal(a.cap_weights, b.cap_weights)
+        assert "seed=11" in repr(a)
+
+    def test_split_cap_seed_propagates(self):
+        from pyDataconverter.components.cdac import SplitCapCDAC
+        a = SplitCapCDAC(n_bits=8, n_msb=4, cap_mismatch=0.01, seed=13)
+        b = SplitCapCDAC(n_bits=8, n_msb=4, cap_mismatch=0.01, seed=13)
+        np.testing.assert_array_equal(a.cap_weights, b.cap_weights)
+        assert "seed=13" in repr(a)
+
+    def test_segmented_seed_propagates(self):
+        from pyDataconverter.components.cdac import SegmentedCDAC
+        a = SegmentedCDAC(n_bits=8, n_therm=4, cap_mismatch=0.01, seed=17)
+        b = SegmentedCDAC(n_bits=8, n_therm=4, cap_mismatch=0.01, seed=17)
+        np.testing.assert_array_equal(a.cap_weights, b.cap_weights)
+        assert "seed=17" in repr(a)
+
+    def test_seed_none_is_nondeterministic(self):
+        """Default seed=None still draws from OS entropy on each construction."""
+        a = SingleEndedCDAC(n_bits=8, cap_mismatch=0.01)
+        b = SingleEndedCDAC(n_bits=8, cap_mismatch=0.01)
+        assert not np.array_equal(a.cap_weights, b.cap_weights)
+
+
+# ===========================================================================
 # SARADC — construction
 # ===========================================================================
 

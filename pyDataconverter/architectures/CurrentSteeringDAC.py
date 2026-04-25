@@ -76,6 +76,12 @@ class CurrentSteeringDAC(DACBase):
     n_therm_bits parameter.  A custom decoder or current source array can
     be injected at construction time for advanced use cases.
 
+    Level count: the current implementation uses 2^n_bits codes regardless
+    of segmentation (the decoder/element arrays are sized accordingly).
+    ``n_levels`` is not exposed in the constructor.  For non-power-of-two
+    DACs — e.g., a pipelined-ADC sub-DAC matching an N-comparator flash
+    sub-ADC's N+1 codes — use ``SimpleDAC``.
+
     Attributes:
         n_therm_bits (int):     Number of MSBs decoded as thermometer.
         n_binary_bits (int):    Number of LSBs remaining as binary.
@@ -276,7 +282,7 @@ class CurrentSteeringDAC(DACBase):
             f"mode={mode}",
             f"i_unit={self._i_unit:.3g}A",
             f"r_load={self._r_load:.3g}Ω",
-            f"output={self.output_type.name}",
+            f"output_type={self.output_type.name}",
         ]
         if self._current_mismatch > 0:
             parts.append(f"current_mismatch={self._current_mismatch:.3g}")

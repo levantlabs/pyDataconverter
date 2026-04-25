@@ -43,6 +43,19 @@ class SegmentedResistorDAC(DACBase):
     The lower n_fine = n_bits - n_therm bits drive the R-2R fine sub-DAC,
     which spans one coarse LSB voltage.
 
+    Level count: power-of-two by construction (2^n_therm coarse segments ×
+    2^n_fine fine steps = 2^n_bits total codes).  The R-2R fine sub-DAC
+    alone pins the topology to a power of two; ``n_levels`` is not
+    exposed.  For non-power-of-two DACs, use ``SimpleDAC``.
+
+    Output type: single-ended only, inherited from the underlying
+    single-ended coarse resistor string and R-2R fine sub-DAC.  For
+    differential output instantiate two ``SegmentedResistorDAC`` objects
+    and combine their outputs externally.  The ``output_type`` kwarg is
+    exposed in the constructor so the constraint is visible in the
+    signature; passing ``OutputType.DIFFERENTIAL`` raises ``ValueError``
+    with a pointer to the composition pattern.
+
     Attributes:
         n_therm (int): Number of MSBs handled by the thermometer coarse string.
         n_fine (int): Number of LSBs handled by the R-2R fine sub-DAC
@@ -61,25 +74,39 @@ class SegmentedResistorDAC(DACBase):
         n_therm: int = 4,
         r_unit: float = 1e3,
         r_mismatch: float = 0.0,
+        output_type: OutputType = OutputType.SINGLE,
         seed: Optional[int] = None,
     ):
         """
         Args:
-            n_bits:     Total DAC resolution (2–32).
-            v_ref:      Full-scale reference voltage (V, > 0).
-            n_therm:    Number of MSBs for the thermometer coarse string.
-                        Must satisfy 1 <= n_therm <= n_bits - 1.
-            r_unit:     Nominal unit resistor (Ω), default 1 kΩ.
-            r_mismatch: Std of multiplicative resistor mismatch (e.g. 0.01 = 1 %).
-                        Applied independently to coarse and fine stages.
-                        Must be >= 0.
-            seed:       Random seed for reproducible mismatch draws.
+            n_bits:      Total DAC resolution (2–32).
+            v_ref:       Full-scale reference voltage (V, > 0).
+            n_therm:     Number of MSBs for the thermometer coarse string.
+                         Must satisfy 1 <= n_therm <= n_bits - 1.
+            r_unit:      Nominal unit resistor (Ω), default 1 kΩ.
+            r_mismatch:  Std of multiplicative resistor mismatch (e.g. 0.01 = 1 %).
+                         Applied independently to coarse and fine stages.
+                         Must be >= 0.
+            output_type: Must be ``OutputType.SINGLE``.  Both sub-stages
+                         (coarse resistor string + fine R-2R) are
+                         inherently single-ended; for differential output,
+                         instantiate two ``SegmentedResistorDAC`` objects
+                         and combine their outputs externally.
+            seed:        Random seed for reproducible mismatch draws.
 
         Raises:
             TypeError:  If n_bits is not an integer or v_ref is not a number.
             ValueError: If n_bits is out of range, v_ref <= 0, r_unit <= 0,
-                        r_mismatch < 0, or n_therm is out of [1, n_bits-1].
+                        r_mismatch < 0, n_therm is out of [1, n_bits-1],
+                        or output_type is not SINGLE.
         """
+        if output_type != OutputType.SINGLE:
+            raise ValueError(
+                "SegmentedResistorDAC models a single-ended thermometer + R-2R "
+                "stack and only supports output_type=OutputType.SINGLE. For a "
+                "differential output, instantiate two SegmentedResistorDAC "
+                "objects and combine their outputs externally."
+            )
         super().__init__(n_bits=n_bits, v_ref=v_ref, output_type=OutputType.SINGLE)
 
         if not isinstance(n_therm, int) or not (1 <= n_therm <= n_bits - 1):
@@ -95,6 +122,7 @@ class SegmentedResistorDAC(DACBase):
         self.n_fine = n_bits - n_therm
         self.r_unit = float(r_unit)
         self.r_mismatch = float(r_mismatch)
+        self.seed = seed
 
         # Derive separate seeds for coarse and fine stages so the mismatch
         # draws are independent but the combined result is fully reproducible.
@@ -151,8 +179,13 @@ class SegmentedResistorDAC(DACBase):
     # ------------------------------------------------------------------
 
     def __repr__(self) -> str:
-        return (
-            f"SegmentedResistorDAC(n_bits={self.n_bits}, v_ref={self.v_ref}, "
-            f"n_therm={self.n_therm}, r_unit={self.r_unit}, "
-            f"r_mismatch={self.r_mismatch})"
-        )
+        parts = [
+            f"n_bits={self.n_bits}",
+            f"v_ref={self.v_ref}",
+            f"n_therm={self.n_therm}",
+            f"r_unit={self.r_unit}",
+            f"r_mismatch={self.r_mismatch}",
+        ]
+        if self.seed is not None:
+            parts.append(f"seed={self.seed}")
+        return f"SegmentedResistorDAC({', '.join(parts)})"

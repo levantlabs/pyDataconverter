@@ -121,6 +121,31 @@ class TestResistorStringDAC:
         dac2 = ResistorStringDAC(n_bits=4, v_ref=1.0, r_mismatch=0.05, seed=7)
         np.testing.assert_array_equal(dac1.r_values, dac2.r_values)
 
+    def test_seed_in_repr_when_set(self):
+        from pyDataconverter.architectures.ResistorStringDAC import ResistorStringDAC
+        dac = ResistorStringDAC(n_bits=4, v_ref=1.0, r_mismatch=0.01, seed=42)
+        assert "seed=42" in repr(dac)
+
+    def test_seed_omitted_from_repr_when_none(self):
+        from pyDataconverter.architectures.ResistorStringDAC import ResistorStringDAC
+        dac = ResistorStringDAC(n_bits=4, v_ref=1.0, r_mismatch=0.01)
+        assert "seed=" not in repr(dac)
+
+    def test_explicit_output_type_single_accepted(self):
+        """Passing output_type=OutputType.SINGLE explicitly is equivalent to default."""
+        from pyDataconverter.architectures.ResistorStringDAC import ResistorStringDAC
+        from pyDataconverter.dataconverter import OutputType
+        dac = ResistorStringDAC(n_bits=4, v_ref=1.0, output_type=OutputType.SINGLE)
+        assert dac.output_type == OutputType.SINGLE
+
+    def test_output_type_differential_rejected(self):
+        """Rejects DIFFERENTIAL with a message pointing to the composition pattern."""
+        from pyDataconverter.architectures.ResistorStringDAC import ResistorStringDAC
+        from pyDataconverter.dataconverter import OutputType
+        import pytest
+        with pytest.raises(ValueError, match="single-ended resistor ladder"):
+            ResistorStringDAC(n_bits=4, v_ref=1.0, output_type=OutputType.DIFFERENTIAL)
+
 
 class TestR2RDAC:
     def test_construction(self):
@@ -204,6 +229,30 @@ class TestR2RDAC:
         with pytest.raises((ValueError, TypeError)):
             dac.convert(2**4)
 
+    def test_explicit_output_type_single_accepted(self):
+        """Passing output_type=OutputType.SINGLE explicitly is equivalent to default."""
+        from pyDataconverter.architectures.R2RDAC import R2RDAC
+        from pyDataconverter.dataconverter import OutputType
+        dac = R2RDAC(n_bits=4, v_ref=1.0, output_type=OutputType.SINGLE)
+        assert dac.output_type == OutputType.SINGLE
+
+    def test_output_type_differential_rejected(self):
+        """Rejects DIFFERENTIAL with a message pointing to the composition pattern."""
+        from pyDataconverter.architectures.R2RDAC import R2RDAC
+        from pyDataconverter.dataconverter import OutputType
+        with pytest.raises(ValueError, match="single-ended R-2R ladder"):
+            R2RDAC(n_bits=4, v_ref=1.0, output_type=OutputType.DIFFERENTIAL)
+
+    def test_seed_in_repr_when_set(self):
+        from pyDataconverter.architectures.R2RDAC import R2RDAC
+        dac = R2RDAC(n_bits=4, v_ref=1.0, r_mismatch=0.01, seed=99)
+        assert "seed=99" in repr(dac)
+
+    def test_seed_omitted_from_repr_when_none(self):
+        from pyDataconverter.architectures.R2RDAC import R2RDAC
+        dac = R2RDAC(n_bits=4, v_ref=1.0, r_mismatch=0.01)
+        assert "seed=" not in repr(dac)
+
 
 class TestSegmentedResistorDAC:
     def test_construction(self):
@@ -275,3 +324,30 @@ class TestSegmentedResistorDAC:
         m_ideal    = calculate_dac_static_metrics(dac_ideal)
         m_mismatch = calculate_dac_static_metrics(dac_mismatch)
         assert m_mismatch['MaxINL'] > m_ideal['MaxINL']
+
+    def test_explicit_output_type_single_accepted(self):
+        """Passing output_type=OutputType.SINGLE explicitly is equivalent to default."""
+        from pyDataconverter.architectures.SegmentedResistorDAC import SegmentedResistorDAC
+        from pyDataconverter.dataconverter import OutputType
+        dac = SegmentedResistorDAC(n_bits=8, v_ref=1.0, n_therm=4,
+                                   output_type=OutputType.SINGLE)
+        assert dac.output_type == OutputType.SINGLE
+
+    def test_output_type_differential_rejected(self):
+        """Rejects DIFFERENTIAL with a message pointing to the composition pattern."""
+        from pyDataconverter.architectures.SegmentedResistorDAC import SegmentedResistorDAC
+        from pyDataconverter.dataconverter import OutputType
+        with pytest.raises(ValueError, match="thermometer \\+ R-2R"):
+            SegmentedResistorDAC(n_bits=8, v_ref=1.0, n_therm=4,
+                                 output_type=OutputType.DIFFERENTIAL)
+
+    def test_seed_in_repr_when_set(self):
+        from pyDataconverter.architectures.SegmentedResistorDAC import SegmentedResistorDAC
+        dac = SegmentedResistorDAC(n_bits=8, v_ref=1.0, n_therm=4,
+                                   r_mismatch=0.01, seed=21)
+        assert "seed=21" in repr(dac)
+
+    def test_seed_omitted_from_repr_when_none(self):
+        from pyDataconverter.architectures.SegmentedResistorDAC import SegmentedResistorDAC
+        dac = SegmentedResistorDAC(n_bits=8, v_ref=1.0, n_therm=4, r_mismatch=0.01)
+        assert "seed=" not in repr(dac)

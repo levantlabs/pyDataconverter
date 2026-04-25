@@ -39,6 +39,19 @@ class ResistorStringDAC(DACBase):
     Tap voltages are pre-computed at construction via nodal analysis so that
     repeated calls to ``convert`` are O(1).
 
+    Level count: the current implementation uses 2^N resistors for a
+    power-of-two code space.  Non-power-of-two level counts (e.g., for
+    pipelined-ADC sub-DACs) are not supported here — use ``SimpleDAC``.
+    ``n_levels`` is therefore not exposed in the constructor.
+
+    Output type: single-ended only.  A resistor string is inherently
+    single-ended; for differential output instantiate two
+    ``ResistorStringDAC`` objects and combine their outputs externally.
+    The ``output_type`` kwarg is exposed in the constructor so the
+    constraint is visible in the signature; passing
+    ``OutputType.DIFFERENTIAL`` raises ``ValueError`` with a pointer to
+    the composition pattern.
+
     Attributes:
         r_unit (float): Nominal unit resistor value (Ω).
         r_mismatch (float): Std of multiplicative resistor mismatch.
@@ -53,22 +66,37 @@ class ResistorStringDAC(DACBase):
         v_ref: float = 1.0,
         r_unit: float = 1e3,
         r_mismatch: float = 0.0,
+        output_type: OutputType = OutputType.SINGLE,
         seed: Optional[int] = None,
     ):
         """
         Args:
-            n_bits:     DAC resolution (1–32).
-            v_ref:      Reference voltage (V, > 0).
-            r_unit:     Nominal unit resistor (Ω), default 1 kΩ.
-            r_mismatch: Std of multiplicative mismatch (e.g. 0.01 = 1 %).
-                        Must be >= 0.
-            seed:       Random seed for mismatch draw (None = non-deterministic).
+            n_bits:      DAC resolution (1–32).
+            v_ref:       Reference voltage (V, > 0).
+            r_unit:      Nominal unit resistor (Ω), default 1 kΩ.
+            r_mismatch:  Std of multiplicative mismatch (e.g. 0.01 = 1 %).
+                         Must be >= 0.
+            output_type: Must be ``OutputType.SINGLE``.  A resistor string is
+                         inherently single-ended; for differential output,
+                         instantiate two ``ResistorStringDAC`` objects and
+                         combine their outputs externally.  Accepted as an
+                         explicit kwarg so the constraint is visible in the
+                         signature and rejected with a clear error instead of
+                         silently raising ``TypeError`` on the base class.
+            seed:        Random seed for mismatch draw (None = non-deterministic).
 
         Raises:
             TypeError:  If n_bits is not an integer or v_ref is not a number.
             ValueError: If n_bits is out of range, v_ref <= 0, r_unit <= 0,
-                        or r_mismatch < 0.
+                        r_mismatch < 0, or output_type is not SINGLE.
         """
+        if output_type != OutputType.SINGLE:
+            raise ValueError(
+                "ResistorStringDAC models a single-ended resistor ladder and "
+                "only supports output_type=OutputType.SINGLE. For a differential "
+                "output, instantiate two ResistorStringDAC objects and combine "
+                "their outputs externally."
+            )
         super().__init__(n_bits=n_bits, v_ref=v_ref, output_type=OutputType.SINGLE)
 
         if not isinstance(r_unit, (int, float)) or r_unit <= 0:
@@ -78,6 +106,7 @@ class ResistorStringDAC(DACBase):
 
         self.r_unit = float(r_unit)
         self.r_mismatch = float(r_mismatch)
+        self.seed = seed
 
         n_codes = 2 ** n_bits
         rng = np.random.default_rng(seed)
@@ -127,7 +156,12 @@ class ResistorStringDAC(DACBase):
     # ------------------------------------------------------------------
 
     def __repr__(self) -> str:
-        return (
-            f"ResistorStringDAC(n_bits={self.n_bits}, v_ref={self.v_ref}, "
-            f"r_unit={self.r_unit}, r_mismatch={self.r_mismatch})"
-        )
+        parts = [
+            f"n_bits={self.n_bits}",
+            f"v_ref={self.v_ref}",
+            f"r_unit={self.r_unit}",
+            f"r_mismatch={self.r_mismatch}",
+        ]
+        if self.seed is not None:
+            parts.append(f"seed={self.seed}")
+        return f"ResistorStringDAC({', '.join(parts)})"

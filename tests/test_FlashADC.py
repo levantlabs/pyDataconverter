@@ -499,3 +499,57 @@ class TestFlashADCMetastabilityHooks(unittest.TestCase):
                        comparator_params={"tau_regen": 2e-12})
         adc.convert(0.3)
         self.assertGreater(adc.last_conversion_time(), 0.0)
+
+
+class TestFlashADCSeed(unittest.TestCase):
+    """Construction-time seed reproducibility for FlashADC (§3.2 review item)."""
+
+    def test_same_seed_produces_identical_offsets_and_taps(self):
+        a = FlashADC(n_bits=4, v_ref=1.0, input_type=InputType.SINGLE,
+                     offset_std=0.01, resistor_mismatch=0.01, seed=42)
+        b = FlashADC(n_bits=4, v_ref=1.0, input_type=InputType.SINGLE,
+                     offset_std=0.01, resistor_mismatch=0.01, seed=42)
+        ofs_a = np.array([c.offset for c in a.comparators])
+        ofs_b = np.array([c.offset for c in b.comparators])
+        np.testing.assert_array_equal(ofs_a, ofs_b)
+        np.testing.assert_array_equal(a.reference.voltages, b.reference.voltages)
+
+    def test_different_seed_distinguishes(self):
+        a = FlashADC(n_bits=4, v_ref=1.0, input_type=InputType.SINGLE,
+                     offset_std=0.01, resistor_mismatch=0.01, seed=1)
+        b = FlashADC(n_bits=4, v_ref=1.0, input_type=InputType.SINGLE,
+                     offset_std=0.01, resistor_mismatch=0.01, seed=2)
+        ofs_a = np.array([c.offset for c in a.comparators])
+        ofs_b = np.array([c.offset for c in b.comparators])
+        self.assertFalse(np.array_equal(ofs_a, ofs_b))
+
+    def test_offset_and_ladder_draws_independent(self):
+        """Resistor-mismatch and offset draws should not be perfectly correlated.
+
+        Both share the same user-provided seed, but FlashADC streams them
+        through independent SeedSequence-spawned sub-streams so they are
+        statistically independent within a single instance.
+        """
+        adc = FlashADC(n_bits=6, v_ref=1.0, input_type=InputType.SINGLE,
+                       offset_std=0.01, resistor_mismatch=0.01, seed=42)
+        # Both draws are 2^n_bits-1 long for n_bits=6 (63 elements). Verify
+        # they aren't proportional copies.
+        ladder_devs = adc.reference.voltages - np.linspace(0, 1, 65)[1:-1]
+        offsets = np.array([c.offset for c in adc.comparators])
+        # Trivially independent => no near-perfect linear correlation.
+        # Use a loose threshold; the assertion mainly guards against the
+        # bug where both draws come from the same sub-stream.
+        if np.std(ladder_devs) > 0 and np.std(offsets) > 0:
+            corr = np.corrcoef(ladder_devs, offsets)[0, 1]
+            self.assertLess(abs(corr), 0.99)
+
+    def test_seed_in_repr_when_set(self):
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE,
+                       offset_std=0.01, seed=7)
+        self.assertIn("seed=7", repr(adc))
+
+    def test_seed_omitted_from_repr_when_none(self):
+        adc = FlashADC(n_bits=3, v_ref=1.0, input_type=InputType.SINGLE)
+        # Top-level FlashADC should not show seed=None
+        # (the embedded ReferenceLadder also won't show it because its seed is None)
+        self.assertNotIn("seed=", repr(adc))

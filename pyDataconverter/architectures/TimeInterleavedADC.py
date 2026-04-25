@@ -144,6 +144,7 @@ class TimeInterleavedADC(ADCBase):
         )
         self.M = channels
         self.fs = float(fs)
+        self.seed = seed
 
         rng = np.random.default_rng(seed)
         self.offset      = _resolve_mismatch(offset,      self.M, rng, "offset")
@@ -461,6 +462,12 @@ class TimeInterleavedADC(ADCBase):
         return [float(v) for v in values]
 
     def __repr__(self) -> str:
-        return (f"TimeInterleavedADC(M={self.M}, fs={self.fs:.3e}, "
-                f"template={type(self.channels[0]).__name__}, "
-                f"n_bits={self.n_bits})")
+        parts = [
+            f"M={self.M}",
+            f"fs={self.fs:.3e}",
+            f"template={type(self.channels[0]).__name__}",
+            f"n_bits={self.n_bits}",
+        ]
+        if self.seed is not None:
+            parts.append(f"seed={self.seed}")
+        return f"TimeInterleavedADC({', '.join(parts)})"

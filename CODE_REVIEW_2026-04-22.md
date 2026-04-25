@@ -16,10 +16,10 @@ Legend: PENDING · DECIDED (plan agreed, code not changed) · FIXED · FALSE POS
 | 1-W2 | Empty `utils/__init__.py` | FIXED | Added explicit submodule re-exports (signal_gen, fft_analysis, characterization, nodal_solver, metrics, visualizations) with `__all__`. Created `utils/visualizations/__init__.py`. Broke an incidental util→architecture circular import in `dac_plots.py` by localising the `SimpleDAC` import. |
 | 2.1 | ADC `input_type` default inconsistency | FIXED | Harmonised SARADC / FlashADC / PipelinedADC defaults to `InputType.DIFFERENTIAL` (matching `ADCBase`). Updated test fixtures (test_SARADC, test_FlashADC, test_sar_generalisation, test_metrics, test_characterization) to explicitly pin `input_type=InputType.SINGLE` where they were relying on the old default. FlashADC `__main__` demo also pinned. All 973 tests pass. |
 | 2.2 | Quantization mode not unified | WON'T FIX (documented) | Architectural distinction is intentional: `QuantizationMode` parameterises behavioural ADCs (`SimpleADC`) and metric helpers; structural ADCs (SARADC/FlashADC/PipelinedADC/TI-ADC) are FLOOR-by-construction. Documented the applicability in `QuantizationMode`'s docstring and in each structural-ADC module docstring. |
-| 2.3 | `n_levels` support inconsistent across DACs | PENDING | |
-| 2.4 | `__repr__` inconsistency | PENDING | |
-| 3.1 | FlashADC differential ref range `±v_ref/4` | PENDING | |
-| 3.2 | DAC repr missing `seed` | PENDING | |
+| 2.3 | `n_levels` support inconsistent across DACs | WON'T FIX (documented) | Architectural distinction parallel to §2.2: `n_levels` is a behavioural-DAC feature (`SimpleDAC`) used primarily for pipelined / TI-ADC sub-DACs matching non-power-of-two flash sub-ADC outputs. Structural DACs are tied to `2**n_bits` by topology (R-2R is strict; others are power-of-two in their current implementations). Documented in `DACBase` docstring and each structural-DAC class docstring. |
+| 2.4 | `__repr__` inconsistency | PARTIAL | `CurrentSteeringDAC` repr key renamed `output=` → `output_type=`. Derived finding (API consistency): all three structural single-ended DACs — `ResistorStringDAC`, `R2RDAC`, `SegmentedResistorDAC` — now expose `output_type` explicitly in their signatures and reject DIFFERENTIAL with a clear error pointing to the "instantiate two and combine externally" composition pattern. Class docstrings updated. 4 new tests added. Remaining §2.4 sub-items (decided to skip as cosmetic): SARADC embedded CDAC repr length, `TimeInterleavedADC` missing `v_ref`/`input_type`/`M=` naming, MultibitSARADC/NoiseshapingSARADC dropping `cdac`. |
+| 3.1 | FlashADC differential ref range `±v_ref/4` | FALSE POSITIVE (doc clarified) | Code is functionally correct — the `[-v_ref/4, +v_ref/4]` ladder combined with symmetric `(v_refp=t[i], v_refn=t[n-1-i])` pairing produces the full `[-v_ref/2, +v_ref/2]` effective differential threshold range. Review acknowledged correctness but flagged the convention as "subtle". Added a "Reference ladder convention" section to the `FlashADC` class docstring so the scaling is visible without reading block comments. |
+| 3.2 | DAC repr missing `seed` | FIXED (extended) | Beyond the review's narrow scope: added construction-time `seed` kwarg (or wired it through to repr+storage where it already existed) on every class that performs random mismatch draws at construction. Phase A — already accept seed, added storage + conditional repr: `ResistorStringDAC`, `R2RDAC`, `SegmentedResistorDAC`, `TimeInterleavedADC`. Phase B — added `seed` kwarg + reproducible draw: 5 CDAC classes (`SingleEndedCDAC`, `DifferentialCDAC`, `SegmentedCDAC`, `RedundantSARCDAC`, `SplitCapCDAC`), `ReferenceLadder`, `FlashADC`. CDAC refactor routes mismatch through the existing seeded `apply_mismatch` path. FlashADC streams sub-RNGs via `SeedSequence.spawn` so offset and resistor-mismatch draws are independent within a seeded instance. Per-conversion noise (sampling, jitter, comparator/reference noise) deliberately stays on `np.random` global state — see Level 2/3 deferred. 26 new tests covering same-seed match, different-seed distinguish, seed-in-repr-when-set, seed-omitted-when-None. |
 | 3.3 | `SegmentedCDAC` private member access | PENDING | |
 | 3.4 | `MultibitSARADC` ignores `dvdt` | PENDING | |
 | 3.5 | `NoiseshapingSARADC` assumes FLOOR | PENDING | |
@@ -139,6 +139,36 @@ Documentation updated (2026-04-24):
 
 **Issue**: Inconsistent support for non-power-of-2 DACs across the codebase.
 
+**Status: WON'T FIX — documented as an architectural distinction (2026-04-24)**
+
+Parallel to §2.2 (behavioural vs structural split). The practical motivation
+for `n_levels` is composing pipelined / TI-ADC stages where a flash sub-ADC
+with N comparators produces N+1 codes and needs a matching sub-DAC with
+N+1 distinct output levels. `SimpleDAC` is the designated tool for this
+role — it is already used this way in `test_pipelined_adc.py` (lines 25,
+81, 121) and `test_ti_adc.py:427` as
+`SimpleDAC(n_bits=3, n_levels=9, v_ref=1.0, ...)`.
+
+The structural DACs are tied to `2**n_bits` by topology:
+- **R2RDAC** is strict — the R-2R ladder is binary-weighted by construction.
+- **ResistorStringDAC**, **SegmentedResistorDAC**, **CurrentSteeringDAC**
+  are power-of-two in their current implementations (the resistor strings,
+  R-2R fine sub-DAC, and decoder/element arrays are all sized for
+  `2**n_bits`). In principle these could be extended to non-power-of-two,
+  but there is no demonstrated demand beyond what `SimpleDAC` already
+  satisfies.
+
+Documentation updated (2026-04-24):
+- `pyDataconverter/dataconverter.py` — `DACBase` class docstring gained a
+  "Level count (n_levels)" section explaining behavioural vs structural
+  applicability, with the pipelined / TI-ADC sub-DAC motivation spelled out.
+- `pyDataconverter/architectures/R2RDAC.py` — class docstring notes R-2R is
+  strictly power-of-two; points non-power-of-two users to `SimpleDAC`.
+- `pyDataconverter/architectures/ResistorStringDAC.py` — same pattern.
+- `pyDataconverter/architectures/SegmentedResistorDAC.py` — same pattern
+  (R-2R fine sub-DAC pins topology to power-of-two).
+- `pyDataconverter/architectures/CurrentSteeringDAC.py` — same pattern.
+
 ### 2.4 Repr Inconsistency
 | Class | Repr Includes |
 |-------|--------------|
@@ -149,6 +179,32 @@ Documentation updated (2026-04-24):
 | `ResidueAmplifier` | Only non-default params |
 
 **Issue**: `SARADC.__repr__` embeds the full CDAC repr which can be very long; `TimeInterleavedADC` omits `v_ref, input_type` from its base class.
+
+**Status: PARTIAL (2026-04-24)** — working through sub-items one at a time.
+
+Closed so far:
+- `CurrentSteeringDAC.__repr__` used the key `output=` instead of `output_type=` (inconsistent with every other DAC/ADC repr). Renamed to `output_type=`.
+- Derived finding during discussion: `ResistorStringDAC`, `R2RDAC`, and
+  `SegmentedResistorDAC` silently rejected
+  `output_type=OutputType.DIFFERENTIAL` with a generic `TypeError` because
+  the base-class kwarg wasn't surfaced in their signatures. Physical
+  reality is that each of these DACs is inherently single-ended — for
+  differential output a user would instantiate two objects and combine
+  them externally. Updated all three `__init__` methods to accept
+  `output_type` explicitly with a `ValueError` on DIFFERENTIAL that teaches
+  the composition pattern. Class docstrings gained "Output type" sections.
+  4 new tests cover the accept-SINGLE and reject-DIFFERENTIAL paths.
+
+Sub-items decided to skip as cosmetic:
+- SARADC embedded CDAC repr length (100+ chars, redundant n_bits/v_ref).
+  Useful for debugging; no functional harm.
+- `MultibitSARADC` / `NoiseshapingSARADC` dropping `cdac` while parent
+  `SARADC` includes it. Internal inconsistency only noticeable when
+  comparing repr strings across classes.
+- `TimeInterleavedADC` missing `v_ref` and `input_type` from repr; uses
+  `M=` rather than `channels=`. Attributes still accessible via
+  `ti.v_ref` / `ti.input_type`; repr omission is ergonomic not
+  functional.
 
 ---
 
@@ -164,8 +220,89 @@ Creates a `ReferenceLadder` spanning `[-v_ref/4, +v_ref/4]` for differential mod
 
 **Impact**: The comparator's effective threshold range becomes `[-v_ref/2, +v_ref/2]` (after the `*2` scaling in `reference_voltages` property), which is correct for a differential ADC. However, this is subtle and could confuse users expecting `v_ref` to map to `[-v_ref/2, +v_ref/2]` directly.
 
+**Status: FALSE POSITIVE — functionally correct; docstring clarified (2026-04-24)**
+
+Code trace (single comparator `i`):
+
+    v_refp[i] = t[i]              (from ascending-index ladder)
+    v_refn[i] = t[n-1-i]          (from descending-index ladder)
+    comparator sees (v_pos - v_neg) - (v_refp[i] - v_refn[i])
+                  = (v_pos - v_neg) - (t[i] - t[n-1-i])
+
+With the symmetric ladder around zero, `t[n-1-i] = -t[i]`, so the
+effective threshold is `2 * t[i]`.  Since `t[i] ∈ [-v_ref/4, +v_ref/4]`,
+the effective threshold ranges over `[-v_ref/2, +v_ref/2]` — the
+standard differential swing for a reference `v_ref` (`v_ref`
+peak-to-peak).  The `reference_voltages` property returns these
+×2-scaled effective values so external inspection matches what the
+comparators actually apply.
+
+This is the conventional construction for a differential flash ADC; the
+review itself conceded the math is correct ("... which is correct for a
+differential ADC").  The remaining concern — that the convention is
+"subtle and could confuse users" — was addressed by adding a
+"Reference ladder convention" section to the `FlashADC` class docstring
+(2026-04-24), so the scaling is visible to any reader of the class
+without having to follow the block comments in `__init__` and
+`_convert_input`.  No functional change.
+
 ### 3.2 Segmented Resistor DAC `__repr__` Does Not Include `seed`
 `SegmentedResistorDAC.py:153-157` and `ResistorStringDAC.py:129-132`: Neither class includes the random seed in their repr. This means two DACs created with the same parameters but different seeds will have identical repr strings, making debugging harder.
+
+**Status: FIXED — extended scope (2026-04-25)**
+
+The narrow review item was about repr visibility on resistor DACs that
+already accepted a `seed`.  During discussion we identified a deeper
+gap: many classes that *model* construction-time random mismatch
+*didn't accept a seed at all*, leaving the user no way to make
+construction reproducible.  Resolved both gaps in one pass.
+
+Convention adopted (matches scipy / sklearn):
+
+- `seed=None` (default) — `np.random.default_rng(None)` uses OS entropy;
+  non-deterministic, preserves prior behaviour.
+- `seed=<int>` — reproducible mismatch draw.
+- `self.seed = seed` is always stored on the instance so users can
+  inspect `obj.seed`.
+- Repr includes `seed=N` only when `seed is not None`; omitted (kept
+  terse) for the default case.
+
+Phase A — classes that already accepted `seed` at construction; added
+storage + conditional-repr only:
+
+- `ResistorStringDAC`, `R2RDAC`, `SegmentedResistorDAC`,
+  `TimeInterleavedADC`.
+
+Phase B — classes that did not previously accept `seed`; added kwarg
+and routed construction-time draws through `np.random.default_rng(seed)`:
+
+- All 5 CDAC classes (`SingleEndedCDAC`, `DifferentialCDAC`,
+  `SegmentedCDAC`, `RedundantSARCDAC`, `SplitCapCDAC`).  Refactor
+  builds capacitors with `mismatch=0` and routes the actual mismatch
+  through the existing seeded `apply_mismatch(cap_mismatch, seed=...)`
+  method, which already used `default_rng` correctly.  No change to
+  `IdealCapacitor`'s public API.
+- `ReferenceLadder` — replaced direct `np.random.normal` for resistor
+  mismatch with `default_rng(seed).normal`.
+- `FlashADC` — added `seed` kwarg.  Uses `np.random.SeedSequence(seed).spawn(2)`
+  to derive *independent* sub-streams for the offset draw and the
+  default-ladder mismatch draw, so the two are statistically
+  independent within a single seeded instance instead of correlated
+  through a shared Generator stream.
+
+Out of scope (Level 2/3 deferred): per-conversion stochastic draws
+(sampling noise / kT/C, aperture jitter, per-call comparator and
+reference noise) continue to use `np.random` global state.  Making
+those reproducible would require an `rng` attribute on every
+ADC/DAC instance and `self._rng.normal(...)` everywhere — bigger
+refactor with no concrete demand yet.
+
+26 new tests cover: same-seed reproducibility, different-seed
+distinguishability, seed visible in repr when set, seed omitted from
+repr when `None`, and pos/neg independence within a single
+`DifferentialCDAC` (a seeded instance must still draw the two arrays
+independently from the same Generator stream).  Total suite: 1005
+tests passing.
 
 ### 3.3 Segment`edCDAC` Accesses Private Members
 `SegmentedCDAC.py:571-572`:

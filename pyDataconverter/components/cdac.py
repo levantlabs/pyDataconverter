@@ -184,6 +184,7 @@ class SingleEndedCDAC(CDACBase):
         cap_weights: Optional[np.ndarray] = None,
         cap_mismatch: float = 0.0,
         cap_class: Type[UnitCapacitorBase] = IdealCapacitor,
+        seed: Optional[int] = None,
     ):
         """
         Args:
@@ -197,6 +198,9 @@ class SingleEndedCDAC(CDACBase):
                 instance draws its own mismatch independently at construction.
             cap_class: UnitCapacitorBase subclass to instantiate for each
                 capacitor in the array.  Defaults to IdealCapacitor.
+            seed: Optional integer seed for the construction-time mismatch
+                draw.  ``None`` (default) uses OS entropy (non-deterministic);
+                an integer makes the draw reproducible.
         """
         if not isinstance(n_bits, int) or n_bits < 1 or n_bits > 32:
             raise ValueError("n_bits must be an integer in [1, 32]")
@@ -207,16 +211,18 @@ class SingleEndedCDAC(CDACBase):
 
         self._n_bits = n_bits
         self._v_ref  = v_ref
-        self.cap_mismatch = cap_mismatch
+        self.seed = seed
 
         intended = self._resolve_weights(n_bits, cap_weights)
 
+        # Build caps with mismatch=0 (no construction-time random draw); then
+        # route the actual mismatch through the seeded apply_mismatch path so
+        # the draw is deterministic when seed is set.
         self._cap_instances: List[UnitCapacitorBase] = [
-            cap_class(c_nominal=float(w), mismatch=cap_mismatch)
+            cap_class(c_nominal=float(w), mismatch=0.0)
             for w in intended
         ]
-        self._cap_weights = np.array([c.capacitance for c in self._cap_instances])
-        self._cap_total   = float(np.sum(self._cap_weights) + 1.0)
+        self.apply_mismatch(cap_mismatch, seed=seed)
 
     # ------------------------------------------------------------------
     # CDACBase interface
@@ -297,8 +303,14 @@ class SingleEndedCDAC(CDACBase):
         return code_to_bits_msb_first(code, self._n_bits, dtype=float)
 
     def __repr__(self) -> str:
-        return (f"SingleEndedCDAC(n_bits={self._n_bits}, v_ref={self._v_ref}, "
-                f"cap_mismatch={self.cap_mismatch})")
+        parts = [
+            f"n_bits={self._n_bits}",
+            f"v_ref={self._v_ref}",
+            f"cap_mismatch={self.cap_mismatch}",
+        ]
+        if self.seed is not None:
+            parts.append(f"seed={self.seed}")
+        return f"SingleEndedCDAC({', '.join(parts)})"
 
 
 class RedundantSARCDAC(SingleEndedCDAC):
@@ -326,6 +338,7 @@ class RedundantSARCDAC(SingleEndedCDAC):
         v_ref: float = 1.0,
         radix: float = 1.85,
         cap_mismatch: float = 0.0,
+        seed: Optional[int] = None,
     ):
         """
         Args:
@@ -333,6 +346,7 @@ class RedundantSARCDAC(SingleEndedCDAC):
             v_ref: Reference voltage (V).
             radix: Sub-binary radix (1.0 < radix < 2.0).  Typical: 1.8-1.9.
             cap_mismatch: Capacitor mismatch std (dimensionless).
+            seed: Optional integer seed for the mismatch draw (None = non-deterministic).
         """
         if not (1.0 < radix < 2.0):
             raise ValueError("radix must be in (1.0, 2.0)")
@@ -344,7 +358,8 @@ class RedundantSARCDAC(SingleEndedCDAC):
 
         super().__init__(n_bits, v_ref,
                          cap_weights=nominal_weights,
-                         cap_mismatch=cap_mismatch)
+                         cap_mismatch=cap_mismatch,
+                         seed=seed)
 
         # Build DEC lookup table
         n_codes = 2 ** n_bits
@@ -372,8 +387,15 @@ class RedundantSARCDAC(SingleEndedCDAC):
         return int(self._dec_table[raw_code])
 
     def __repr__(self) -> str:
-        return (f"RedundantSARCDAC(n_bits={self._n_bits}, v_ref={self._v_ref}, "
-                f"radix={self.radix}, cap_mismatch={self.cap_mismatch})")
+        parts = [
+            f"n_bits={self._n_bits}",
+            f"v_ref={self._v_ref}",
+            f"radix={self.radix}",
+            f"cap_mismatch={self.cap_mismatch}",
+        ]
+        if self.seed is not None:
+            parts.append(f"seed={self.seed}")
+        return f"RedundantSARCDAC({', '.join(parts)})"
 
 
 class SplitCapCDAC(SingleEndedCDAC):
@@ -408,6 +430,7 @@ class SplitCapCDAC(SingleEndedCDAC):
         v_ref: float = 1.0,
         n_msb: int = None,
         cap_mismatch: float = 0.0,
+        seed: Optional[int] = None,
     ):
         if n_msb is None:
             n_msb = n_bits // 2
@@ -430,7 +453,8 @@ class SplitCapCDAC(SingleEndedCDAC):
         # Pass n_bits+1 to parent (total number of physical caps including bridge)
         super().__init__(n_bits + 1, v_ref,
                          cap_weights=weights,
-                         cap_mismatch=cap_mismatch)
+                         cap_mismatch=cap_mismatch,
+                         seed=seed)
 
         # Override _n_bits so the ADC sees the correct logical resolution
         self._n_bits = n_bits
@@ -457,8 +481,15 @@ class SplitCapCDAC(SingleEndedCDAC):
         return np.concatenate([msb_bits, [0.0], lsb_bits])
 
     def __repr__(self) -> str:
-        return (f"SplitCapCDAC(n_bits={self._n_bits}, v_ref={self._v_ref}, "
-                f"n_msb={self._n_msb}, cap_mismatch={self.cap_mismatch})")
+        parts = [
+            f"n_bits={self._n_bits}",
+            f"v_ref={self._v_ref}",
+            f"n_msb={self._n_msb}",
+            f"cap_mismatch={self.cap_mismatch}",
+        ]
+        if self.seed is not None:
+            parts.append(f"seed={self.seed}")
+        return f"SplitCapCDAC({', '.join(parts)})"
 
 
 class SegmentedCDAC(CDACBase):
@@ -490,6 +521,7 @@ class SegmentedCDAC(CDACBase):
         v_ref: float = 1.0,
         n_therm: int = 4,
         cap_mismatch: float = 0.0,
+        seed: Optional[int] = None,
     ):
         n_binary = n_bits - n_therm
         if not (1 <= n_therm <= n_bits - 1):
@@ -499,6 +531,7 @@ class SegmentedCDAC(CDACBase):
         self._v_ref    = v_ref
         self._n_therm  = n_therm
         self._n_binary = n_binary
+        self.seed = seed
 
         # One unit cap per thermometer level (2^n_therm − 1 caps)
         n_therm_caps = 2 ** n_therm - 1
@@ -514,12 +547,14 @@ class SegmentedCDAC(CDACBase):
         # Combine into one flat weight vector
         all_weights = np.concatenate([therm_weights_scaled, binary_weights])
 
-        # Instantiate as a single SingleEndedCDAC
+        # Instantiate as a single SingleEndedCDAC; the seed flows through so
+        # the inner mismatch draw is reproducible.
         self._cdac = SingleEndedCDAC(
             n_bits=len(all_weights),
             v_ref=v_ref,
             cap_weights=all_weights,
             cap_mismatch=cap_mismatch,
+            seed=seed,
         )
 
     @property
@@ -580,8 +615,14 @@ class SegmentedCDAC(CDACBase):
         self._cdac.apply_mismatch(cap_mismatch, seed=seed)
 
     def __repr__(self) -> str:
-        return (f"SegmentedCDAC(n_bits={self._n_bits}, v_ref={self._v_ref}, "
-                f"n_therm={self._n_therm})")
+        parts = [
+            f"n_bits={self._n_bits}",
+            f"v_ref={self._v_ref}",
+            f"n_therm={self._n_therm}",
+        ]
+        if self.seed is not None:
+            parts.append(f"seed={self.seed}")
+        return f"SegmentedCDAC({', '.join(parts)})"
 
 
 class DifferentialCDAC(CDACBase):
@@ -623,6 +664,7 @@ class DifferentialCDAC(CDACBase):
         cap_weights: Optional[np.ndarray] = None,
         cap_mismatch: float = 0.0,
         cap_class: Type[UnitCapacitorBase] = IdealCapacitor,
+        seed: Optional[int] = None,
     ):
         """
         Args:
@@ -636,6 +678,10 @@ class DifferentialCDAC(CDACBase):
                 independent mismatch draws per capacitor.
             cap_class: UnitCapacitorBase subclass to instantiate for each
                 capacitor in both arrays.  Defaults to IdealCapacitor.
+            seed: Optional integer seed for the construction-time mismatch
+                draw.  ``None`` (default) uses OS entropy
+                (non-deterministic); an integer makes the (pos, neg)
+                realisation pair reproducible.
         """
         if not isinstance(n_bits, int) or n_bits < 1 or n_bits > 32:
             raise ValueError("n_bits must be an integer in [1, 32]")
@@ -646,22 +692,19 @@ class DifferentialCDAC(CDACBase):
 
         self._n_bits = n_bits
         self._v_ref  = v_ref
-        self.cap_mismatch = cap_mismatch
+        self.seed = seed
 
         intended = SingleEndedCDAC._resolve_weights(n_bits, cap_weights)
 
+        # Build both arrays with mismatch=0 (no construction-time draw); then
+        # route the actual mismatch through the seeded apply_mismatch path.
         self._cap_instances_pos: List[UnitCapacitorBase] = [
-            cap_class(c_nominal=float(w), mismatch=cap_mismatch) for w in intended
+            cap_class(c_nominal=float(w), mismatch=0.0) for w in intended
         ]
         self._cap_instances_neg: List[UnitCapacitorBase] = [
-            cap_class(c_nominal=float(w), mismatch=cap_mismatch) for w in intended
+            cap_class(c_nominal=float(w), mismatch=0.0) for w in intended
         ]
-
-        self._cap_weights_pos = np.array([c.capacitance for c in self._cap_instances_pos])
-        self._cap_weights_neg = np.array([c.capacitance for c in self._cap_instances_neg])
-
-        self._cap_total_pos = float(np.sum(self._cap_weights_pos) + 1.0)
-        self._cap_total_neg = float(np.sum(self._cap_weights_neg) + 1.0)
+        self.apply_mismatch(cap_mismatch, seed=seed)
 
     # ------------------------------------------------------------------
     # CDACBase interface
@@ -763,5 +806,11 @@ class DifferentialCDAC(CDACBase):
         return code_to_bits_msb_first(code, self._n_bits, dtype=float)
 
     def __repr__(self) -> str:
-        return (f"DifferentialCDAC(n_bits={self._n_bits}, v_ref={self._v_ref}, "
-                f"cap_mismatch={self.cap_mismatch})")
+        parts = [
+            f"n_bits={self._n_bits}",
+            f"v_ref={self._v_ref}",
+            f"cap_mismatch={self.cap_mismatch}",
+        ]
+        if self.seed is not None:
+            parts.append(f"seed={self.seed}")
+        return f"DifferentialCDAC({', '.join(parts)})"

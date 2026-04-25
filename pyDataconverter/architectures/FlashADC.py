@@ -81,6 +81,23 @@ class FlashADC(ADCBase):
     """
     Flash ADC implementation with configurable non-idealities and encoder.
 
+    Reference ladder convention
+    ---------------------------
+    Single-ended mode: the reference ladder spans ``[0, v_ref]`` and each
+    tap ``t[i]`` is the threshold at comparator ``i`` directly.
+
+    Differential mode: the ladder spans the narrower single-ended range
+    ``[-v_ref/4, +v_ref/4]``.  Each comparator ``i`` is driven by a
+    symmetric tap pair — ``v_refp = t[i]`` (ascending) and
+    ``v_refn = t[n-1-i]`` (descending) — so the effective differential
+    threshold is ``v_refp - v_refn = 2 * t[i]``, which spans the full
+    ``[-v_ref/2, +v_ref/2]`` differential input range (``v_ref``
+    peak-to-peak).  Accordingly, the ``reference_voltages`` property
+    returns the ×2-scaled effective thresholds so callers inspecting the
+    ladder see the voltages the comparators actually apply.  See the
+    block comments in ``__init__`` and ``_convert_input`` for the
+    derivation.
+
     Attributes:
         Inherits all attributes from ADCBase, plus:
         n_comparators (int): Number of comparators. Defaults to
@@ -102,7 +119,8 @@ class FlashADC(ADCBase):
                  reference_noise: float = 0.0,
                  resistor_mismatch: float = 0.0,
                  encoder_type: EncoderType = EncoderType.COUNT_ONES,
-                 n_comparators: Optional[int] = None):
+                 n_comparators: Optional[int] = None,
+                 seed: Optional[int] = None):
         """
         Initialize Flash ADC.
 
@@ -131,8 +149,19 @@ class FlashADC(ADCBase):
             encoder_type: Thermometer-to-binary encoding strategy.
             n_comparators: Number of comparators. If None, defaults to 2**n_bits - 1.
                 Can be any positive integer to override the default derivation.
+            seed: Optional integer seed for the construction-time random
+                draws (per-comparator offsets and the default ladder's
+                resistor mismatch).  ``None`` (default) uses OS entropy
+                (non-deterministic); an integer makes both draws
+                reproducible.  When a user-provided ``reference`` is
+                passed, this seed only controls the offset draw — the
+                reference's own randomness is the caller's responsibility.
+                Per-conversion noise (sampling noise, jitter, comparator
+                noise, reference noise) continues to use ``np.random``
+                global state.
         """
         super().__init__(n_bits, v_ref, input_type)
+        self.seed = seed
 
         if not isinstance(encoder_type, EncoderType):
             raise TypeError("encoder_type must be an EncoderType enum")
@@ -174,7 +203,8 @@ class FlashADC(ADCBase):
             if self.n_comparators == 2 ** n_bits - 1:
                 self.reference = ReferenceLadder(n_bits, v_min, v_max,
                                                  resistor_mismatch=resistor_mismatch,
-                                                 noise_rms=reference_noise)
+                                                 noise_rms=reference_noise,
+                                                 seed=seed)
             else:
                 lsb = (v_max - v_min) / self.n_comparators
                 thresholds = v_min + lsb * (np.arange(self.n_comparators) + 0.5)
@@ -184,8 +214,16 @@ class FlashADC(ADCBase):
         if comparator_params is None:
             comparator_params = {}
 
-        offsets = (np.random.normal(0, offset_std, self.n_comparators)
-                   if offset_std > 0 else np.zeros(self.n_comparators))
+        # Per-comparator offset draw uses a separate RNG seeded from `seed`
+        # so it is independent of the ladder's resistor-mismatch draw but
+        # deterministic when seed is set.  Stream the seed through
+        # SeedSequence to avoid correlation between the two draws.
+        if offset_std > 0:
+            ss = np.random.SeedSequence(seed)
+            offset_rng = np.random.default_rng(ss.spawn(2)[1])
+            offsets = offset_rng.normal(0, offset_std, self.n_comparators)
+        else:
+            offsets = np.zeros(self.n_comparators)
 
         self.comparators = []
         for i in range(self.n_comparators):
@@ -330,11 +368,16 @@ class FlashADC(ADCBase):
         return 1 if (thresholds[i_nearest] - self._last_v_sampled) > 0 else -1
 
     def __repr__(self) -> str:
-        return (f"{self.__class__.__name__}("
-                f"n_bits={self.n_bits}, v_ref={self.v_ref}, "
-                f"input_type={self.input_type.name}, "
-                f"encoder_type={self.encoder_type.name}, "
-                f"reference={self.reference!r})")
+        parts = [
+            f"n_bits={self.n_bits}",
+            f"v_ref={self.v_ref}",
+            f"input_type={self.input_type.name}",
+            f"encoder_type={self.encoder_type.name}",
+            f"reference={self.reference!r}",
+        ]
+        if self.seed is not None:
+            parts.append(f"seed={self.seed}")
+        return f"{self.__class__.__name__}({', '.join(parts)})"
 
 
 

@@ -84,6 +84,26 @@ class TestReferenceLadder:
         with pytest.raises(ValueError):
             ReferenceLadder(3, 0.0, 1.0, noise_rms=-1e-4)
 
+    def test_seed_reproducible(self):
+        """Same seed produces identical resistor-mismatch realisations."""
+        a = ReferenceLadder(6, 0.0, 1.0, resistor_mismatch=0.01, seed=42)
+        b = ReferenceLadder(6, 0.0, 1.0, resistor_mismatch=0.01, seed=42)
+        np.testing.assert_array_equal(a.voltages, b.voltages)
+
+    def test_seed_different_distinguishes(self):
+        """Different seeds produce different mismatch realisations."""
+        a = ReferenceLadder(6, 0.0, 1.0, resistor_mismatch=0.01, seed=1)
+        b = ReferenceLadder(6, 0.0, 1.0, resistor_mismatch=0.01, seed=2)
+        assert not np.array_equal(a.voltages, b.voltages)
+
+    def test_seed_in_repr_when_set(self):
+        ladder = ReferenceLadder(3, 0.0, 1.0, resistor_mismatch=0.01, seed=7)
+        assert "seed=7" in repr(ladder)
+
+    def test_seed_omitted_from_repr_when_none(self):
+        ladder = ReferenceLadder(3, 0.0, 1.0, resistor_mismatch=0.01)
+        assert "seed=" not in repr(ladder)
+
 
 # ---------------------------------------------------------------------------
 # ArbitraryReference
