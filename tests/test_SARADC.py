@@ -491,10 +491,16 @@ class TestSARAdcNonidealities:
         assert len(codes) > 1
 
     def test_cap_mismatch_breaks_linearity(self):
-        np.random.seed(42)
-        adc_ideal    = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE)
-        np.random.seed(42)
-        adc_mismatch = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE, cap_mismatch=0.005)
+        # Pass an explicitly-seeded CDAC so the mismatch realisation is
+        # deterministic (np.random.seed has no effect on the CDAC anymore;
+        # the cap-mismatch draw goes through default_rng(seed=...) per
+        # §3.2's reproducibility plumbing).  Seed 42 happens to produce
+        # mismatch large enough to perturb at least one of 100 sweep codes.
+        adc_ideal = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE)
+        cdac_mismatch = SingleEndedCDAC(n_bits=8, v_ref=1.0,
+                                        cap_mismatch=0.005, seed=42)
+        adc_mismatch = SARADC(n_bits=8, v_ref=1.0, input_type=InputType.SINGLE,
+                              cdac=cdac_mismatch)
         v_in = np.linspace(0.05, 0.95, 100)
         codes_ideal    = [adc_ideal.convert(v)    for v in v_in]
         codes_mismatch = [adc_mismatch.convert(v) for v in v_in]

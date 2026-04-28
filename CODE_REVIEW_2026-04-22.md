@@ -34,9 +34,9 @@ Legend: PENDING · DECIDED (plan agreed, code not changed) · FIXED · FALSE POS
 | 5.2 | No `py.typed` marker | FIXED | Created the empty PEP 561 marker file `pyDataconverter/py.typed` and updated `setup.py` to ship it via `package_data` + `include_package_data=True`. Type-checker consumers (mypy, pyright) now pick up the inline annotations after `pip install pyDataconverter`. |
 | 5.3 | Large `__main__` demo blocks | FIXED | Created `examples/` directory at repo root with 7 standalone demo scripts (one per source module's old `__main__` block) plus a `README.md` index. Stripped the corresponding `__main__` blocks from 6 modules (SARADC, FlashADC, SimpleADC, SimpleDAC, comparator, signal_gen) and removed the module-level `demo_fft_analysis()` function from `fft_analysis.py`. ~660 lines of demo code moved out of the library. Six tests that exercised the demo blocks for coverage were removed (demo coverage isn't library testing). 1000 tests still pass (was 1006; 6 demo-coverage tests removed). |
 | 5.4 | `warnings` imported inside functions | FIXED | Lifted the `import warnings` statements out of function bodies in `components/capacitor.py` (2 sites) and `components/current_source.py` (1 site) to module-level. The review's reference to `cdac.py:123` was already stale — no inline `import warnings` exists there at HEAD. Now consistent with `utils/metrics/adc.py`. |
-| 5.5 | Hardcoded magic numbers / format specifiers | PENDING | |
-| 5.6 | No abstract property consistency check for `CDACBase.n_bits` | PENDING | |
-| 5.7 | `SimpleDAC.convert_sequence` silent `code_errors` skip | PENDING | |
+| 5.5 | Hardcoded magic numbers / format specifiers | WON'T FIX | Both sub-claims do not survive scrutiny. (a) Format specifiers (`:.2e`, `:.3e`, `:.3g`, `:.4g`, `:.6f`) are internally consistent within each class; cross-class differences are deliberate adaptations to value range (Comparator's mV → `.2e`, ResidueAmplifier's sub-ns → `.3e`, currents/loads → `.3g`, capacitances → `.4g`, integrator state → `.6f`). A blanket format would over- or under-precise depending on attribute. (b) `_PDF_SINGULARITY_GUARD = 0.999` is a numerical-hygiene constant for the sine PDF singularity in histogram-based ADC testing, deliberately extracted to a module constant in commit `82a50aa` (R4-M5) to remove duplicated `0.999` literals at the two call sites. It's not a user-tunable knob — exposing it as a function parameter would surface an internal numerics detail. The R4 decision was sound; reversing it would be API churn for no concrete benefit. |
+| 5.6 | No abstract property consistency check for `CDACBase.n_bits` | FALSE POSITIVE | The check the reviewer wanted already exists at the right layer.  `SARADC.__init__:170–175` validates that a user-supplied `cdac` is a `CDACBase`, has matching `n_bits`, and matching `v_ref`. ABCs can't enforce cross-class consistency (abstract properties declare interface signatures only); the consistency check belongs at the composing class, which is exactly where it lives. |
+| 5.7 | `SimpleDAC.convert_sequence` silent `code_errors` skip | FIXED | Closed the asymmetry rather than just documenting it. `convert_sequence` now applies `code_errors` in the same order as `convert()`/`_convert_input` (per-code static error → gain → offset → noise) so identical codes produce identical outputs through both paths. The lookup is done on the un-repeated code array so all oversampled samples within a held code share the same per-code error realisation.  Removed the long block comment about Phase 1 scope (no longer accurate).  Bonus: caught and fixed a flaky test (`test_cap_mismatch_breaks_linearity`, ~7 % failure rate) that relied on `np.random.seed(42)` to seed CDAC mismatch — irrelevant since §3.2 routes mismatch through `default_rng`.  Test now uses an explicitly-seeded `SingleEndedCDAC(seed=42)`.  1000 tests pass deterministically across 5 runs. |
 | 5.8 | `apply_mismatch` returns `None` without doc note | PENDING | |
 | 6.1 | R2RDAC/ResistorStringDAC compute all codes at construction | PENDING | |
 | 6.2 | `SegmentedCDAC.get_voltage` allocates per call | PENDING | |
@@ -778,11 +778,115 @@ or removed during earlier work).  Now consistent with
 - `ResidueAmplifier.__repr__` uses `parts.append(f"settling_tau={self.settling_tau:.3e}")` — the `.3e` format specifier is hardcoded; other attributes use `.2e`
 - `_PDF_SINGULARITY_GUARD = 0.999` in `adc.py:14` — should be a parameter of the functions that use it, not a module-level constant
 
+**Status: WON'T FIX (2026-04-28)**
+
+(a) Format specifiers are not really inconsistent.  Surveyed every
+    repr format spec in the architectures and components:
+
+      Comparator                : `.2e`   for ~mV-scale offsets / noise
+      ResidueAmplifier          : `.3e`   for sub-ns settling_tau / slew
+      CurrentSteeringDAC        : `.3g`   for currents and loads
+      IdealCapacitor            : `.4g`   for capacitances
+      NoiseshapingSARADC        : `.6f`   for integrator_state
+      TimeInterleavedADC,
+      PipelinedADC              : `.3e`   for sample rates
+
+    Each class is internally consistent.  Cross-class differences are
+    deliberate adaptations to the value range — Comparator's `:.2e` on
+    millivolt-scale offsets and ResidueAmplifier's `:.3e` on sub-
+    nanosecond timescales convey *different amounts of information* per
+    attribute.  A blanket "use one spec" would either over- or
+    under-precise.  Not a real bug.
+
+(b) `_PDF_SINGULARITY_GUARD` is a numerical-hygiene constant.  The
+    sine-wave PDF used in histogram-based ADC testing,
+    `P(u) = 1 / (π·√(1 − u²))`, has a real mathematical singularity at
+    `|u| = 1` (the sine peaks).  The guard excludes bins within 0.1 %
+    of the rails so the divisor in `1/sqrt(1 − u²)` stays
+    well-conditioned (`1/sqrt(1 − 0.999²) ≈ 22.4` vs `inf` at u=1).
+    The choice of 0.999 vs 0.99 / 0.995 is a standard numerical
+    practice tradeoff; it isn't a user-facing tuning parameter.  The
+    constant was deliberately extracted to module level in commit
+    82a50aa (R4-M5) to replace duplicated `0.999` literals at the two
+    call sites with a single named, documented home.  Reverting that
+    decision to make it a function parameter would expose an internal
+    numerics detail in the public API for no concrete user benefit.
+
+No code change.
+
 ### 5.6 No Abstract Properties for `CDACBase.n_bits`
 `CDACBase` declares `n_bits` as an `@property` + `@abstractmethod` but never checks implementations are consistent with `ADCBase.n_bits`. A CDAC could have a different `n_bits` than its parent SARADC, which would cause subtle bugs.
 
+**Status: FALSE POSITIVE — closed (2026-04-28)**
+
+The check the reviewer asked for already exists, at the architecturally
+correct layer.  `SARADC.__init__:170–175`:
+
+```python
+if not isinstance(cdac, CDACBase):
+    raise TypeError(...)
+if cdac.n_bits != n_bits:
+    raise ValueError(
+        f"cdac.n_bits={cdac.n_bits} does not match n_bits={n_bits}")
+if cdac.v_ref != v_ref:
+    raise ValueError(
+        f"cdac.v_ref={cdac.v_ref} does not match v_ref={v_ref}")
+```
+
+When a user supplies a custom CDAC to a SARADC, the constructor
+explicitly verifies *both* `n_bits` and `v_ref` line up — the
+"subtle bug" scenario the review described raises a `ValueError` at
+construction time before any conversion runs.
+
+The review's specific suggestion to put the check on `CDACBase`
+itself is not how Python ABCs work.  Abstract properties declare the
+interface a subclass must implement; they cannot enforce
+cross-class consistency (CDAC vs ADC) because the ABC has no
+visibility into who composes it.  The right home for that check is
+at the composing class, which is where it lives.
+
+No code change.
+
 ### 5.7 `SimpleDAC.convert_sequence` Note About `code_errors`
 `SimpleDAC.py:156-163` has a detailed comment explaining that `code_errors` is NOT applied in `convert_sequence`, but this is a silent deviation from expected behavior. The docstring doesn't mention this.
+
+**Status: FIXED (2026-04-28)**
+
+Closed the asymmetry rather than just documenting it.  `code_errors`
+is a per-code static voltage offset injected into the DAC output —
+the natural use cases are testing the INL/DNL metric pipeline with a
+known error profile, replaying measured silicon, or building a
+behavioural model of a structural DAC's mismatch fingerprint.  The
+old behaviour silently dropped `code_errors` in the batch path, so
+`dac.convert(k)` and `dac.convert_sequence([k])` produced different
+outputs for the same DAC + same code — a real bug, not just a
+documentation gap.
+
+Resolution: `convert_sequence` now applies `code_errors` in the same
+order as `_convert_input` (per-code static error → gain → offset →
+noise), and the public docstring spells out the order.  The lookup
+is done on the un-repeated code array so all oversampled samples
+within a held code share the same per-code error realisation.
+
+Removed the long block comment ("NOTE: self.code_errors is NOT
+applied in this vectorised path... Reconcile before any future code
+path wants code_errors in a batch context.")  — the reconciliation
+is now done.
+
+Verified symmetry empirically:
+
+    dac = SimpleDAC(n_bits=2, code_errors=np.array([0.0, 0.01,
+                                                     -0.005, 0.02]))
+    dac.convert(2)              == dac.convert_sequence([2])[1][0]   ✓
+
+Bonus fix discovered while running the suite: the flaky test
+`test_cap_mismatch_breaks_linearity` failed ~7 % of the time after
+§3.2 because it relied on `np.random.seed(42)` to seed CDAC
+mismatch — but mismatch now routes through `default_rng(seed=...)`
+which ignores the global seed.  Fixed by passing an explicitly-
+seeded `SingleEndedCDAC(seed=42)` via the SARADC `cdac=` kwarg, so
+the mismatch realisation is deterministic.  All 1000 tests pass
+across 5 consecutive runs.
 
 ### 5.8 `apply_mismatch` Returns `None` Implicitly
 All `apply_mismatch` implementations in `CDACBase`, `SingleEndedCDAC`, `DifferentialCDAC`, `SegmentedCDAC` modify state in-place but return `None`. The docstring says "Re-draw..." without explicitly stating the mutation or return value. While technically correct (in-place mutation is clear from context), a clearer docstring would help.

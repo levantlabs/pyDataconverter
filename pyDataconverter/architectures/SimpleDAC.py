@@ -139,6 +139,13 @@ class SimpleDAC(DACBase):
         """
         Convert an array of digital codes to a time-domain ZOH waveform.
 
+        Applies the same non-idealities (and in the same order) as
+        ``convert()``: per-code static error → gain → offset → noise, with
+        each output code held for ``oversample`` samples and noise drawn
+        independently per output sample.  ``code_errors`` (if set) is
+        looked up by code on the un-repeated array, so each sample within
+        a held code receives the same per-code static error.
+
         Args:
             codes: Array of integer DAC codes.
 
@@ -146,18 +153,17 @@ class SimpleDAC(DACBase):
             Single-ended: (t, voltages)
             Differential:  (t, v_pos, v_neg)
         """
-        # NOTE: self.code_errors is NOT applied in this vectorised path.
-        # Per-code error injection is Phase 1 scoped to the single-code
-        # _convert_input path used by SimpleDAC.convert(). The batch
-        # convert_sequence path inlines its own arithmetic and does not
-        # consult code_errors. This is intentional for Phase 1 — the
-        # pipelined-ADC comparison harness (Task 10) exercises convert()
-        # only. Reconcile before any future code path wants code_errors
-        # in a batch context.
         max_code = self.n_levels - 1
         codes = np.clip(codes, 0, max_code)
 
         voltages = codes.astype(float) * self.lsb
+
+        # Per-code static error — applied before gain/offset/noise to mirror
+        # the order in _convert_input().  The lookup is done on the
+        # un-repeated array so all oversampled samples within a held code
+        # share the same per-code error realisation.
+        if self.code_errors is not None:
+            voltages = voltages + self.code_errors[codes]
 
         if self.gain_error:
             voltages *= (1.0 + self.gain_error)
