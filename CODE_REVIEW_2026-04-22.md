@@ -26,10 +26,10 @@ Legend: PENDING · DECIDED (plan agreed, code not changed) · FIXED · FALSE POS
 | 3.6 | `convert_waveform` return type annotation | FIXED (cosmetic) | Review's own conclusion was "no issues found" — implementations correctly return int arrays via `dtype=int`. Added `-> np.ndarray` return-type annotation to the two `def` signatures (`ADCBase.convert_waveform`, `TimeInterleavedADC.convert_waveform`) so the return type is visible to static checkers / IDE introspection. The dtype=int specifics stay in the docstring (numpy generic typing for dtype is verbose and not idiomatic). No runtime change. |
 | 3.7 | FlashADC XOR encoder edge case | FALSE POSITIVE | No real overflow risk within the supported range. `ADCBase` validates `1 ≤ n_bits ≤ 32`; at the max, `values[i]` reaches `2^32 − 1` and `np.flatnonzero` returns int64 on 64-bit platforms — `bitwise_or.reduce` supports up to `2^63 − 1`, leaving ~31 bits of headroom. The review itself acknowledged this was not a concern for practical n_bits. |
 | 3.8 | R2RDAC termination resistor double-use | FIXED | The LSB switch arm and the LSB-end termination are physically separate 2R resistors but were sharing `r2_values[n-1]`, so a Monte-Carlo sweep underestimated variance by treating them as perfectly correlated.  Now `r2_values` is length `n_bits+1`: indices 0..n-1 are switch arms, index n is the dedicated termination, each with an independent mismatch draw.  Class docstring + `_build_network` docstring rewritten to reflect the correct topology.  1 new test verifies the array length and that the LSB switch / termination draws are distinct.  Note: any user that pinned a seed against the prior model will see different `r_values` arrays — the new behaviour is more physically accurate. |
-| 4.1 | Outdated module version-history blocks | PENDING | |
-| 4.2 | Missing parameter documentation | PENDING | |
-| 4.3 | No Sphinx/RTD setup | PENDING | See `docs/SPHINX_IMPROVEMENTS.md` |
-| 4.4 | `ADCBase` docstring covers DAC too | PENDING | |
+| 4.1 | Outdated module version-history blocks | FIXED | Replaced the multi-line `Version History:` block in 15 modules with a single-line `First written <date>; see git log for the change history.` pointer. Removes the maintenance burden of keeping in-file version logs in sync with code changes; git is now the single source of truth. Original first-written dates preserved. |
+| 4.2 | Missing parameter documentation | FIXED | Two sub-items addressed. (a) `ResidueAmplifier`: added a "Gain contract" block at the top of the class docstring (before the Attributes table) showing the canonical caller-pre-multiplies-by-gain pattern with a worked example, and updated the `gain` attribute description to point at it. The contract was already correct in the `amplify()` method docstring; this surfaces it where a class-level reader will see it first. (b) `TimeInterleavedADC._convert_input`: expanded the docstring to spell out that `dvdt` is used in two places — the TI-level timing-skew mismatch (`dvdt * skew_k`) and the per-channel sub-ADC aperture jitter (forwarded as `convert(..., dvdt=self._dvdt)`) — and notes how the two effects compose linearly. |
+| 4.3 | No Sphinx/RTD setup | DEFERRED | An exploratory Sphinx scaffold currently lives at `docs/source/` (untracked) but the user has flagged the output as poor quality and intends to redo the documentation build from scratch as a separate, larger effort. Closing this review item as DEFERRED rather than trying to polish the prototype. The prototype's notes-to-self in `docs/SPHINX_IMPROVEMENTS.md` (also untracked) should not be treated as a binding plan. |
+| 4.4 | `ADCBase` docstring covers DAC too | FIXED | Reviewed the module docstring: line 5 already said "interfaces for both ADC and DAC implementations" so the narrow concern was largely a non-issue, but the "Classes:" listing genuinely omitted the three public enums (`InputType`, `OutputType`, `QuantizationMode`). Replaced with a structured "Public API:" block grouping base classes and enums separately, with one-line summaries for each enum (and a pointer to `QuantizationMode`'s applicability section). Both the review's narrow concern and the real gap closed. |
 | 5.1 | Inconsistent type annotations | PENDING | |
 | 5.2 | No `py.typed` marker | PENDING | |
 | 5.3 | Large `__main__` demo blocks | PENDING | |
@@ -522,15 +522,120 @@ accurate.  All 1006 tests pass.
 - `dataconverter.py` header says "Version History: 2026-03-22: Added QuantizationMode enum" but the code was clearly updated much later (comments mention 2026-04-13)
 - Several module docstrings have "Version History" that are outdated relative to the actual code
 
+**Status: FIXED (2026-04-28)**
+
+The root cause is the pattern itself — duplicating change history in
+module docstrings means it is *always* either wrong or about to be
+wrong, and git already carries the canonical record.  Resolution:
+strip the multi-line `Version History:` blocks across all 15 modules
+and replace each with a single line preserving the first-written
+date and pointing to git for the rest:
+
+    First written <YYYY-MM-DD>; see ``git log`` for the change history.
+
+Files touched (15):
+  - `pyDataconverter/dataconverter.py` (2025-01-31)
+  - `pyDataconverter/architectures/SimpleADC.py` (2025-02-01)
+  - `pyDataconverter/architectures/SimpleDAC.py` (2025-02-06)
+  - `pyDataconverter/architectures/FlashADC.py` (2024-02-07)
+  - `pyDataconverter/components/comparator.py` (2024-02-07)
+  - `pyDataconverter/architectures/SARADC.py` (2026-03-25)
+  - `pyDataconverter/components/cdac.py` (2026-03-25)
+  - `pyDataconverter/components/capacitor.py` (2026-03-25)
+  - `pyDataconverter/components/decoder.py` (2026-03-25)
+  - `pyDataconverter/components/current_source.py` (2026-03-25)
+  - `pyDataconverter/architectures/CurrentSteeringDAC.py` (2026-03-25)
+  - `pyDataconverter/components/reference.py` (2026-03-23)
+  - `pyDataconverter/architectures/ResistorStringDAC.py` (2026-04-02)
+  - `pyDataconverter/architectures/SegmentedResistorDAC.py` (2026-04-02)
+  - `pyDataconverter/architectures/R2RDAC.py` (2026-04-02)
+
+`grep -rn "Version History" pyDataconverter/` now returns nothing.
+1006 tests still pass.
+
 ### 4.2 Missing Parameter Documentation
 - `ResidueAmplifier.amplify()`: The docstring says the caller pre-multiplies by gain, but the `gain` attribute exists for callers to read. This contract is correct but not prominently documented in the class docstring.
 - `TimeInterleavedADC`: The `convert()` method's `dvdt` parameter behavior is documented (timing skew via `dvdt * skew_k`) but the interaction with the sub-ADC's own jitter model is not explained.
 
+**Status: FIXED (2026-04-28)**
+
+(a) **`ResidueAmplifier`** — added a "Gain contract" block at the top
+    of the class docstring (between the summary line and the Attributes
+    table).  Shows the canonical caller-pre-multiplies pattern with a
+    worked example:
+
+        ra = ResidueAmplifier(gain=4.0, settling_tau=...)
+        v_out = ra.amplify(
+            target        = ra.gain * (v_in - v_dac),
+            initial_error = sign * ra.gain * sub_dac.lsb,
+            t_budget      = t_budget,
+        )
+
+    Updated the `gain` attribute description to cross-reference the
+    contract block.  The `amplify()` method docstring already explained
+    this clearly; the change just surfaces it where a class-level
+    reader will see it first.
+
+(b) **`TimeInterleavedADC._convert_input`** — expanded the docstring
+    to call out the two distinct uses of `dvdt`:
+
+      1. *Timing-skew mismatch* (TI level): `self._dvdt * skew_k` is
+         added to the input-referred correction, modelling the channel
+         sampling at a small offset from nominal — the canonical
+         TI-ADC mismatch spur source.
+      2. *Sub-ADC aperture jitter*: `dvdt` is forwarded unchanged to
+         the channel's sub-ADC via `convert(..., dvdt=self._dvdt)`,
+         so the sub-ADC's own `t_jitter` model applies on top.
+
+    Notes how the two effects compose linearly (deterministic skew +
+    stochastic jitter) and how to disable each independently.
+
 ### 4.3 No Sphinx/ReadTheDocs Setup
 The project has no `docs/` folder with actual documentation build infrastructure, only a `docs/superpowers/` spec subfolder.
 
+**Status: DEFERRED (2026-04-28)**
+
+The review's premise was already partially obsolete: a working Sphinx
+scaffold has been set up under `docs/source/` (untracked), with
+`conf.py`, `index.rst`, `modules.rst`, an `api/` subtree, and a
+`_build/` output.  It generates HTML successfully, albeit with ~101
+warnings tracked in `docs/SPHINX_IMPROVEMENTS.md`.
+
+However, the maintainer has flagged that scaffold as exploratory —
+intended only to see what auto-generated Sphinx output looks like —
+and judges the result to be of poor quality.  The plan is to redo
+the documentation build from scratch as a separate, larger effort
+(API style decisions, NumPy-format docstring conversion, hand-written
+narrative pages, examples gallery, etc.) rather than polish the
+current prototype.
+
+This review item is therefore deferred.  The prototype's notes-to-self
+file (`docs/SPHINX_IMPROVEMENTS.md`) should not be treated as a binding
+plan — its quick-fixes list reflects observations from a single build
+run, not the eventual documentation strategy.
+
+Items in that list that overlap with completed review work:
+- "Empty `__init__.py` files" was already addressed under §1 (commit
+  `cad24ac`, fully-namespaced public API).
+
 ### 4.4 ADCBase Docstring
 `dataconverter.py:8-9` says "Classes: ADCBase: abstract class for all ADC implementations" but then lists both ADC and DAC classes. The docstring header should clarify it covers both.
+
+**Status: FIXED (2026-04-28)**
+
+The narrow concern was largely already addressed — line 5 of the
+module docstring read "This module provides interfaces for both ADC
+and DAC implementations".  But the `Classes:` listing did have a real
+gap: the three public enums living in this file (`InputType`,
+`OutputType`, `QuantizationMode`) were not surfaced at all in the
+module summary, even though they are part of the public API and
+imported throughout the codebase.
+
+Replaced the bare `Classes:` section with a structured `Public API:`
+block split into "Base classes" and "Enums", with a one-line summary
+for each enum (and a cross-reference to `QuantizationMode`'s
+"Applicability" section so readers know it parameterises behavioural
+ADCs only — see §2.2).  No code change; documentation only.
 
 ---
 

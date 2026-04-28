@@ -11,14 +11,7 @@ Classes:
     DifferentialCDAC:  Binary-weighted C-DAC with complementary arrays for
                        differential SAR ADCs.
 
-Version History:
----------------
-1.0.0 (2026-03-25):
-    - Initial release
-1.1.0 (2026-03-25):
-    - Capacitor arrays now hold UnitCapacitorBase instances (IdealCapacitor by
-      default) rather than bare numpy weight arrays.  Public API is unchanged;
-      cap_instances / cap_instances_neg properties added for per-element access.
+First written 2026-03-25; see ``git log`` for the change history.
 
 Notes:
 ------

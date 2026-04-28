@@ -11,10 +11,7 @@ Classes:
                         and dynamic noise.
     ArbitraryReference: User-supplied threshold array with optional noise.
 
-Version History:
----------------
-1.0.0 (2026-03-23):
-    - Initial release
+First written 2026-03-23; see ``git log`` for the change history.
 """
 
 from abc import ABC, abstractmethod

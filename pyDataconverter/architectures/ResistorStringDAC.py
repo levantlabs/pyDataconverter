@@ -10,10 +10,7 @@ Inherently monotonic: DNL > -1 LSB for any resistor mismatch.
 Classes:
     ResistorStringDAC: Kelvin divider DAC with optional resistor mismatch.
 
-Version History:
----------------
-1.0.0 (2026-04-02):
-    - Initial release
+First written 2026-04-02; see ``git log`` for the change history.
 """
 
 import numpy as np

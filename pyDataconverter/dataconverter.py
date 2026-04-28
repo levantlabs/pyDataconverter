@@ -2,16 +2,23 @@
 Data Converter Base Classes
 ===========================
 
-This module provides interfaces for both ADC and DAC implementations.
+Public interfaces shared by every ADC and DAC architecture in
+``pyDataconverter.architectures``.
 
-Classes:
-    ADCBase: abstract class for all ADC implementations
-    DACBase: abstract class for all DAC implementations
+Public API:
+    Base classes:
+        ADCBase: abstract base for all ADC implementations.
+        DACBase: abstract base for all DAC implementations.
 
-Version History:
-2025-01-31: First pass wrapper
-2025-02-06: Added DACBase abstract class
-2026-03-22: Added QuantizationMode enum
+    Enums:
+        InputType        — SINGLE / DIFFERENTIAL; ADC input convention.
+        OutputType       — SINGLE / DIFFERENTIAL; DAC output convention.
+        QuantizationMode — FLOOR / SYMMETRIC; behavioural-ADC quantization
+                           formula choice (see the enum's docstring for
+                           applicability — structural ADCs are
+                           FLOOR-by-construction).
+
+First written 2025-01-31; see ``git log`` for the change history.
 """
 
 from abc import ABC, abstractmethod

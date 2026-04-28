@@ -28,10 +28,7 @@ Classes:
     ThermometerDecoder:  Full unary decode — code drives 2^N − 1 unit elements.
     SegmentedDecoder:    MSBs thermometer-decoded, LSBs binary (general case).
 
-Version History:
----------------
-1.0.0 (2026-03-25):
-    - Initial release
+First written 2026-03-25; see ``git log`` for the change history.
 """
 
 from abc import ABC, abstractmethod

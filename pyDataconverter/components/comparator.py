@@ -8,19 +8,7 @@ Classes:
     ComparatorBase:          Abstract base class defining the comparator interface.
     DifferentialComparator:  Standard latch comparator with optional reference injection.
 
-Version History:
----------------
-1.0.0 (2024-02-07):
-    - Initial release (Comparator class)
-1.0.1 (2024-02-07):
-    - Added time constant parameter for future temporal modeling
-1.1.0 (2026-03-23):
-    - Introduced ComparatorBase ABC
-    - Renamed Comparator → DifferentialComparator
-    - Extended compare() to 4-input signature:
-      compare(v_pos, v_neg, v_refp=0.0, v_refn=0.0)
-      effective_diff = (v_pos − v_refp) − (v_neg − v_refn)
-    - Backward-compatible: calling compare(v_pos, v_neg) gives same result as before
+First written 2024-02-07; see ``git log`` for the change history.
 
 Notes:
 ------

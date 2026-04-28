@@ -9,19 +9,7 @@ Classes:
     SimpleADC: ADC with ideal quantization and optional thermal noise,
                offset, gain error, and aperture jitter.
 
-Version History:
----------------
-1.0.0 (2025-02-01):
-    - Initial release
-    - Basic quantization implementation
-1.1.0 (2026-03-22):
-    - Added QuantizationMode support (FLOOR and SYMMETRIC)
-    - Applied quantization mode to both single-ended and differential inputs
-    - Fixed differential quantization formula
-1.2.0 (2026-03-23):
-    - Added optional non-idealities: thermal noise, offset, gain error,
-      aperture jitter
-    - Overrode convert() to accept dvdt for aperture jitter modelling
+First written 2025-02-01; see ``git log`` for the change history.
 """
 
 from pyDataconverter.dataconverter import ADCBase, InputType, QuantizationMode

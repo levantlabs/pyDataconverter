@@ -26,10 +26,7 @@ current through a resistive load r_load.
 Classes:
     CurrentSteeringDAC: Current-steering DAC inheriting from DACBase.
 
-Version History:
----------------
-1.0.0 (2026-03-25):
-    - Initial release
+First written 2026-03-25; see ``git log`` for the change history.
 
 Notes:
 ------

@@ -9,17 +9,7 @@ Classes:
     EncoderType: Enum defining the thermometer-to-binary encoding strategy.
     FlashADC: Flash ADC implementation inheriting from ADCBase.
 
-Version History:
----------------
-1.0.0 (2024-02-07):
-    - Initial release
-    - Basic Flash ADC implementation
-    - Integration with Comparator component
-    - Support for offset, noise, and resistor mismatch
-1.1.0 (2026-03-23):
-    - Added EncoderType enum (COUNT_ONES, XOR)
-    - Added differential input support
-    - Refactored encoder into _encode() method
+First written 2024-02-07; see ``git log`` for the change history.
 
 Notes:
 ------

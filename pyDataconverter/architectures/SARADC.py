@@ -8,17 +8,7 @@ configurable non-idealities.
 Classes:
     SARADC: SAR ADC implementation inheriting from ADCBase.
 
-Version History:
----------------
-1.0.0 (2026-03-25):
-    - Initial release
-    - Structural bit-cycling model with binary-weighted C-DAC component
-    - Single-ended and differential input support via SingleEndedCDAC /
-      DifferentialCDAC
-    - Input-referred non-idealities: sampling noise (kT/C), offset, gain
-      error, aperture jitter
-    - Comparator non-idealities via DifferentialComparator
-    - convert_with_trace() for cycle-by-cycle inspection
+First written 2026-03-25; see ``git log`` for the change history.
 
 Notes:
 ------

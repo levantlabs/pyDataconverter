@@ -18,10 +18,7 @@ Classes:
     CurrentSourceArray:     Thermometer + binary element arrays; evaluates
                             the total DAC output current given decoder outputs.
 
-Version History:
----------------
-1.0.0 (2026-03-25):
-    - Initial release
+First written 2026-03-25; see ``git log`` for the change history.
 """
 
 from abc import ABC, abstractmethod

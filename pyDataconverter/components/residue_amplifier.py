@@ -33,11 +33,28 @@ class ResidueAmplifier:
     """
     Closed-loop residue amplifier with configurable non-idealities.
 
+    Gain contract (read this before calling ``amplify``):
+        ``self.gain`` is *not* applied inside ``amplify()``.  The caller
+        is expected to pre-multiply by ``self.gain`` when constructing
+        the ``target`` and ``initial_error`` arguments — for example:
+
+            ra = ResidueAmplifier(gain=4.0, settling_tau=...)
+            v_out = ra.amplify(
+                target        = ra.gain * (v_in - v_dac),
+                initial_error = sign * ra.gain * sub_dac.lsb,
+                t_budget      = t_budget,
+            )
+
+        ``amplify()`` then performs only the exponential-settling
+        evolution and offset/clipping; multiplying inside it would
+        double-apply the gain.  The attribute is exposed so callers
+        can read it when composing those expressions
+        (e.g. ``stage.residue_amp.gain``).
+
     Attributes:
         gain:          Closed-loop voltage gain (signed; inverting amps OK).
-                       NOTE: stored as an attribute for callers to read
-                       when building amplify() arguments; NOT applied
-                       inside amplify() itself. The caller pre-multiplies.
+                       NOT applied inside ``amplify()`` — see the gain
+                       contract above; the caller pre-multiplies.
         offset:        Output-referred DC offset voltage (V).
         slew_rate:     Peak rate of change of the output (V/s). 0 or +inf
                        disables slew limiting. Optional; Phase 1 uses the

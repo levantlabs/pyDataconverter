@@ -174,6 +174,21 @@ class TimeInterleavedADC(ADCBase):
         the current channel, routes to that channel's sub-ADC, and advances
         the channel counter.
 
+        ``dvdt`` (set by the inherited ``convert(vin, dvdt)`` public API) is
+        used in *two* places, modelling distinct physical effects:
+
+          1. **Timing-skew mismatch** (TI-ADC level): the channel samples the
+             input at a small offset ``skew_k`` from the nominal time, so the
+             input-referred correction picks up a ``self._dvdt * skew_k``
+             term.  This is the canonical TI-ADC mismatch spur source.
+          2. **Sub-ADC aperture jitter**: ``dvdt`` is forwarded unchanged to
+             the channel's sub-ADC ``convert(..., dvdt=self._dvdt)`` so the
+             sub-ADC can apply its own ``t_jitter`` model on top.  The two
+             effects compose linearly — the TI-ADC adds a deterministic
+             skew-driven offset, the sub-ADC adds a stochastic jitter term.
+             Disable one without affecting the other by setting
+             ``timing_skew=0`` (TI-level) or sub-ADC ``t_jitter=0``.
+
         Bandwidth mismatch is not representable pointwise (it is a
         convolution) — if any channel has nonzero bandwidth, this method
         raises RuntimeError and directs the caller to use convert_waveform.

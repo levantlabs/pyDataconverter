@@ -9,14 +9,7 @@ Classes:
     SimpleDAC: DAC with ideal conversion and optional noise, offset, and
                gain error.
 
-Version History:
----------------
-1.0.0 (2025-02-06):
-    - Initial release
-    - Basic conversion implementation
-1.1.0 (2026-03-24):
-    - Added optional non-idealities: noise_rms, offset, gain_error
-    - Added _apply_nonidealities() method mirroring SimpleADC pattern
+First written 2025-02-06; see ``git log`` for the change history.
 """
 
 from pyDataconverter.dataconverter import DACBase, OutputType
