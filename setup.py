@@ -7,6 +7,10 @@ setup(
     name="pyDataconverter",
     version="0.03",
     packages=find_packages(exclude=['tests']),
+    # PEP 561: ship the py.typed marker so type-checker consumers (mypy,
+    # pyright, etc.) pick up the inline annotations.
+    package_data={'pyDataconverter': ['py.typed']},
+    include_package_data=True,
     python_requires='>=3.7',
     install_requires=[
         'numpy',

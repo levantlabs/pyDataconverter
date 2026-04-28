@@ -30,9 +30,9 @@ Legend: PENDING · DECIDED (plan agreed, code not changed) · FIXED · FALSE POS
 | 4.2 | Missing parameter documentation | FIXED | Two sub-items addressed. (a) `ResidueAmplifier`: added a "Gain contract" block at the top of the class docstring (before the Attributes table) showing the canonical caller-pre-multiplies-by-gain pattern with a worked example, and updated the `gain` attribute description to point at it. The contract was already correct in the `amplify()` method docstring; this surfaces it where a class-level reader will see it first. (b) `TimeInterleavedADC._convert_input`: expanded the docstring to spell out that `dvdt` is used in two places — the TI-level timing-skew mismatch (`dvdt * skew_k`) and the per-channel sub-ADC aperture jitter (forwarded as `convert(..., dvdt=self._dvdt)`) — and notes how the two effects compose linearly. |
 | 4.3 | No Sphinx/RTD setup | DEFERRED | An exploratory Sphinx scaffold currently lives at `docs/source/` (untracked) but the user has flagged the output as poor quality and intends to redo the documentation build from scratch as a separate, larger effort. Closing this review item as DEFERRED rather than trying to polish the prototype. The prototype's notes-to-self in `docs/SPHINX_IMPROVEMENTS.md` (also untracked) should not be treated as a binding plan. |
 | 4.4 | `ADCBase` docstring covers DAC too | FIXED | Reviewed the module docstring: line 5 already said "interfaces for both ADC and DAC implementations" so the narrow concern was largely a non-issue, but the "Classes:" listing genuinely omitted the three public enums (`InputType`, `OutputType`, `QuantizationMode`). Replaced with a structured "Public API:" block grouping base classes and enums separately, with one-line summaries for each enum (and a pointer to `QuantizationMode`'s applicability section). Both the review's narrow concern and the real gap closed. |
-| 5.1 | Inconsistent type annotations | PENDING | |
-| 5.2 | No `py.typed` marker | PENDING | |
-| 5.3 | Large `__main__` demo blocks | PENDING | |
+| 5.1 | Inconsistent type annotations | FIXED (narrow scope) | Normalised the specific inconsistency the review flagged: `np.random.Generator` was a string forward-ref (`"np.random.Generator"`) in `components/capacitor.py:53,149` but a bare class reference everywhere else (`TimeInterleavedADC.py`, `utils/signal_gen.py`). Numpy 1.17+ has it as a real importable class, so the string form isn't needed. Dropped the quotes — codebase now uses one form. The broader concern (≈119 of 275 `def` lines lack a return annotation) is out of scope for review closure; will be picked up by a future typing audit. |
+| 5.2 | No `py.typed` marker | FIXED | Created the empty PEP 561 marker file `pyDataconverter/py.typed` and updated `setup.py` to ship it via `package_data` + `include_package_data=True`. Type-checker consumers (mypy, pyright) now pick up the inline annotations after `pip install pyDataconverter`. |
+| 5.3 | Large `__main__` demo blocks | FIXED | Created `examples/` directory at repo root with 7 standalone demo scripts (one per source module's old `__main__` block) plus a `README.md` index. Stripped the corresponding `__main__` blocks from 6 modules (SARADC, FlashADC, SimpleADC, SimpleDAC, comparator, signal_gen) and removed the module-level `demo_fft_analysis()` function from `fft_analysis.py`. ~660 lines of demo code moved out of the library. Six tests that exercised the demo blocks for coverage were removed (demo coverage isn't library testing). 1000 tests still pass (was 1006; 6 demo-coverage tests removed). |
 | 5.4 | `warnings` imported inside functions | PENDING | |
 | 5.5 | Hardcoded magic numbers / format specifiers | PENDING | |
 | 5.6 | No abstract property consistency check for `CDACBase.n_bits` | PENDING | |
@@ -652,8 +652,41 @@ def redraw_mismatch(self, stddev: float, rng: "np.random.Generator") -> None:
 ```
 Some type hints use string quotes for forward references, others don't.
 
+**Status: FIXED — narrow scope (2026-04-28)**
+
+The specific concrete inconsistency the review flagged — `np.random.Generator`
+written as a string forward-reference in `components/capacitor.py`
+(lines 53 and 149) but as a bare class reference everywhere else
+(`TimeInterleavedADC.py:40`, `utils/signal_gen.py:607`) — is now
+normalised.  numpy 1.17+ has `np.random.Generator` as a real
+importable class; the string form was a pre-emptive forward-reference
+that became unnecessary.  Dropped the quotes; the codebase now uses
+one consistent form.
+
+The broader concern that some `def` lines (about 119 of 275) lack
+return-type annotations is out of scope for review closure.  Many
+are legitimately bare (`__init__` returns None, `reset()` returns
+None) and many would benefit from `-> None` for clarity, but a full
+typing audit is its own thread of work.  Tracking as a future task
+rather than under this review item.
+
 ### 5.2 No `py.typed` Marker
 The package lacks a `py.typed` file, meaning it's not registered as a typed package for mypy consumers.
+
+**Status: FIXED (2026-04-28)**
+
+PEP 561 requires two pieces:
+
+  1. An empty `py.typed` marker file at the package root.  Created at
+     `pyDataconverter/py.typed`.
+  2. The marker must be shipped in the wheel/sdist.  Added to
+     `setup.py`:
+
+         package_data={'pyDataconverter': ['py.typed']},
+         include_package_data=True,
+
+Downstream consumers running mypy, pyright, etc. against an installed
+`pyDataconverter` will now consult the inline annotations.
 
 ### 5.3 `if __name__ == "__main__"` Blocks Are Extensive
 - `SARADC.py:541-583`: ~42 lines of demo code in `__main__`
@@ -664,6 +697,62 @@ The package lacks a `py.typed` file, meaning it's not registered as a typed pack
 - `fft_analysis.py:206-298`: ~93 lines
 
 These should ideally be moved to separate example scripts under `examples/` or at minimum use `if __name__ == "__main__"` guards with a comment explaining they're demonstration code only.
+
+**Status: FIXED (2026-04-28)**
+
+Took the review's recommended approach: created `examples/` at repo
+root with seven standalone demo scripts (one per source module's old
+`__main__` block) plus a `README.md` index summarising what each
+demo shows.
+
+New files:
+- `examples/saradc_demo.py`        — replaces `SARADC.__main__`
+- `examples/flashadc_demo.py`      — replaces `FlashADC.__main__`
+- `examples/simpleadc_demo.py`     — replaces `SimpleADC.__main__`
+- `examples/simpledac_demo.py`     — replaces `SimpleDAC.__main__`
+- `examples/comparator_demo.py`    — replaces `comparator.__main__`
+- `examples/fft_analysis_demo.py`  — replaces both
+  `fft_analysis.demo_fft_analysis()` *and* the `fft_analysis.__main__`
+  call site
+- `examples/signal_gen_demo.py`    — replaces `signal_gen.__main__`
+- `examples/README.md`             — index with one-line per-demo
+  description
+
+Removed from library code:
+- `__main__` blocks in six modules (SARADC, FlashADC, SimpleADC,
+  SimpleDAC, comparator, signal_gen).
+- The module-level `demo_fft_analysis()` function from
+  `fft_analysis.py` (it existed only to be called by the demo
+  block).
+- The `from fft_analysis import demo_fft_analysis` import in
+  `tests/test_fft_analysis_coverage.py`.
+
+About 660 lines of demo code moved out of the library; the three
+biggest files (signal_gen, fft_analysis, FlashADC) each lost
+80–160 lines.
+
+Tests: removed six demo-coverage tests that no longer have a
+`__main__` block to exercise (`TestMainBlock` in test_FlashADC.py,
+`TestSimpleDACMainBlock` in test_SimpleDAC.py,
+`TestSimpleADCMainBlock` in test_SimpleADC.py,
+`TestComparatorMainBlock` in test_comparator.py,
+`TestDemoFFTAnalysis` in test_fft_analysis_coverage.py).
+Demo-script coverage isn't library testing — examples are runnable
+standalone, not part of the test suite.
+
+1000 tests still pass (was 1006; the 6 removed tests were the only
+delta).  All seven example scripts pass `ast.parse` and the
+non-plotting ones (simpleadc_demo, simpledac_demo) produce the
+expected output when run directly.
+
+For users, the entry point is now:
+
+    python examples/saradc_demo.py
+    python examples/flashadc_demo.py
+    ...
+
+Discoverable in one place rather than scattered as
+`python -m pyDataconverter.architectures.SARADC`.
 
 ### 5.4 Warnings Import Inside Functions
 `cdac.py:123`, `capacitor.py:169`, `current_source.py:105`: All import `warnings` inside function bodies rather than at module level. This is a minor style inconsistency with the rest of the codebase.

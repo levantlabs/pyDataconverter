@@ -50,7 +50,7 @@ class UnitCapacitorBase(ABC):
 
     def redraw_mismatch(self,
                         stddev: float,
-                        rng: "np.random.Generator") -> None:
+                        rng: np.random.Generator) -> None:
         """
         Re-draw mismatch from the stored nominal value.
 
@@ -146,7 +146,7 @@ class IdealCapacitor(UnitCapacitorBase):
 
     def redraw_mismatch(self,
                         stddev: float,
-                        rng: "np.random.Generator") -> None:
+                        rng: np.random.Generator) -> None:
         """
         Re-draw ε ~ N(0, stddev) on the preserved nominal value.
 

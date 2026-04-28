@@ -17,7 +17,6 @@ from pyDataconverter.utils.fft_analysis import (
     find_fundamental,
     find_harmonics,
     _get_harmonic,
-    demo_fft_analysis,
 )
 from pyDataconverter.utils.signal_gen import generate_coherent_sine
 
@@ -259,21 +258,5 @@ class TestGetHarmonicAliasing:
             _get_harmonic(freqs, mags, f0=150.0, fs=800.0, n=1, tol=0.001)
 
 
-# ---------------------------------------------------------------------------
-# demo_fft_analysis (lines 203-289, 293)
-# ---------------------------------------------------------------------------
-
-class TestDemoFFTAnalysis:
-
-    def test_demo_fft_analysis_runs_to_completion(self):
-        """demo_fft_analysis runs all four sub-demos without error."""
-        demo_fft_analysis()
-
-    def test_main_block_calls_demo(self):
-        """Exercise the __name__ == '__main__' block via runpy."""
-        import runpy
-        runpy.run_module(
-            'pyDataconverter.utils.fft_analysis',
-            run_name='__main__',
-            alter_sys=True
-        )
+# demo_fft_analysis was moved to examples/fft_analysis_demo.py and is no
+# longer part of the library.
