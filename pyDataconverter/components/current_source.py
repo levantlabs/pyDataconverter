@@ -22,6 +22,7 @@ First written 2026-03-25; see ``git log`` for the change history.
 """
 
 from abc import ABC, abstractmethod
+import warnings
 from typing import List, Tuple, Type
 import numpy as np
 
@@ -99,7 +100,6 @@ class IdealCurrentSource(UnitCurrentSourceBase):
         if mismatch > 0:
             drawn = self._i_nominal * (1.0 + np.random.normal(0.0, mismatch))
             if drawn < 0.0:
-                import warnings
                 warnings.warn(
                     f"IdealCurrentSource: mismatch draw produced negative current "
                     f"({drawn:.3e} A); clipping to 0 A. This usually means the "

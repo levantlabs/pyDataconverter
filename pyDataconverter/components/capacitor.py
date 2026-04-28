@@ -15,6 +15,7 @@ Classes:
 First written 2026-03-25; see ``git log`` for the change history.
 """
 
+import warnings
 from abc import ABC, abstractmethod
 import numpy as np
 
@@ -117,7 +118,6 @@ class IdealCapacitor(UnitCapacitorBase):
         if mismatch > 0:
             drawn = self._c_nominal * (1.0 + np.random.normal(0.0, mismatch))
             if drawn < 0.0:
-                import warnings
                 warnings.warn(
                     f"IdealCapacitor: mismatch draw produced negative capacitance "
                     f"({drawn:.3e} F); clipping to 0 F. This usually means the "
@@ -163,7 +163,6 @@ class IdealCapacitor(UnitCapacitorBase):
             return
         drawn = self._c_nominal * (1.0 + rng.normal(0.0, stddev))
         if drawn < 0.0:
-            import warnings
             warnings.warn(
                 f"IdealCapacitor.redraw_mismatch: draw produced negative "
                 f"capacitance ({drawn:.3e} F); clipping to 0 F. Mismatch "

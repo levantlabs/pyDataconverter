@@ -33,7 +33,7 @@ Legend: PENDING · DECIDED (plan agreed, code not changed) · FIXED · FALSE POS
 | 5.1 | Inconsistent type annotations | FIXED (narrow scope) | Normalised the specific inconsistency the review flagged: `np.random.Generator` was a string forward-ref (`"np.random.Generator"`) in `components/capacitor.py:53,149` but a bare class reference everywhere else (`TimeInterleavedADC.py`, `utils/signal_gen.py`). Numpy 1.17+ has it as a real importable class, so the string form isn't needed. Dropped the quotes — codebase now uses one form. The broader concern (≈119 of 275 `def` lines lack a return annotation) is out of scope for review closure; will be picked up by a future typing audit. |
 | 5.2 | No `py.typed` marker | FIXED | Created the empty PEP 561 marker file `pyDataconverter/py.typed` and updated `setup.py` to ship it via `package_data` + `include_package_data=True`. Type-checker consumers (mypy, pyright) now pick up the inline annotations after `pip install pyDataconverter`. |
 | 5.3 | Large `__main__` demo blocks | FIXED | Created `examples/` directory at repo root with 7 standalone demo scripts (one per source module's old `__main__` block) plus a `README.md` index. Stripped the corresponding `__main__` blocks from 6 modules (SARADC, FlashADC, SimpleADC, SimpleDAC, comparator, signal_gen) and removed the module-level `demo_fft_analysis()` function from `fft_analysis.py`. ~660 lines of demo code moved out of the library. Six tests that exercised the demo blocks for coverage were removed (demo coverage isn't library testing). 1000 tests still pass (was 1006; 6 demo-coverage tests removed). |
-| 5.4 | `warnings` imported inside functions | PENDING | |
+| 5.4 | `warnings` imported inside functions | FIXED | Lifted the `import warnings` statements out of function bodies in `components/capacitor.py` (2 sites) and `components/current_source.py` (1 site) to module-level. The review's reference to `cdac.py:123` was already stale — no inline `import warnings` exists there at HEAD. Now consistent with `utils/metrics/adc.py`. |
 | 5.5 | Hardcoded magic numbers / format specifiers | PENDING | |
 | 5.6 | No abstract property consistency check for `CDACBase.n_bits` | PENDING | |
 | 5.7 | `SimpleDAC.convert_sequence` silent `code_errors` skip | PENDING | |
@@ -756,6 +756,23 @@ Discoverable in one place rather than scattered as
 
 ### 5.4 Warnings Import Inside Functions
 `cdac.py:123`, `capacitor.py:169`, `current_source.py:105`: All import `warnings` inside function bodies rather than at module level. This is a minor style inconsistency with the rest of the codebase.
+
+**Status: FIXED (2026-04-28)**
+
+Lifted the inline `import warnings` statements to module-level top-of-file:
+
+  - `pyDataconverter/components/capacitor.py` — two sites
+    (`IdealCapacitor.__init__` and `IdealCapacitor.redraw_mismatch`)
+  - `pyDataconverter/components/current_source.py` — one site
+    (`IdealCurrentSource.__init__`)
+
+The review's reference to `cdac.py:123` was already stale — no
+inline `import warnings` exists in `cdac.py` at HEAD (likely fixed
+or removed during earlier work).  Now consistent with
+`utils/metrics/adc.py` which already had its module-level
+`import warnings`.
+
+1000 tests still pass.
 
 ### 5.5 Hardcoded Magic Numbers
 - `ResidueAmplifier.__repr__` uses `parts.append(f"settling_tau={self.settling_tau:.3e}")` — the `.3e` format specifier is hardcoded; other attributes use `.2e`
