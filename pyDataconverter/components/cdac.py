@@ -264,9 +264,23 @@ class SingleEndedCDAC(CDACBase):
         if not (0 <= code < 2 ** self._n_bits):
             raise ValueError(
                 f"code {code} out of range [0, {2 ** self._n_bits - 1}]")
-        bits  = self._code_to_bits(code)
-        v_dac = float(np.dot(bits, self._cap_weights) / self._cap_total * self._v_ref)
-        return (v_dac, 0.0)
+        bits = self._code_to_bits(code)
+        return (self._voltage_from_bits(bits), 0.0)
+
+    def _voltage_from_bits(self, bits: np.ndarray) -> float:
+        """
+        Compute the DAC output voltage for an explicit bit pattern.
+
+        Internal helper shared with composing classes (e.g. ``SegmentedCDAC``)
+        so they can reuse the dot-product over the actual cap_weights without
+        going through the public ``cap_weights`` property — which returns a
+        copy and would allocate on every conversion — and without reaching
+        into the private ``_cap_weights`` / ``_cap_total`` attributes
+        directly (which couples the caller to the storage layout).
+
+        ``bits`` must have the same length as ``self._cap_weights``.
+        """
+        return float(np.dot(bits, self._cap_weights) / self._cap_total * self._v_ref)
 
     def apply_mismatch(self,
                        cap_mismatch: float,
@@ -602,11 +616,11 @@ class SegmentedCDAC(CDACBase):
         # Concatenate: [therm caps | binary caps]
         bits = np.concatenate([therm_bits, binary_bits])
 
-        # Compute voltage using the underlying CDAC's weights and total
-        cap_weights = self._cdac._cap_weights
-        cap_total   = self._cdac._cap_total
-        v_dac = float(np.dot(bits, cap_weights) / cap_total * self._v_ref)
-        return (v_dac, 0.0)
+        # Delegate the dot-product to the inner CDAC's protected helper.
+        # This keeps the storage layout (``_cap_weights`` / ``_cap_total``)
+        # encapsulated inside SingleEndedCDAC; if the parent ever changes
+        # how those values are computed, SegmentedCDAC inherits the change.
+        return (self._cdac._voltage_from_bits(bits), 0.0)
 
     def apply_mismatch(self,
                        cap_mismatch: float,

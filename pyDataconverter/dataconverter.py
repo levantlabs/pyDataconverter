@@ -114,7 +114,7 @@ class ADCBase(ABC):
         self._dvdt = float(dvdt)
         return self._convert_input(vin) #Pass this on to a abstract function
 
-    def convert_waveform(self, v_dense, t_dense):
+    def convert_waveform(self, v_dense, t_dense) -> np.ndarray:
         """
         Convert a dense time-domain waveform into a sequence of output codes.
 

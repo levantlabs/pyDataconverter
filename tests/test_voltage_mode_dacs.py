@@ -216,6 +216,22 @@ class TestR2RDAC:
         np.testing.assert_array_equal(dac1.r_values, dac2.r_values)
         np.testing.assert_array_equal(dac1.r2_values, dac2.r2_values)
 
+    def test_r2_values_includes_independent_termination(self):
+        """r2_values is length n_bits+1: indices 0..n-1 are switch arms,
+        index n is the LSB-end termination, drawn independently from the
+        LSB switch arm.  Closes review §3.8 — previously the same draw
+        was reused for both, under-estimating mismatch variance.
+        """
+        from pyDataconverter.architectures.R2RDAC import R2RDAC
+        n_bits = 6
+        dac = R2RDAC(n_bits=n_bits, v_ref=1.0, r2_mismatch=0.05, seed=123)
+        assert dac.r2_values.shape == (n_bits + 1,)
+        # The LSB switch arm (r2_values[n-1]) and the termination
+        # (r2_values[n]) must be different draws — not reuses of the same
+        # value.  They share a stddev so they could coincidentally match
+        # by ~0; with seed=123 they're cleanly distinct.
+        assert dac.r2_values[n_bits - 1] != dac.r2_values[n_bits]
+
     def test_repr(self):
         from pyDataconverter.architectures.R2RDAC import R2RDAC
         dac = R2RDAC(n_bits=4, v_ref=1.0, r_unit=1e3, r_mismatch=0.01, r2_mismatch=0.02)

@@ -255,7 +255,7 @@ class TimeInterleavedADC(ADCBase):
         # codes[0::M], codes[1::M], ... via reshape + transpose.
         return codes.reshape(N_per_channel, self.M).T
 
-    def convert_waveform(self, v_dense, t_dense):
+    def convert_waveform(self, v_dense, t_dense) -> np.ndarray:
         """
         Convert a dense time-domain waveform with per-channel mismatches.
 

@@ -20,12 +20,12 @@ Legend: PENDING · DECIDED (plan agreed, code not changed) · FIXED · FALSE POS
 | 2.4 | `__repr__` inconsistency | PARTIAL | `CurrentSteeringDAC` repr key renamed `output=` → `output_type=`. Derived finding (API consistency): all three structural single-ended DACs — `ResistorStringDAC`, `R2RDAC`, `SegmentedResistorDAC` — now expose `output_type` explicitly in their signatures and reject DIFFERENTIAL with a clear error pointing to the "instantiate two and combine externally" composition pattern. Class docstrings updated. 4 new tests added. Remaining §2.4 sub-items (decided to skip as cosmetic): SARADC embedded CDAC repr length, `TimeInterleavedADC` missing `v_ref`/`input_type`/`M=` naming, MultibitSARADC/NoiseshapingSARADC dropping `cdac`. |
 | 3.1 | FlashADC differential ref range `±v_ref/4` | FALSE POSITIVE (doc clarified) | Code is functionally correct — the `[-v_ref/4, +v_ref/4]` ladder combined with symmetric `(v_refp=t[i], v_refn=t[n-1-i])` pairing produces the full `[-v_ref/2, +v_ref/2]` effective differential threshold range. Review acknowledged correctness but flagged the convention as "subtle". Added a "Reference ladder convention" section to the `FlashADC` class docstring so the scaling is visible without reading block comments. |
 | 3.2 | DAC repr missing `seed` | FIXED (extended) | Beyond the review's narrow scope: added construction-time `seed` kwarg (or wired it through to repr+storage where it already existed) on every class that performs random mismatch draws at construction. Phase A — already accept seed, added storage + conditional repr: `ResistorStringDAC`, `R2RDAC`, `SegmentedResistorDAC`, `TimeInterleavedADC`. Phase B — added `seed` kwarg + reproducible draw: 5 CDAC classes (`SingleEndedCDAC`, `DifferentialCDAC`, `SegmentedCDAC`, `RedundantSARCDAC`, `SplitCapCDAC`), `ReferenceLadder`, `FlashADC`. CDAC refactor routes mismatch through the existing seeded `apply_mismatch` path. FlashADC streams sub-RNGs via `SeedSequence.spawn` so offset and resistor-mismatch draws are independent within a seeded instance. Per-conversion noise (sampling, jitter, comparator/reference noise) deliberately stays on `np.random` global state — see Level 2/3 deferred. 26 new tests covering same-seed match, different-seed distinguish, seed-in-repr-when-set, seed-omitted-when-None. |
-| 3.3 | `SegmentedCDAC` private member access | PENDING | |
-| 3.4 | `MultibitSARADC` ignores `dvdt` | PENDING | |
-| 3.5 | `NoiseshapingSARADC` assumes FLOOR | PENDING | |
-| 3.6 | `convert_waveform` return type annotation | PENDING | |
-| 3.7 | FlashADC XOR encoder edge case | PENDING | |
-| 3.8 | R2RDAC termination resistor double-use | PENDING | |
+| 3.3 | `SegmentedCDAC` private member access | FIXED | Added a protected `SingleEndedCDAC._voltage_from_bits(bits)` helper that computes the DAC voltage from an explicit bit pattern. `SingleEndedCDAC.get_voltage` and `SegmentedCDAC.get_voltage` both route through it — SegmentedCDAC no longer touches `_cdac._cap_weights` / `_cdac._cap_total` directly. Encapsulation restored without any per-call array copy (the public property would have allocated on every conversion). |
+| 3.4 | `MultibitSARADC` ignores `dvdt` | FALSE POSITIVE | Reviewer expected `dvdt` to be passed to each `comparator.compare()` call inside `_run_sar`. Architecturally wrong: a SAR samples the input once then bit-cycles against the held value, so aperture jitter applies once at the S/H — which is exactly where `_dvdt` is used (`SARADC._sample_input:321–322`, inherited by `MultibitSARADC`). The comparator API takes `time_step` (for bandwidth filtering), not `dvdt`. Empirically verified: `dvdt + t_jitter` produces conversion spread on `MultibitSARADC` (5 distinct codes / 50 conversions); `dvdt=0` produces deterministic output. |
+| 3.5 | `NoiseshapingSARADC` assumes FLOOR | FALSE POSITIVE | Premise wrong: `NoiseshapingSARADC.__init__` forwards `**kwargs` to `SARADC.__init__`, which has explicit named params and no `quant_mode`. Passing `quant_mode=SYMMETRIC` raises `TypeError`, so the DC-bias scenario can't occur. The reconstruction formula itself is correct for the actual FLOOR quantization (single-ended: bin midpoint at `(k+0.5)·LSB`; differential: same shifted by `−v_ref/2` to align with `DifferentialCDAC`'s symmetric threshold layout). Consistent with §2.2 — SARADC is FLOOR-by-construction. |
+| 3.6 | `convert_waveform` return type annotation | FIXED (cosmetic) | Review's own conclusion was "no issues found" — implementations correctly return int arrays via `dtype=int`. Added `-> np.ndarray` return-type annotation to the two `def` signatures (`ADCBase.convert_waveform`, `TimeInterleavedADC.convert_waveform`) so the return type is visible to static checkers / IDE introspection. The dtype=int specifics stay in the docstring (numpy generic typing for dtype is verbose and not idiomatic). No runtime change. |
+| 3.7 | FlashADC XOR encoder edge case | FALSE POSITIVE | No real overflow risk within the supported range. `ADCBase` validates `1 ≤ n_bits ≤ 32`; at the max, `values[i]` reaches `2^32 − 1` and `np.flatnonzero` returns int64 on 64-bit platforms — `bitwise_or.reduce` supports up to `2^63 − 1`, leaving ~31 bits of headroom. The review itself acknowledged this was not a concern for practical n_bits. |
+| 3.8 | R2RDAC termination resistor double-use | FIXED | The LSB switch arm and the LSB-end termination are physically separate 2R resistors but were sharing `r2_values[n-1]`, so a Monte-Carlo sweep underestimated variance by treating them as perfectly correlated.  Now `r2_values` is length `n_bits+1`: indices 0..n-1 are switch arms, index n is the dedicated termination, each with an independent mismatch draw.  Class docstring + `_build_network` docstring rewritten to reflect the correct topology.  1 new test verifies the array length and that the LSB switch / termination draws are distinct.  Note: any user that pinned a seed against the prior model will see different `r_values` arrays — the new behaviour is more physically accurate. |
 | 4.1 | Outdated module version-history blocks | PENDING | |
 | 4.2 | Missing parameter documentation | PENDING | |
 | 4.3 | No Sphinx/RTD setup | PENDING | See `docs/SPHINX_IMPROVEMENTS.md` |
@@ -312,8 +312,72 @@ cap_total   = self._cdac._cap_total
 ```
 Direct access to `_cap_weights` and `_cap_total` bypasses the public property interface that returns copies. While `SingleEndedCDAC.cap_weights` returns `self._cap_weights.copy()`, this code uses the unprotected attribute directly, creating a potential inconsistency if the public interface ever adds mismatch computation.
 
+**Status: FIXED (2026-04-25)**
+
+The private access existed for a real reason: `cap_weights` /
+`cap_total` properties return defensive copies, and a per-conversion
+copy on the hot path is wasteful.  But the encapsulation breakage was
+genuine — if `SingleEndedCDAC` ever changed how it computes the voltage
+(e.g., parasitic capacitance, time-varying mismatch), `SegmentedCDAC`
+would silently miss the update.
+
+Resolution: extract the dot-product into a protected helper on
+`SingleEndedCDAC`:
+
+```python
+def _voltage_from_bits(self, bits: np.ndarray) -> float:
+    return float(np.dot(bits, self._cap_weights) / self._cap_total * self._v_ref)
+```
+
+Both `SingleEndedCDAC.get_voltage(code)` and `SegmentedCDAC.get_voltage(code)`
+now route through it.  SegmentedCDAC builds its segmented bit pattern
+and delegates the math to the inner CDAC — no longer touching
+`_cap_weights` / `_cap_total` directly.  Performance is identical to
+the prior private-access approach (no copy), and the storage layout
+stays encapsulated inside `SingleEndedCDAC`.
+
+All 1005 tests still pass — the refactor is functionally equivalent
+and existing voltage-correctness tests cover any regression.
+
 ### 3.4 MultibitSARADC Ignores Per-Cycle DVdt
 `SARADC.py:416-449`: `MultibitSARADC._run_sar()` does not pass `dvdt` to `self.comparator.compare()`. The parent's `_dvdt` attribute is set but never used in the multibit path.
+
+**Status: FALSE POSITIVE — closed (2026-04-26)**
+
+The premise is architecturally incorrect. In a SAR ADC the input is
+sampled *once* by the sample-and-hold and then bit-cycled against the
+*held* value. Aperture jitter is therefore a one-shot perturbation at
+the sampling instant, not a per-comparator effect. The implementation
+applies it in exactly the right place — `SARADC._sample_input` lines
+321–322:
+
+```python
+if self.t_jitter and self._dvdt:
+    v = v + self._dvdt * np.random.normal(0.0, self.t_jitter)
+```
+
+This method is inherited by `MultibitSARADC` (which only overrides
+`_run_sar`), and the convert path is:
+
+    MultibitSARADC.convert(vin, dvdt)
+      -> SARADC.convert            (sets self._dvdt = dvdt)
+      -> SARADC._convert_input     (inherited)
+      -> SARADC._sample_input      (uses self._dvdt for jitter)  ✓
+      -> MultibitSARADC._run_sar   (bit-cycling on the held value)
+
+The parent `SARADC._run_sar` likewise doesn't pass `dvdt` to its
+`comparator.compare()` call (line 357) — for the same reason. The
+review apparently expected per-comparator `dvdt` application, but
+the comparator API doesn't even take a `dvdt` parameter; it takes
+`time_step` for bandwidth filtering, which is a different effect.
+
+Empirical verification (with `t_jitter=1e-9` on an 8-bit, 2-bit/cycle
+MultibitSARADC):
+
+    convert(0.4, dvdt=3.14e6) × 50 → 5 distinct codes  (jitter active)
+    convert(0.4, dvdt=0.0)    × 50 → 1 distinct code   (no jitter effect)
+
+`dvdt` flows through correctly on the multibit path. No code change.
 
 ### 3.5 NoiseshapingSARADC Assumes FLOOR Quantization
 `NoiseshapingSARADC.py:510`:
@@ -322,11 +386,62 @@ v_reconstructed = (code + 0.5) / (2 ** self.n_bits) * self.v_ref
 ```
 Uses the standard FLOOR quantization midpoint formula. If combined with `SYMMETRIC` mode (which `NoiseshapingSARADC.__init__` accepts via `**kwargs`), the noise-shaping integrator will have a DC bias because `v_reconstructed` won't match the actual quantization boundaries.
 
+**Status: FALSE POSITIVE — closed (2026-04-27)**
+
+Two-part finding, both parts rebut the concern.
+
+(1) The premise is wrong. `NoiseshapingSARADC.__init__(n_bits, v_ref,
+    **kwargs)` forwards kwargs to `SARADC.__init__`, which has explicit
+    named parameters (`input_type`, `comparator_type`,
+    `comparator_params`, `cdac`, `cap_mismatch`, `noise_rms`, `offset`,
+    `gain_error`, `t_jitter`) and *no* `quant_mode`.  Passing
+    `quant_mode=QuantizationMode.SYMMETRIC` actually raises
+    `TypeError: SARADC.__init__() got an unexpected keyword argument
+    'quant_mode'` — verified empirically.  The DC-bias scenario the
+    review describes therefore cannot occur.
+
+(2) The formula is correct for the implemented FLOOR quantizer.
+
+    Single-ended: SARADC's CDAC produces thresholds at `k · LSB` with
+    `LSB = v_ref / 2^N`; the FLOOR bin midpoint is `(k + 0.5) · LSB =
+    (code + 0.5) / 2^N · v_ref`.  ✓
+
+    Differential: `DifferentialCDAC` produces effective thresholds at
+    `k/2^N · v_ref − v_ref/2` (symmetric around zero).  The bin
+    midpoint is `(k + 0.5)/2^N · v_ref − v_ref/2`, matching the
+    `if input_type == DIFFERENTIAL: v_reconstructed −= v_ref/2`
+    branch.  ✓
+
+    Midpoint reconstruction gives a zero-mean residue, which is
+    exactly what the first-order noise-shaping integrator needs to
+    avoid DC drift.
+
+Consistent with §2.2's resolution: SARADC (and all structural ADCs)
+are FLOOR-by-construction; `QuantizationMode.SYMMETRIC` is a
+behavioural-ADC concern only.  No API or formula change required.
+
 ### 3.6 `convert_waveform` Return Type
 `ADCBase.convert_waveform` returns `np.ndarray[int]` (annotated), but several architectures return plain `np.ndarray` without explicit dtype:
 - `TimeInterleavedADC.convert_waveform`: Explicitly uses `dtype=int`
 - `ADCBase.convert_waveform`: Uses `dtype=int` ✓
 - No issues found, but type annotation should be `np.ndarray` with `dtype=int` constraint
+
+**Status: FIXED (cosmetic, 2026-04-27)**
+
+The review itself concluded "no issues found" — both implementations
+already produce int arrays via `dtype=int`. Tightened the metadata
+side: added `-> np.ndarray` return-type annotations to the two `def`
+signatures so static checkers / IDE introspection see a real
+annotation instead of `inspect.Signature.empty`.
+
+The dtype=int constraint stays in the docstring rather than the
+annotation. NumPy's generic typing form
+`np.ndarray[Any, np.dtype[np.int_]]` is supported in modern numpy but
+is verbose and not idiomatic for this codebase. The signature-level
+`np.ndarray` plus the docstring `Returns: np.ndarray[int]` is the
+common pyData convention.
+
+No runtime change; 1005 tests still pass.
 
 ### 3.7 FlashADC `_encode` XOR Encoder Edge Case
 `FlashADC.py:231-232`:
@@ -336,8 +451,68 @@ code = int(np.bitwise_or.reduce(values))
 ```
 If `active` contains indices that result in values whose OR overflows standard integer range for large codes, the result could be incorrect. However, for practical `n_bits ≤ 12`, this is not a concern.
 
+(The line numbers in the review point at the comparator construction
+loop; the actual XOR encoder is around `FlashADC.py:279–282`.)
+
+**Status: FALSE POSITIVE — closed (2026-04-27)**
+
+No real overflow risk within the codebase's supported range:
+
+- `ADCBase.__init__` validates `1 ≤ n_bits ≤ 32`, so the largest
+  `values[i]` is `2^32 − 1`.
+- `np.flatnonzero` returns `int64` on 64-bit platforms (verified).
+- `np.bitwise_or.reduce` on `int64` supports values up to `2^63 − 1`,
+  giving ~31 bits of headroom at the worst case (n_bits=32).
+
+The review itself conceded "for practical n_bits ≤ 12, this is not a
+concern."  The safe range actually extends to the codebase's hard
+limit.  No code change.
+
 ### 3.8 R2RDAC Termination Resistor Usage
 `R2RDAC.py:188` adds a termination resistor at node `n-1` to GND using `r2_values[n-1]`. Then `R2RDAC._build_network` at line 181 also adds a vertical arm for the LSB bit using `r2_values[n-1]`. So `r2_values[n-1]` is used twice for the LSB end. This matches the standard R-2R topology but is not clearly documented.
+
+**Status: FIXED (2026-04-28)**
+
+On closer reading the issue is more substantive than just
+documentation.  A standard R-2R ladder has `n_bits + 1` distinct
+physical 2R resistors:
+
+  - `n_bits` switch arms (one per bit, switched between V_ref and GND)
+  - `1` termination at the LSB end (always tied to GND)
+
+The previous implementation allocated `r2_values` as length `n_bits`
+and reused `r2_values[n-1]` for *both* the LSB switch arm *and* the
+termination.  For ideal analysis (no mismatch) this is harmless —
+both are nominally 2R.  But under `r2_mismatch > 0` the LSB switch
+and termination became perfectly correlated rather than independent,
+which under-estimates the LSB-region variance in a Monte-Carlo sweep
+by roughly `1 / (2(n_bits + 1))` (about 4 % at `n_bits=10`).  The
+constructor docstring on `r2_mismatch` reads "Std of multiplicative
+mismatch for 2R (vertical) arms", which a user reasonably interprets
+as "all 2R arms get independent draws".
+
+Resolution:
+
+  - `r2_values` is now length `n_bits + 1`.  Indices `0..n_bits-1`
+    are the per-bit switch arms (MSB → LSB); index `n_bits` is the
+    dedicated LSB-end termination.  All `n_bits + 1` arms receive
+    independent mismatch draws.
+  - `_build_network` now uses `r2_values[n_bits]` for the termination
+    instead of `r2_values[n_bits - 1]`.
+  - Class docstring updated; the prior ambiguous "doubled as
+    termination" wording is replaced with explicit per-index meanings.
+  - `_build_network` docstring rewritten — the "Wait — the standard
+    R-2R analysis ..." mid-docstring correction is gone, replaced
+    with a clean topology description.
+  - 1 new test (`test_r2_values_includes_independent_termination`)
+    asserts `r2_values.shape == (n_bits + 1,)` and that the LSB
+    switch arm and termination at `seed=123` are distinct draws.
+
+Behaviour change: for any user who pinned a seed against the old
+model (only possible since the §3.2 fix added seed support), the
+`r_values`, `r2_values`, and resulting `_tap_voltages` arrays are
+slightly different now.  The new behaviour is more physically
+accurate.  All 1006 tests pass.
 
 ---
 

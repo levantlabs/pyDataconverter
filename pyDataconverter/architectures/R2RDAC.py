@@ -72,8 +72,12 @@ class R2RDAC(DACBase):
         r_mismatch (float): Std of multiplicative mismatch for R (horizontal) arms.
         r2_mismatch (float): Std of multiplicative mismatch for 2R (vertical) arms.
         r_values (np.ndarray): Actual R-arm values, length n_bits-1 (rungs).
-        r2_values (np.ndarray): Actual 2R-arm values, length n_bits (vertical arms,
-            including termination at LSB end).
+        r2_values (np.ndarray): Actual 2R-arm values, length n_bits+1.  Indices
+            0..n_bits-1 are the per-bit switch arms (MSB → LSB);
+            ``r2_values[n_bits]`` is the dedicated LSB-end termination
+            resistor.  All n_bits+1 arms receive *independent* mismatch
+            draws so a Monte-Carlo sweep does not under-estimate variance
+            by treating the LSB switch and termination as correlated.
         _tap_voltages (np.ndarray): Pre-computed output voltage per code.
     """
 
@@ -143,11 +147,13 @@ class R2RDAC(DACBase):
             eps_r = np.zeros(n_rungs)
         self.r_values = self.r_unit * (1.0 + eps_r)
 
-        # n_bits vertical 2R arms (one per bit, including LSB termination)
+        # n_bits + 1 vertical 2R arms: one switch arm per bit (indices 0..n-1)
+        # plus a dedicated LSB-end termination (index n).  Each arm draws its
+        # own mismatch independently — see class docstring for rationale.
         if r2_mismatch > 0:
-            eps_r2 = rng.normal(0.0, r2_mismatch, size=n_bits)
+            eps_r2 = rng.normal(0.0, r2_mismatch, size=n_bits + 1)
         else:
-            eps_r2 = np.zeros(n_bits)
+            eps_r2 = np.zeros(n_bits + 1)
         self.r2_values = 2.0 * self.r_unit * (1.0 + eps_r2)
 
         self._tap_voltages = self._compute_tap_voltages()
@@ -166,30 +172,15 @@ class R2RDAC(DACBase):
             n+1       = V_ref (fixed v_ref)
 
         Resistors:
-            Horizontal rungs: node k ↔ node k+1, value r_values[k],
-                              for k = 0 .. n-2.
-            Vertical (2R) arms:
-                For k = 0 .. n-2: node k ↔ GND or V_ref based on bit k.
-                For k = n-1 (LSB end): always terminated to GND with r2_values[n-1],
-                              regardless of the LSB bit — the bit is handled via its
-                              own separate 2R arm to GND or V_ref.
-
-        Wait — the standard R-2R analysis has EACH bit node connected to GND
-        (bit=0) or V_ref (bit=1) via 2R, AND the far end terminated to GND via
-        a separate 2R.  So there are N vertical arms (one per bit) PLUS the
-        termination.  We use r2_values[k] for bit k and r2_values[n-1] doubled
-        as termination.
-
-        Revised node layout (matching standard R-2R ladder):
-            Nodes 0..n-1 are ladder nodes.
-            Node n   = GND.
-            Node n+1 = V_ref.
-
             Horizontal rungs: node k ↔ node k+1 with r_values[k], k=0..n-2.
-            Vertical arms: node k ↔ (GND or V_ref) with r2_values[k], k=0..n-1.
-            Termination: node n-1 also gets a 2R to GND (the standard ladder
-                         requires this for the Thevenin equivalent to hold;
-                         implemented as a separate resistor using r2_values[n-1]).
+            Vertical (2R) switch arms: node k ↔ (GND or V_ref) with
+                r2_values[k], k=0..n-1.  bit=1 → V_ref; bit=0 → GND.
+            LSB termination: node n-1 ↔ GND with r2_values[n] — a
+                *separate physical resistor*, drawn independently from the
+                LSB switch arm at r2_values[n-1].  The standard R-2R
+                topology requires this so the Thevenin resistance looking
+                into each node is exactly R, enabling ideal binary
+                weighting.
         """
         n = self.n_bits
         n_nodes = n + 2
@@ -214,8 +205,10 @@ class R2RDAC(DACBase):
         # Termination 2R at the LSB end (node n-1) to GND.
         # Standard R-2R ladders require this resistor so that the Thevenin
         # resistance looking into each node is exactly R, enabling ideal
-        # binary weighting.  It is separate from the bit switch arm above.
-        resistors.append((n - 1, gnd_node, float(self.r2_values[n - 1])))
+        # binary weighting.  It is a separate physical resistor (with its
+        # own independent mismatch draw at r2_values[n]) rather than a
+        # reuse of the LSB bit's switch arm.
+        resistors.append((n - 1, gnd_node, float(self.r2_values[n])))
 
         fixed = {gnd_node: 0.0, vref_node: self.v_ref}
         return n_nodes, resistors, fixed
