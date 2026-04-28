@@ -37,7 +37,7 @@ Legend: PENDING · DECIDED (plan agreed, code not changed) · FIXED · FALSE POS
 | 5.5 | Hardcoded magic numbers / format specifiers | WON'T FIX | Both sub-claims do not survive scrutiny. (a) Format specifiers (`:.2e`, `:.3e`, `:.3g`, `:.4g`, `:.6f`) are internally consistent within each class; cross-class differences are deliberate adaptations to value range (Comparator's mV → `.2e`, ResidueAmplifier's sub-ns → `.3e`, currents/loads → `.3g`, capacitances → `.4g`, integrator state → `.6f`). A blanket format would over- or under-precise depending on attribute. (b) `_PDF_SINGULARITY_GUARD = 0.999` is a numerical-hygiene constant for the sine PDF singularity in histogram-based ADC testing, deliberately extracted to a module constant in commit `82a50aa` (R4-M5) to remove duplicated `0.999` literals at the two call sites. It's not a user-tunable knob — exposing it as a function parameter would surface an internal numerics detail. The R4 decision was sound; reversing it would be API churn for no concrete benefit. |
 | 5.6 | No abstract property consistency check for `CDACBase.n_bits` | FALSE POSITIVE | The check the reviewer wanted already exists at the right layer.  `SARADC.__init__:170–175` validates that a user-supplied `cdac` is a `CDACBase`, has matching `n_bits`, and matching `v_ref`. ABCs can't enforce cross-class consistency (abstract properties declare interface signatures only); the consistency check belongs at the composing class, which is exactly where it lives. |
 | 5.7 | `SimpleDAC.convert_sequence` silent `code_errors` skip | FIXED | Closed the asymmetry rather than just documenting it. `convert_sequence` now applies `code_errors` in the same order as `convert()`/`_convert_input` (per-code static error → gain → offset → noise) so identical codes produce identical outputs through both paths. The lookup is done on the un-repeated code array so all oversampled samples within a held code share the same per-code error realisation.  Removed the long block comment about Phase 1 scope (no longer accurate).  Bonus: caught and fixed a flaky test (`test_cap_mismatch_breaks_linearity`, ~7 % failure rate) that relied on `np.random.seed(42)` to seed CDAC mismatch — irrelevant since §3.2 routes mismatch through `default_rng`.  Test now uses an explicitly-seeded `SingleEndedCDAC(seed=42)`.  1000 tests pass deterministically across 5 runs. |
-| 5.8 | `apply_mismatch` returns `None` without doc note | PENDING | |
+| 5.8 | `apply_mismatch` returns `None` without doc note | FIXED | Surfaced the in-place mutation contract on all four `apply_mismatch` methods. `CDACBase` gained an explicit "Returns: None ... mutates the receiver in place" section listing the attributes that are refreshed. `SingleEndedCDAC.apply_mismatch` (which had no docstring at all — bigger gap than the review noted) now documents which fields it mutates and cross-references the base class. `SegmentedCDAC.apply_mismatch` and `DifferentialCDAC.apply_mismatch` got similar in-place / Returns None notes. |
 | 6.1 | R2RDAC/ResistorStringDAC compute all codes at construction | PENDING | |
 | 6.2 | `SegmentedCDAC.get_voltage` allocates per call | PENDING | |
 | 6.3 | `SimpleDAC.convert_sequence` noise after repeat | PENDING | |
@@ -890,6 +890,38 @@ across 5 consecutive runs.
 
 ### 5.8 `apply_mismatch` Returns `None` Implicitly
 All `apply_mismatch` implementations in `CDACBase`, `SingleEndedCDAC`, `DifferentialCDAC`, `SegmentedCDAC` modify state in-place but return `None`. The docstring says "Re-draw..." without explicitly stating the mutation or return value. While technically correct (in-place mutation is clear from context), a clearer docstring would help.
+
+**Status: FIXED (2026-04-28)**
+
+Audited the four `apply_mismatch` methods.  Surfaced the in-place
+mutation contract everywhere:
+
+  - `CDACBase.apply_mismatch` — gained a new `Returns:` block:
+    "None.  This method **mutates the receiver in place** —
+    ``cap_weights``, ``cap_total``, the per-capacitor instances held
+    in ``cap_instances``, and the stored ``cap_mismatch`` attribute
+    are all updated.  Subsequent calls to ``get_voltage()`` will
+    reflect the new realisation."  Now serves as the canonical
+    contract docstring.
+
+  - `SingleEndedCDAC.apply_mismatch` — had **no docstring at all** at
+    HEAD (a bigger gap than the review noted).  Added a short
+    docstring listing the fields mutated (`_cap_weights`,
+    `_cap_total`, each `_cap_instances[i]`, `cap_mismatch`) and
+    cross-referencing the base class.
+
+  - `SegmentedCDAC.apply_mismatch` — old docstring was a one-liner
+    ("Delegate to the inner SingleEndedCDAC...").  Expanded to spell
+    out which inner-CDAC fields get mutated and cross-reference the
+    base class.
+
+  - `DifferentialCDAC.apply_mismatch` — kept the existing pos/neg
+    independence note and added an explicit list of mutated fields
+    (`_cap_weights_pos`/`_neg`, `_cap_total_pos`/`_neg`, each
+    `cap_instances_pos[i]`/`_neg[i]`, `cap_mismatch`) plus
+    "Returns ``None``" and cross-reference.
+
+Documentation-only change.  1000 tests still pass.
 
 ---
 

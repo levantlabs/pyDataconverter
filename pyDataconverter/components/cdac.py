@@ -138,6 +138,13 @@ class CDACBase(ABC):
             cap_mismatch: New mismatch standard deviation (>= 0).
             seed: Optional seed for reproducibility.
 
+        Returns:
+            None.  This method **mutates the receiver in place** —
+            ``cap_weights``, ``cap_total``, the per-capacitor instances
+            held in ``cap_instances``, and the stored ``cap_mismatch``
+            attribute are all updated.  Subsequent calls to
+            ``get_voltage()`` will reflect the new realisation.
+
         Raises:
             NotImplementedError: If the subclass does not support in-place
                 re-draw.  Built-in SingleEndedCDAC, DifferentialCDAC, and
@@ -278,6 +285,14 @@ class SingleEndedCDAC(CDACBase):
     def apply_mismatch(self,
                        cap_mismatch: float,
                        seed: Optional[int] = None) -> None:
+        """
+        Re-draw multiplicative capacitor mismatch on the binary-weighted array.
+
+        Mutates ``self._cap_weights``, ``self._cap_total``, each
+        ``self._cap_instances[i]``, and ``self.cap_mismatch`` in place.
+        Returns ``None``.  See :meth:`CDACBase.apply_mismatch` for the
+        full contract.
+        """
         if not isinstance(cap_mismatch, (int, float)) or cap_mismatch < 0:
             raise ValueError(f"cap_mismatch must be >= 0, got {cap_mismatch}")
         rng = np.random.default_rng(seed)
@@ -618,7 +633,14 @@ class SegmentedCDAC(CDACBase):
     def apply_mismatch(self,
                        cap_mismatch: float,
                        seed: Optional[int] = None) -> None:
-        """Delegate to the inner SingleEndedCDAC that holds the physical caps."""
+        """
+        Re-draw mismatch on the inner SingleEndedCDAC that holds the
+        thermometer + binary capacitor arrays.
+
+        Mutates the inner CDAC in place (``self._cdac._cap_weights``,
+        ``self._cdac._cap_total``, etc.).  Returns ``None``.  See
+        :meth:`CDACBase.apply_mismatch` for the full contract.
+        """
         self._cdac.apply_mismatch(cap_mismatch, seed=seed)
 
     def __repr__(self) -> str:
@@ -789,6 +811,12 @@ class DifferentialCDAC(CDACBase):
         The positive and negative sub-arrays are drawn consecutively from the
         same Generator, so for a given seed the (pos, neg) realization pair
         is reproducible.
+
+        Mutates ``self._cap_weights_pos``, ``self._cap_weights_neg``,
+        ``self._cap_total_pos``, ``self._cap_total_neg``, every
+        ``cap_instances_pos[i]`` / ``cap_instances_neg[i]``, and
+        ``self.cap_mismatch`` in place.  Returns ``None``.  See
+        :meth:`CDACBase.apply_mismatch` for the full contract.
         """
         if not isinstance(cap_mismatch, (int, float)) or cap_mismatch < 0:
             raise ValueError(f"cap_mismatch must be >= 0, got {cap_mismatch}")
