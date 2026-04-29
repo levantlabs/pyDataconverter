@@ -1263,3 +1263,79 @@ contrary to the review's framing); the whole block moved to
 9. **Consider a unified QuantizationMode for all ADCs** — `SARADC` hardcodes FLOOR but the infrastructure for SYMMETRIC exists
 10. **Add `seed` to SegmentedResistorDAC and ResistorStringDAC repr**
 11. **Consider pre-allocating buffers in SegmentedCDAC.get_voltage()** for hot-path performance
+
+---
+
+### Final Status (2026-04-29) — review fully addressed
+
+All 11 prioritized recommendations have a recorded resolution in
+their originating section.  The status-table at the top of this
+document is the single source of truth; the table below maps each
+priority recommendation to where it was closed.
+
+| #  | Closed under | Outcome |
+|----|--------------|---------|
+| 1  | §2.1         | FIXED — defaults harmonised to `InputType.DIFFERENTIAL` |
+| 2  | §1           | FIXED — fully-namespaced public API; `__version__` exposed at root |
+| 3  | §7           | 4× FALSE POSITIVE (tests already existed); 1× DEFERRED (§7.3 — needs SAR metastability hooks first) |
+| 4  | §4.2         | FIXED — "Gain contract" block in `ResidueAmplifier` class docstring |
+| 5  | §5.3         | FIXED — 7 demos extracted to `examples/`; ~660 LOC moved out of library |
+| 6  | §6.1         | FIXED (better than asked) — replaced with closed-form / superposition; bit-exact, ~256× to ~50 000× faster |
+| 7  | §5.2         | FIXED — `py.typed` marker + `setup.py` package_data |
+| 8  | §2.4 / §5.5  | PARTIAL — `CurrentSteeringDAC` `output=` → `output_type=`; `output_type` API gap on resistor DACs closed; cosmetic sub-items deliberately skipped; format specs WON'T FIX (deliberate per-class). |
+| 9  | §2.2         | WON'T FIX (documented) — behavioural-vs-structural architectural distinction |
+| 10 | §3.2         | FIXED (extended) — `seed` kwarg plumbed through 12 classes (CDACs, ReferenceLadder, FlashADC, resistor-DACs, TI-ADC), conditional repr |
+| 11 | §6.2         | WON'T FIX — measured 24 % gain not worth threading-state complexity |
+
+Bonus closures discovered during the review (not in the original
+priority list, but recorded in their respective sections):
+
+  - §2.4 derived: structural single-ended DACs (R-string, R-2R,
+    Segmented-R) now expose `output_type` explicitly and reject
+    DIFFERENTIAL with a teaching error pointing at the
+    "instantiate two and combine externally" composition pattern.
+  - §3.3: `SegmentedCDAC` no longer reaches into the inner
+    `SingleEndedCDAC`'s private storage; both route through a new
+    protected `_voltage_from_bits` helper.
+  - §3.8: R-2R termination resistor now has its own independent
+    mismatch draw (was sharing the LSB switch arm's draw, which
+    under-estimated LSB-region variance under Monte Carlo).
+  - §4.1: per-file "Version History" blocks (15 files) replaced
+    with single-line "First written <date>; see git log" pointers.
+  - §5.4: inline `import warnings` lifted to module-level (3 sites).
+  - §5.7: `code_errors` is now applied symmetrically by
+    `convert_sequence` — was previously dropped silently in the
+    batch path.  Plus a flaky test fixed (~7 % failure rate from a
+    `np.random.seed(42)` that no longer affected CDAC mismatch
+    after §3.2's RNG change).
+  - §5.8: `apply_mismatch` in-place mutation contract surfaced on
+    all four CDAC implementations.
+  - §8.4: `CurrentSteeringDAC.dac_currents` now uses
+    `@functools.cached_property` (~40 000× faster on cached
+    access).
+  - §8.5: `ResidueAmplifier.slew_rate` now documented as
+    "NOT YET IMPLEMENTED" in the class docstring and in
+    `amplify()`'s docstring.
+
+Test suite: 1000 passing, deterministic across multiple runs.
+
+Items deferred to follow-up work:
+
+  - §4.3 — Sphinx docs build redo (separate effort; current scaffold
+    is exploratory and the maintainer plans a full rewrite).
+  - §7.3 — Metastability hooks on SARADC family.  Real architectural
+    feature; once `last_conversion_time` and `last_metastable_sign`
+    are exposed on SAR (with a sensible multibit aggregation), the
+    metastability-coupling test in this review item becomes a
+    one-pager.
+
+Cosmetic sub-items deliberately not pursued:
+
+  - SARADC embedded CDAC repr length (§2.4)
+  - MultibitSARADC / NoiseshapingSARADC dropping `cdac` from repr
+    (§2.4 — internal inconsistency only visible cross-class)
+  - TimeInterleavedADC missing `v_ref`/`input_type` from repr;
+    `M=` vs `channels=` naming (§2.4 / §8.3)
+
+These are not blocking and can be revisited if a concrete
+debuggability complaint arises.
