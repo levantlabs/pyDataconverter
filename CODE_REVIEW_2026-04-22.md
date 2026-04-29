@@ -41,11 +41,11 @@ Legend: PENDING · DECIDED (plan agreed, code not changed) · FIXED · FALSE POS
 | 6.1 | R2RDAC/ResistorStringDAC compute all codes at construction | FIXED | Both replaced with algorithmically-equivalent fast paths verified bit-exact (machine-epsilon agreement) against the prior solver-based output, with resistor mismatch fully preserved. **R2RDAC**: now uses superposition — solve once per bit position to get the per-bit contribution, then matmul to fill in all 2^N codes. O(2^N · N^3) → O(N^4); ~256× faster at n=14, ~1400× faster at n=16. **ResistorStringDAC**: replaced the generic nodal-analysis solver with the closed-form voltage-divider partial-sum (the actual physics is just a series chain). O(2^N · (2^N)^3) → O(2^N); 5.3 s → 0.1 ms at n=14, ~50,000× speedup. Constructor docstrings document the math; 1000 tests still pass. |
 | 6.2 | `SegmentedCDAC.get_voltage` allocates per call | WON'T FIX | Measured 1.69 μs/call current; pre-allocated-buffer rewrite (the review's specific suggestion) only saves ~24 % (1.28 μs/call). For an 8-bit SAR doing one million conversions that is ~3 ms total saving across the whole sweep — real but not transformative. The current code is also clearer (no buffer-pool / threading-state to reason about). Not worth the complexity. |
 | 6.3 | `SimpleDAC.convert_sequence` noise after repeat | WON'T FIX | Review itself acknowledged "this is correct for thermal noise" — which is exactly what `noise_rms` represents per the class docstring ("Output-referred RMS noise voltage"). Thermal noise is a continuous-time process; sampling at higher rate (oversample > 1) correctly yields more independent draws, matching real hardware. Drawing once-per-code and replicating would be physically wrong for thermal noise (correlated adjacent samples). The review's alternate-use-case concern (per-code error) is what `code_errors` is for — and we made `code_errors` symmetric across `convert()` and `convert_sequence` in §5.7. |
-| 7.1 | No TI-ADC hierarchical tests | PENDING | |
-| 7.2 | No `NoiseshapingSARADC` tests | PENDING | |
-| 7.3 | No metastability coupling tests for `MultibitSARADC` | PENDING | |
-| 7.4 | No `PipelinedADC` tests | PENDING | |
-| 7.5 | Missing integration tests | PENDING | |
+| 7.1 | No TI-ADC hierarchical tests | FALSE POSITIVE | `tests/test_ti_adc.py` line 340 has `TestTIADCHierarchical` class with 6 tests covering tree structure, ideal hierarchy match, per-level mismatch lists, and validation errors. |
+| 7.2 | No `NoiseshapingSARADC` tests | FALSE POSITIVE | `tests/test_sar_generalisation.py` line 192 has `TestNoiseshapingSARADC` class with 7 tests (construction, reset, output range, two repr tests, low-freq SNR improvement, differential mode integrator). |
+| 7.3 | No metastability coupling tests for `MultibitSARADC` | DEFERRED | Real architectural gap, not a test gap.  `SARADC`/`MultibitSARADC`/`NoiseshapingSARADC` don't expose the metastability hooks (`last_conversion_time`, `last_metastable_sign`) — only `FlashADC` does — so a SAR cannot currently serve as a pipelined sub-ADC where metastability coupling matters.  Adding the hooks (and the multibit aggregation logic for the bit-per-cycle case) is a separate feature, not test work.  Once hooks exist, the §7.3 test becomes straightforward.  Tracked for a future session. |
+| 7.4 | No `PipelinedADC` tests | FALSE POSITIVE | `tests/test_pipelined_adc.py` has 20+ tests across 4 classes (TestPipelineStageConstruction, TestPipelineStageConvertIdeal, TestPipelinedADCConstruction, TestPipelinedADCConvert).  `tests/test_pipelined_adc_vs_reference.py` adds reference-implementation comparison (4 tests including ideal 12-bit, stage0 DAC error, stage0 gain error, metastability canned). |
+| 7.5 | Missing integration tests | FALSE POSITIVE | All three scenarios the review flagged are covered.  TI-ADC + SARADC backend: `test_ti_adc.py`.  TI-ADC + hierarchical: `TestTIADCHierarchical` in test_ti_adc.py.  Pipelined ADC with real backends: `test_ti_adc.py:415 test_ti_adc_as_pipelined_backend` (TI-ADC as PipelinedADC backend with FlashADC channel template) and the reference-comparison file. |
 | 8.1 | Dead code in FlashADC | PENDING | |
 | 8.2 | Visualization demo runs at import in FlashADC | PENDING | |
 | 8.3 | `TimeInterleavedADC.__repr__` missing sub-ADC repr | PENDING | |
@@ -1047,19 +1047,115 @@ semantics.  No code change.
 ### 7.1 No Tests for Hierarchical TI-ADC
 `TimeInterleavedADC.hierarchical()` has no tests covering the multi-level construction or the `outer_product` arithmetic.
 
+**Status: FALSE POSITIVE — closed (2026-04-29)**
+
+`tests/test_ti_adc.py` line 340 has `TestTIADCHierarchical` (6 tests):
+
+  - `test_two_level_tree_has_correct_structure`
+  - `test_ideal_hierarchy_matches_template`
+  - `test_per_level_mismatch_lists_are_applied`
+  - `test_channels_per_level_must_be_nonempty`
+  - `test_channels_per_level_entry_lt_two_raises`
+  - `test_per_level_list_wrong_length_raises`
+
+These were likely added between the review snapshot and the current
+HEAD.
+
 ### 7.2 No Tests for NoiseshapingSARADC
 `NoiseshapingSARADC` has no dedicated tests.
+
+**Status: FALSE POSITIVE — closed (2026-04-29)**
+
+`tests/test_sar_generalisation.py` line 192 has `TestNoiseshapingSARADC`
+with 7 tests:
+
+  - `test_construction`
+  - `test_reset_clears_state`
+  - `test_output_range`
+  - `test_repr_basic`
+  - `test_repr_with_all_nonidealities`
+  - `test_noise_shaping_improves_snr_at_low_freq`
+  - `test_differential_mode_integrator_does_not_saturate`
 
 ### 7.3 No Tests for MultibitSARADC Beyond Basic Trace
 The `MultibitSARADC._run_sar` override has basic test coverage but metastability coupling is not tested.
 
+**Status: DEFERRED — real architectural gap, not a test gap (2026-04-29)**
+
+This is more substantive than a missing test.  The pipelined-ADC
+metastability coupling model requires the sub-ADC to expose two
+hooks:
+
+  - `last_conversion_time` — aggregated comparator regen time, used
+    by the residue amp's settling-budget calculation (the slowest
+    sub-ADC decision eats into the residue amp's available time).
+  - `last_metastable_sign` — sign of the LSB-region uncertainty,
+    used as the residue amp's initial-condition error.
+
+Currently only `FlashADC` exposes these (see
+`pyDataconverter/architectures/FlashADC.py`).  `SARADC` —
+and by inheritance `MultibitSARADC` and `NoiseshapingSARADC` — does
+not, because the codebase historically only envisioned Flash as a
+pipelined sub-ADC.
+
+Real-world SAR comparators have the same regeneration physics as
+Flash; the model just hasn't captured it for SAR yet.  Implementing
+the SAR-side hooks involves real architectural work (especially the
+MultibitSARADC override, since each "cycle" resolves multiple bits
+with multiple comparator firings and the aggregation isn't trivial).
+
+Once the hooks exist, the test the review asked for is
+straightforward: instantiate a `PipelinedADC` with a
+`MultibitSARADC` sub-stage whose comparator has `tau_regen > 0`,
+exercise convert(), assert the residue amp's initial-condition
+error is consistent with the multibit aggregation.
+
+Tracked as a follow-up feature item for a future session.  Not
+closed in this review pass.
+
 ### 7.4 Pipelined ADC Has No Tests
 `PipelinedADC` is listed in `architectures/__init__.py` but has no test file.
+
+**Status: FALSE POSITIVE — closed (2026-04-29)**
+
+Two test files exist for pipelined ADCs:
+
+`tests/test_pipelined_adc.py` — 20+ tests across 4 classes:
+  - `TestPipelineStageConstruction`
+  - `TestPipelineStageConvertIdeal`
+  - `TestPipelinedADCConstruction`
+  - `TestPipelinedADCConvert`
+
+`tests/test_pipelined_adc_vs_reference.py` —
+`TestPipelinedADCAgainstReference` (4 tests):
+  - `test_ideal_12bit`
+  - `test_stage0_dac_error`
+  - `test_stage0_gain_error`
+  - `test_metastability_canned`
+
+The vs-reference file validates output against the canned reference
+implementation in `tests/_reference/`.
 
 ### 7.5 Missing Integration Tests
 - TI-ADC + SARADC as backend: tested in `test_ti_adc.py`
 - TI-ADC + hierarchical: no tests
 - Pipelined ADC with real backends: no tests
+
+**Status: FALSE POSITIVE — closed (2026-04-29)**
+
+All three scenarios are covered:
+
+  - TI-ADC + SARADC backend: `test_ti_adc.py` (multiple tests using
+    a SARADC channel template throughout the file).
+  - TI-ADC + hierarchical: `TestTIADCHierarchical` in
+    `test_ti_adc.py:340` — 6 tests; see §7.1 above.
+  - Pipelined ADC with real backends: `test_ti_adc.py:415`
+    `test_ti_adc_as_pipelined_backend` exercises a `PipelinedADC`
+    where the backend is a `TimeInterleavedADC` built from a
+    `FlashADC` channel template.  `test_pipelined_adc.py` also has
+    end-to-end tests with FlashADC sub-ADCs, and
+    `test_pipelined_adc_vs_reference.py` validates against an
+    external reference.
 
 ---
 
