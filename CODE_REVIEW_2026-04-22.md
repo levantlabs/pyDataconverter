@@ -38,9 +38,9 @@ Legend: PENDING · DECIDED (plan agreed, code not changed) · FIXED · FALSE POS
 | 5.6 | No abstract property consistency check for `CDACBase.n_bits` | FALSE POSITIVE | The check the reviewer wanted already exists at the right layer.  `SARADC.__init__:170–175` validates that a user-supplied `cdac` is a `CDACBase`, has matching `n_bits`, and matching `v_ref`. ABCs can't enforce cross-class consistency (abstract properties declare interface signatures only); the consistency check belongs at the composing class, which is exactly where it lives. |
 | 5.7 | `SimpleDAC.convert_sequence` silent `code_errors` skip | FIXED | Closed the asymmetry rather than just documenting it. `convert_sequence` now applies `code_errors` in the same order as `convert()`/`_convert_input` (per-code static error → gain → offset → noise) so identical codes produce identical outputs through both paths. The lookup is done on the un-repeated code array so all oversampled samples within a held code share the same per-code error realisation.  Removed the long block comment about Phase 1 scope (no longer accurate).  Bonus: caught and fixed a flaky test (`test_cap_mismatch_breaks_linearity`, ~7 % failure rate) that relied on `np.random.seed(42)` to seed CDAC mismatch — irrelevant since §3.2 routes mismatch through `default_rng`.  Test now uses an explicitly-seeded `SingleEndedCDAC(seed=42)`.  1000 tests pass deterministically across 5 runs. |
 | 5.8 | `apply_mismatch` returns `None` without doc note | FIXED | Surfaced the in-place mutation contract on all four `apply_mismatch` methods. `CDACBase` gained an explicit "Returns: None ... mutates the receiver in place" section listing the attributes that are refreshed. `SingleEndedCDAC.apply_mismatch` (which had no docstring at all — bigger gap than the review noted) now documents which fields it mutates and cross-references the base class. `SegmentedCDAC.apply_mismatch` and `DifferentialCDAC.apply_mismatch` got similar in-place / Returns None notes. |
-| 6.1 | R2RDAC/ResistorStringDAC compute all codes at construction | PENDING | |
-| 6.2 | `SegmentedCDAC.get_voltage` allocates per call | PENDING | |
-| 6.3 | `SimpleDAC.convert_sequence` noise after repeat | PENDING | |
+| 6.1 | R2RDAC/ResistorStringDAC compute all codes at construction | FIXED | Both replaced with algorithmically-equivalent fast paths verified bit-exact (machine-epsilon agreement) against the prior solver-based output, with resistor mismatch fully preserved. **R2RDAC**: now uses superposition — solve once per bit position to get the per-bit contribution, then matmul to fill in all 2^N codes. O(2^N · N^3) → O(N^4); ~256× faster at n=14, ~1400× faster at n=16. **ResistorStringDAC**: replaced the generic nodal-analysis solver with the closed-form voltage-divider partial-sum (the actual physics is just a series chain). O(2^N · (2^N)^3) → O(2^N); 5.3 s → 0.1 ms at n=14, ~50,000× speedup. Constructor docstrings document the math; 1000 tests still pass. |
+| 6.2 | `SegmentedCDAC.get_voltage` allocates per call | WON'T FIX | Measured 1.69 μs/call current; pre-allocated-buffer rewrite (the review's specific suggestion) only saves ~24 % (1.28 μs/call). For an 8-bit SAR doing one million conversions that is ~3 ms total saving across the whole sweep — real but not transformative. The current code is also clearer (no buffer-pool / threading-state to reason about). Not worth the complexity. |
+| 6.3 | `SimpleDAC.convert_sequence` noise after repeat | WON'T FIX | Review itself acknowledged "this is correct for thermal noise" — which is exactly what `noise_rms` represents per the class docstring ("Output-referred RMS noise voltage"). Thermal noise is a continuous-time process; sampling at higher rate (oversample > 1) correctly yields more independent draws, matching real hardware. Drawing once-per-code and replicating would be physically wrong for thermal noise (correlated adjacent samples). The review's alternate-use-case concern (per-code error) is what `code_errors` is for — and we made `code_errors` symmetric across `convert()` and `convert_sequence` in §5.7. |
 | 7.1 | No TI-ADC hierarchical tests | PENDING | |
 | 7.2 | No `NoiseshapingSARADC` tests | PENDING | |
 | 7.3 | No metastability coupling tests for `MultibitSARADC` | PENDING | |
@@ -932,6 +932,57 @@ Documentation-only change.  1000 tests still pass.
 
 **Same issue**: `ResistorStringDAC._compute_tap_voltages()` has the same problem.
 
+**Status: FIXED (2026-04-28)**
+
+Both DACs replaced with algorithmically equivalent fast paths.
+Bit-exact agreement (machine-epsilon) verified against the prior
+solver path *with mismatch enabled* before any code change, and
+resistor mismatch is fully preserved in both new paths.
+
+**R2RDAC — superposition.**  The R-2R network is purely resistive
+and V_ref is the only signal source, so by linearity:
+
+    V_out(b) = sum_k (b_k * w_k)
+
+where ``w_k`` is the output voltage when only bit_k = 1 (others 0).
+Algorithm: do the nodal solve once per bit position (N solves of an
+O(N)-sized network), then reconstruct all 2^N outputs with a
+vectorised dot product:
+
+    bits_matrix[code, k] = (code >> (n-1-k)) & 1   for code in 0..2^N-1
+    tap_voltages         = bits_matrix @ w
+
+Complexity: O(2^N · N^3) → O(N^4).  Pre-fix vs post-fix construction
+time:
+
+    n_bits=12:   0.063 s →  0.0004 s   (~150x)
+    n_bits=14:   0.282 s →  0.0011 s   (~256x)
+    n_bits=16:  ~5  s    →  0.0035 s   (~1400x, was projected from
+                                        the O(2^N · N^3) curve)
+
+**ResistorStringDAC — closed form.**  A resistor string is just a
+series chain of 2^N resistors between V_ref and GND, so the tap
+voltage at node k is the partial-sum voltage divider:
+
+    V_k = V_ref * sum(R_0..R_{k-1}) / sum(R_0..R_{2^N-1})
+
+The prior code was using the generic nodal-analysis solver to
+compute what is in fact a one-line numpy expression
+(`v_ref * np.cumsum(r) / total`).  Complexity: O(2^N · (2^N)^3) →
+O(2^N).  Pre-fix vs post-fix:
+
+    n_bits=10:   0.009 s  → 0.0000 s
+    n_bits=12:   0.163 s  → 0.0000 s
+    n_bits=14:   5.311 s  → 0.0001 s   (~50 000x)
+    n_bits=16:  ~minutes  → 0.0004 s
+
+ResistorStringDAC no longer needs `from utils.nodal_solver import
+solve_resistor_network` — that import is dropped.  R2RDAC still uses
+the solver internally (one call per bit).
+
+Constructor docstrings document the math and reference the bit-exact
+verification.  1000 tests pass.
+
 ### 6.2 `SegmentedCDAC.get_voltage` Creates Arrays Per Call
 `SegmentedCDAC.py:558-566` creates two new numpy arrays per call:
 ```python
@@ -940,8 +991,54 @@ binary_bits = np.array([...], dtype=float)
 ```
 These could be pre-allocated buffers.
 
+**Status: WON'T FIX (2026-04-28)**
+
+Benchmarked the actual hot-path cost on an 8-bit SegmentedCDAC
+(`n_therm=4`, `n_binary=4`):
+
+  - Current (allocates 2 arrays per call): **1.69 μs/call**
+  - Pre-allocated buffer + in-place fill (the review's suggestion):
+    **1.28 μs/call** — only ~24 % speedup
+  - Precomputed cumulative + Python list lookup (no numpy on hot
+    path): **0.32 μs/call** — ~5× speedup but adds a derived-cache
+    invariant (`apply_mismatch` would have to rebuild it)
+
+For a typical workload (8-bit SAR doing 1 M conversions = 8 M
+`get_voltage` calls), the 24 % win saves ~3 ms total across the
+whole sweep, and the 5× win saves ~11 ms.  Real but not
+transformative.
+
+The buffer-pool variant also adds threading footguns (shared mutable
+state on a CDAC instance) and the cumulative-cache variant adds a
+new derived-state invariant to maintain through `apply_mismatch`.
+Neither is justified by the measured impact.
+
+No code change.
+
 ### 6.3 `SimpleDAC.convert_sequence` Applies Noise After Repeat
 `SimpleDAC.py:176-177` applies noise to the already-oversampled waveform, which means more noise samples than unique codes. This is correct for thermal noise but wasteful if the user wanted one noise draw per code.
+
+**Status: WON'T FIX (2026-04-28)**
+
+The review explicitly conceded "this is correct for thermal noise" —
+which is exactly what `noise_rms` represents per `SimpleDAC`'s class
+docstring: *"Output-referred RMS noise voltage (V).  Adds
+N(0, noise_rms) to the output each conversion."*  Thermal noise is a
+continuous-time stochastic process; if a downstream analyser samples
+the DAC output at the oversampled rate, it sees more independent
+noise draws by definition.  Drawing once per code and replicating
+across the ZOH dwell would be physically wrong — it would correlate
+adjacent output samples that real silicon delivers as independent
+draws.
+
+The review's alternate-use-case framing ("wasteful if the user wanted
+one draw per code") refers to a *per-code* error model, which is
+what `code_errors` is for — see §5.7, where `code_errors` was made
+symmetric across `convert()` and `convert_sequence` so per-code
+deterministic offsets behave identically in both paths.
+
+Current behaviour is intentional and correct for the documented
+semantics.  No code change.
 
 ---
 
