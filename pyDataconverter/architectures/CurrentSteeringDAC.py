@@ -53,6 +53,7 @@ Decoder         : pyDataconverter.components.decoder.SegmentedDecoder
 CurrentSourceArray : pyDataconverter.components.current_source.CurrentSourceArray
 """
 
+import functools
 from typing import Optional, Tuple, Type, Union
 import numpy as np
 
@@ -219,14 +220,18 @@ class CurrentSteeringDAC(DACBase):
         """
         return self.current_array.i_total
 
-    @property
+    @functools.cached_property
     def dac_currents(self) -> np.ndarray:
         """
         Ideal output current (positive rail) for every code.
 
+        Cached after first access — the decode + lookup is done once per
+        instance.  Mismatch is fixed at construction (CurrentSteeringDAC
+        has no in-place re-draw method), so the cache never needs to be
+        invalidated.
+
         Returns:
-            np.ndarray: Shape (2^n_bits,).  Entry k is i_selected for code k
-            assuming perfect (no-mismatch) sources.
+            np.ndarray: Shape (2^n_bits,).  Entry k is i_selected for code k.
         """
         n_codes = 2 ** self.n_bits
         currents = np.zeros(n_codes)

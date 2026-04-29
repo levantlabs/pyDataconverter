@@ -46,12 +46,12 @@ Legend: PENDING · DECIDED (plan agreed, code not changed) · FIXED · FALSE POS
 | 7.3 | No metastability coupling tests for `MultibitSARADC` | DEFERRED | Real architectural gap, not a test gap.  `SARADC`/`MultibitSARADC`/`NoiseshapingSARADC` don't expose the metastability hooks (`last_conversion_time`, `last_metastable_sign`) — only `FlashADC` does — so a SAR cannot currently serve as a pipelined sub-ADC where metastability coupling matters.  Adding the hooks (and the multibit aggregation logic for the bit-per-cycle case) is a separate feature, not test work.  Once hooks exist, the §7.3 test becomes straightforward.  Tracked for a future session. |
 | 7.4 | No `PipelinedADC` tests | FALSE POSITIVE | `tests/test_pipelined_adc.py` has 20+ tests across 4 classes (TestPipelineStageConstruction, TestPipelineStageConvertIdeal, TestPipelinedADCConstruction, TestPipelinedADCConvert).  `tests/test_pipelined_adc_vs_reference.py` adds reference-implementation comparison (4 tests including ideal 12-bit, stage0 DAC error, stage0 gain error, metastability canned). |
 | 7.5 | Missing integration tests | FALSE POSITIVE | All three scenarios the review flagged are covered.  TI-ADC + SARADC backend: `test_ti_adc.py`.  TI-ADC + hierarchical: `TestTIADCHierarchical` in test_ti_adc.py.  Pipelined ADC with real backends: `test_ti_adc.py:415 test_ti_adc_as_pipelined_backend` (TI-ADC as PipelinedADC backend with FlashADC channel template) and the reference-comparison file. |
-| 8.1 | Dead code in FlashADC | PENDING | |
-| 8.2 | Visualization demo runs at import in FlashADC | PENDING | |
-| 8.3 | `TimeInterleavedADC.__repr__` missing sub-ADC repr | PENDING | |
-| 8.4 | `CurrentSteeringDAC.dac_currents` recomputes per access | PENDING | |
-| 8.5 | `ResidueAmplifier.slew_rate` stored but unused | PENDING | |
-| 8.6 | Demo code runs at module import in `comparator.py` | PENDING | |
+| 8.1 | Dead code in FlashADC | FIXED via §5.3 | The "second `adc` instance never used" was inside the `__main__` demo block; that whole block was extracted to `examples/flashadc_demo.py` in §5.3, where the demo was rewritten so both `adc` instances are used meaningfully (the second feeds the visualization helpers). |
+| 8.2 | Visualization demo runs at import in FlashADC | FIXED via §5.3 | The visualization import + call site was inside the `__main__` block (so it never actually ran at import — the review's "runs at import" framing was incorrect; properly-guarded `__main__` only fires under `python file.py`).  Either way, the whole block moved to `examples/flashadc_demo.py`. |
+| 8.3 | `TimeInterleavedADC.__repr__` missing sub-ADC repr | DEFERRED via §2.4 | Already triaged under §2.4 as a cosmetic skip — repr currently shows `template=<ClassName>` (class name, not full sub-ADC repr).  Not closing now; tracked alongside the other §2.4 cosmetic items. |
+| 8.4 | `CurrentSteeringDAC.dac_currents` recomputes per access | FIXED | Changed `@property` to `@functools.cached_property`.  Mismatch is fixed at construction (no `apply_mismatch` on `CurrentSteeringDAC`), so the cache never needs invalidation.  Measured speedup on cached access: ~40 000× (1.6 ms first call → 0.04 μs subsequent). |
+| 8.5 | `ResidueAmplifier.slew_rate` stored but unused | FIXED (documented) | `slew_rate` is intentional Phase 1 scope — `amplify()` doesn't apply slew limiting because the reference implementation we calibrate against has no slew model.  Made the no-op status loud: the `slew_rate` attribute description in the class docstring now leads with **"NOT YET IMPLEMENTED"** and explains why.  `amplify()`'s docstring gained a `.. note::` block stating that slew_rate is not honoured by the method.  Implementation tracked as a future Phase. |
+| 8.6 | Demo code runs at module import in `comparator.py` | FIXED via §5.3 | `__main__` block extracted to `examples/comparator_demo.py` in §5.3.  Same correction as §8.2: the original demo was already inside a `__main__` guard, so it didn't run at import; the move to `examples/` cleans up the source module regardless. |
 
 ---
 
@@ -1164,20 +1164,84 @@ All three scenarios are covered:
 ### 8.1 Dead Code in FlashADC
 `FlashADC.py:392-401` creates a second `adc` instance that's never used.
 
+**Status: FIXED via §5.3 (2026-04-29)** — the lines were inside the
+`__main__` demo block; that block was extracted to
+`examples/flashadc_demo.py` in commit `96f579d`, where the demo was
+rewritten so both `adc` instances are used meaningfully (the second
+feeds the visualization helpers).  The "dead code" question is moot
+in the source module now.
+
 ### 8.2 Incomplete Visualization Demo
 `FlashADC.py:407-413` has example code at module level (not in `__main__`) that imports and calls `visualize_flash_adc` and `animate_flash_adc`. This code runs when the module is imported, which may be unexpected.
+
+**Status: FIXED via §5.3 (2026-04-29)** — the review's framing was
+inaccurate: those lines were already inside the `__main__` guard
+(properly indented), so they never actually ran at import.
+Regardless, the whole `__main__` block moved to
+`examples/flashadc_demo.py` in `96f579d`.
 
 ### 8.3 `TimeInterleavedADC` Has No `__repr__` for Sub-ADCs
 `TimeInterleavedADC.__repr__` shows the template class name but not the sub-ADC repr, making debugging interleaved ADCs harder.
 
+**Status: DEFERRED via §2.4 (2026-04-29)** — already triaged under
+§2.4 as a cosmetic skip.  Repr currently shows
+`template=<ClassName>` (class name, not full sub-ADC repr).  Not
+revisiting under §8.3; tracked alongside the other §2.4 cosmetic
+items (SARADC embedded CDAC repr length,
+MultibitSARADC/NoiseshapingSARADC dropping `cdac`, TI-ADC `M=` vs
+`channels=` naming).
+
 ### 8.4 `dac_currents` Property Computes on Every Access
 `CurrentSteeringDAC.dac_currents` recomputes the entire array on every access. Should be cached or memoized.
+
+**Status: FIXED (2026-04-29)**
+
+Changed `@property` to `@functools.cached_property` on
+`CurrentSteeringDAC.dac_currents`.  Mismatch is fixed at construction
+(`CurrentSteeringDAC` has no `apply_mismatch` method), so the cached
+value never needs invalidation.
+
+Measured: ~40 000× faster on cached access (1.6 ms first call →
+0.04 μs/access subsequently).  Decode + lookup loop now runs at most
+once per instance.  Updated the property docstring to note the
+caching contract and why mismatch invalidation isn't needed.
 
 ### 8.5 `ResidueAmplifier.slew_rate` Is Stored But Never Used
 The `slew_rate` attribute is validated in `__init__` but the `amplify()` method does not apply slew limiting.
 
+**Status: FIXED — documented as not-yet-implemented (2026-04-29)**
+
+Confirmed: `slew_rate` is accepted, validated (`>= 0`), stored, and
+shown in `repr()`, but `amplify()` does not consult it — settling
+is purely exponential at ``settling_tau``.
+
+This is intentional Phase 1 scope: the reference implementation the
+amp calibrates against (see
+``docs/superpowers/specs/2026-04-13-pipelined-adc-design.md``
+Appendix A) has no slew-limiting model, so adding one would
+introduce calibration drift.  But the parameter signature gave the
+misleading impression that slew limiting works.
+
+Resolution: made the no-op status loud at both reading sites:
+
+  - The `slew_rate` attribute description in the class docstring now
+    leads with **"NOT YET IMPLEMENTED."** and explains why (Phase 1
+    parity with the reference implementation).
+  - `amplify()`'s docstring gained a `.. note::` block stating
+    explicitly that `slew_rate` is not honoured by the method and
+    settling is purely exponential.
+
+A future Phase can implement true slew-limiting (linear-then-
+exponential settling) once we have a reference model to calibrate
+against.  Tracked as feature work.
+
 ### 8.6 `comparator.py` Has Code After `__main__` Block
 Lines 273-301 contain demo code that runs when the module is imported. This pattern is repeated across multiple modules.
+
+**Status: FIXED via §5.3 (2026-04-29)** — same situation as §8.2.
+The demo was inside a `__main__` guard (so didn't run at import
+contrary to the review's framing); the whole block moved to
+`examples/comparator_demo.py` in `96f579d`.
 
 ---
 

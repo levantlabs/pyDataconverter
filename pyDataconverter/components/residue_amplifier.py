@@ -56,10 +56,18 @@ class ResidueAmplifier:
                        NOT applied inside ``amplify()`` — see the gain
                        contract above; the caller pre-multiplies.
         offset:        Output-referred DC offset voltage (V).
-        slew_rate:     Peak rate of change of the output (V/s). 0 or +inf
-                       disables slew limiting. Optional; Phase 1 uses the
-                       default (no slew limiting) because the reference has
-                       no slew model to compare against.
+        slew_rate:     **NOT YET IMPLEMENTED.**  The parameter is accepted,
+                       validated, stored, and shown in ``repr()`` for API
+                       compatibility, but ``amplify()`` does not currently
+                       apply slew limiting — the output settles purely
+                       exponentially regardless of the requested rate.
+                       Phase 1 deliberately omitted slew limiting because
+                       the reference implementation we calibrate against
+                       (see ``docs/superpowers/specs/2026-04-13-pipelined-adc-design.md``
+                       Appendix A) has no slew model to compare against.
+                       Pass any non-negative value (default ``+inf``) — it
+                       has no effect on output.  Slew-limited amplification
+                       is tracked for a future Phase.
         settling_tau:  First-order settling time constant (s). 0 means an
                        instantaneous ideal amp — no initial-condition decay.
         output_swing:  Optional (v_min, v_max) clipping bounds. None = no
@@ -123,6 +131,13 @@ class ResidueAmplifier:
 
         Returns:
             Amplified residue voltage, clipped to ``output_swing`` if set.
+
+        .. note::
+           ``slew_rate`` (set at construction) is **not yet honoured by
+           this method** — see the class docstring for details.  Settling
+           is purely exponential at ``settling_tau``; the amp is treated
+           as if it has infinite slew capability regardless of the
+           configured ``slew_rate``.
 
         Edge cases (handled explicitly to avoid NaN):
             - ``settling_tau == 0``: return ``target + offset`` regardless
