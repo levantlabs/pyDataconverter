@@ -1,6 +1,6 @@
 """
 Comparator Component Module
-==========================
+===========================
 
 This module provides comparator models for use in data converter simulations.
 

@@ -14,47 +14,48 @@ Notes:
 ------
 Algorithm
 ---------
-For each conversion the SAR ADC performs N comparison cycles (one per bit):
+For each conversion the SAR ADC performs N comparison cycles (one per bit)::
 
-  1. Sample-and-Hold
-     The input is sampled once.  Non-idealities (gain error, offset, kT/C
-     noise, aperture jitter) are applied at this stage and held fixed for the
-     duration of the bit-cycling.
+    1. Sample-and-Hold
+       The input is sampled once.  Non-idealities (gain error, offset, kT/C
+       noise, aperture jitter) are applied at this stage and held fixed for
+       the duration of the bit-cycling.
 
-  2. Bit loop (MSB → LSB)
-     For bit k (k = 0 is MSB):
-       a. Set bit k high  →  trial_code
-       b. Query the C-DAC: (v_refp, v_refn) = cdac.get_voltage(trial_code)
-       c. Reset the comparator (clears latch / hysteresis state)
-       d. Compare: compare(v_sampled, 0.0, v_refp, v_refn)
-          effective_diff = (v_sampled − v_refp) − (0 − v_refn)
-                         = v_sampled − (v_refp − v_refn)
-       e. Retain bit k iff effective_diff > 0
+    2. Bit loop (MSB → LSB)
+       For bit k (k = 0 is MSB):
+         a. Set bit k high  →  trial_code
+         b. Query the C-DAC: (v_refp, v_refn) = cdac.get_voltage(trial_code)
+         c. Reset the comparator (clears latch / hysteresis state)
+         d. Compare: compare(v_sampled, 0.0, v_refp, v_refn)
+            effective_diff = (v_sampled - v_refp) - (0 - v_refn)
+                           = v_sampled - (v_refp - v_refn)
+         e. Retain bit k iff effective_diff > 0
 
-  3. Output the final register value as the digital code.
+    3. Output the final register value as the digital code.
 
 Input conventions
 -----------------
-Single-ended:
-  v_sampled is the raw input voltage in [0, v_ref].
-  cdac.get_voltage() returns (v_dac, 0.0).
-  Comparator sees v_sampled − v_dac.
+Single-ended
+    ``v_sampled`` is the raw input voltage in ``[0, v_ref]``.
+    ``cdac.get_voltage()`` returns ``(v_dac, 0.0)``.
+    Comparator sees ``v_sampled - v_dac``.
 
-Differential:
-  v_sampled is the differential voltage v_pos − v_neg in [−v_ref/2, +v_ref/2].
-  cdac.get_voltage() returns (v_dacp, v_dacn).
-  Comparator sees (v_diff − v_dacp) + v_dacn = v_diff − v_dac_diff.
-  Non-idealities (offset, noise, etc.) are applied to the differential
-  voltage before the bit loop.
+Differential
+    ``v_sampled`` is the differential voltage ``v_pos - v_neg`` in
+    ``[-v_ref/2, +v_ref/2]``.
+    ``cdac.get_voltage()`` returns ``(v_dacp, v_dacn)``.
+    Comparator sees ``(v_diff - v_dacp) + v_dacn = v_diff - v_dac_diff``.
+    Non-idealities (offset, noise, etc.) are applied to the differential
+    voltage before the bit loop.
 
 Quantisation
 ------------
 SARADC is a *structural* model — its output code is produced by the CDAC
 binary search, not by a quantization formula.  The binary search naturally
-implements FLOOR quantisation and this is not configurable:
+implements FLOOR quantisation and this is not configurable::
 
-  code = floor(vin * 2^N / v_ref)   (single-ended)
-  code = floor((v_diff + v_ref/2) * 2^N / v_ref)   (differential)
+    code = floor(vin * 2^N / v_ref)              (single-ended)
+    code = floor((v_diff + v_ref/2) * 2^N / v_ref)  (differential)
 
 LSB is always v_ref / 2^N, matching physical SAR silicon.  The
 ``QuantizationMode`` enum defined in ``pyDataconverter.dataconverter`` does
@@ -65,9 +66,12 @@ relevant function in ``pyDataconverter.utils.metrics``.
 
 Component dependencies
 ----------------------
-Comparator : pyDataconverter.components.comparator.DifferentialComparator
-C-DAC      : pyDataconverter.components.cdac.SingleEndedCDAC  (SINGLE)
-             pyDataconverter.components.cdac.DifferentialCDAC (DIFFERENTIAL)
+Comparator
+    ``pyDataconverter.components.comparator.DifferentialComparator``
+
+C-DAC
+    ``pyDataconverter.components.cdac.SingleEndedCDAC`` (SINGLE)
+    ``pyDataconverter.components.cdac.DifferentialCDAC`` (DIFFERENTIAL)
 """
 
 from typing import Dict, List, Optional, Tuple, Type, Union
@@ -408,6 +412,23 @@ class MultibitSARADC(SARADC):
 
     def __init__(self, n_bits: int, v_ref: float = 1.0,
                  bits_per_cycle: int = 2, **kwargs):
+        """
+        Args:
+            n_bits: Total ADC resolution in bits.
+            v_ref: Reference voltage (V). Default 1.0.
+            bits_per_cycle: Number of bits resolved per SAR cycle (default 2).
+                Must be in [1, n_bits].  The conversion requires
+                ``ceil(n_bits / bits_per_cycle)`` cycles.  Higher values
+                reduce cycle count at the cost of a larger flash sub-ADC
+                (2^bits_per_cycle - 1 comparators per cycle).
+            **kwargs: All remaining arguments are forwarded to
+                ``SARADC.__init__`` (e.g. ``cap_mismatch``,
+                ``comparator_params``, ``noise_rms``, ``offset``,
+                ``gain_error``, ``t_jitter``, ``input_type``).
+
+        Raises:
+            ValueError: If bits_per_cycle is not in [1, n_bits].
+        """
         if bits_per_cycle < 1 or bits_per_cycle > n_bits:
             raise ValueError("bits_per_cycle must be in [1, n_bits]")
         self.bits_per_cycle = bits_per_cycle
@@ -484,6 +505,21 @@ class NoiseshapingSARADC(SARADC):
     """
 
     def __init__(self, n_bits: int, v_ref: float = 1.0, **kwargs):
+        """
+        Args:
+            n_bits: Total ADC resolution in bits.
+            v_ref: Reference voltage (V). Default 1.0.
+            **kwargs: All arguments accepted by ``SARADC.__init__``
+                (e.g. ``cap_mismatch``, ``comparator_params``,
+                ``noise_rms``, ``offset``, ``gain_error``, ``t_jitter``,
+                ``input_type``).
+
+        Note:
+            The integrator state is initialised to 0.0 and is clipped to
+            ``±0.5 * v_ref`` after each conversion to prevent runaway.
+            Call ``.reset()`` between independent measurement sequences to
+            clear the integrator.
+        """
         super().__init__(n_bits, v_ref, **kwargs)
         self.integrator_state: float = 0.0
 

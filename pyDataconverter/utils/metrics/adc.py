@@ -143,29 +143,18 @@ def calculate_adc_static_metrics(input_voltages: np.ndarray,
             of ideal_lsb.
             SYMMETRIC: ideal_lsb = v_ref / (2^N - 1), transitions at half-
             integer multiples of ideal_lsb (midpoints between output levels).
-        inl_method: Method for computing INL ('endpoint', 'best_fit', or
-            'absolute').
-            'endpoint'  — remove gain and offset by fitting a line through
-                          the first and last actual transitions. First and
-                          last INL entries are 0 by definition.
-            'best_fit'  — least-squares line through all transitions.
-                          Minimises RMS INL; first/last entries are not
-                          forced to zero.
-            'absolute'  — compare each transition directly to the
-                          mode-specific ideal position, with no gain or
-                          offset correction.
+        inl_method: Method for computing INL. One of ``'endpoint'``,
+            ``'best_fit'``, or ``'absolute'``. ``'endpoint'`` removes gain
+            and offset by fitting a line through the first and last transitions
+            (first and last INL entries are 0 by definition). ``'best_fit'``
+            uses a least-squares line (minimises RMS INL). ``'absolute'``
+            compares each transition to the ideal position with no correction.
 
     Returns:
-        Dictionary with keys:
-            DNL        : np.ndarray, length 2^N. One entry per code bin.
-                         Code 0 bin spans [0, T[0]]; code 2^N-1 bin spans
-                         [T[-1], v_ref].
-            INL        : np.ndarray, length 2^N-1. One entry per transition.
-            Offset     : float, deviation of T[0] from ideal (V).
-            GainError  : float, fractional gain error.
-            MaxDNL     : float, max |DNL| (LSB).
-            MaxINL     : float, max |INL| (LSB).
-            Transitions: np.ndarray of measured transition voltages.
+        dict: Keys are ``DNL`` (np.ndarray, 2^N entries; code 0 spans [0, T[0]]),
+            ``INL`` (np.ndarray, 2^N-1 entries), ``Offset`` (float, V),
+            ``GainError`` (float), ``MaxDNL`` (float, LSB), ``MaxINL`` (float, LSB),
+            and ``Transitions`` (np.ndarray of measured transition voltages).
 
     Notes:
         Assumes input_voltages is a monotonic ramp from 0 to v_ref.
@@ -364,23 +353,15 @@ def calculate_adc_static_metrics_histogram(
         offset: DC offset of the sine wave (V).  Defaults to v_ref/2 (centred
                 in the input range).
         inl_method: Reference line used to correct the cumulative INL.
-            'endpoint' (default) — line through the first and last
-                cumulative-sum values; corrected INL is zero at both ends.
-            'best_fit' — least-squares line through all cumulative-sum values;
-                minimises RMS INL.
+            ``'endpoint'`` (default) fits a line through the first and last
+            cumulative-sum values (corrected INL is zero at both ends).
+            ``'best_fit'`` uses a least-squares line (minimises RMS INL).
 
     Returns:
-        Dictionary with keys:
-            DNL    : np.ndarray, length 2^N.  One entry per code bin.
-                     Codes outside the sine amplitude are set to -1
-                     (missing-code convention).  The two outermost codes
-                     (code 0 and code 2^N-1) have inherently less reliable
-                     DNL estimates due to the open-ended nature of the edge
-                     bins near the PDF singularity.
-            INL    : np.ndarray, length 2^N-1.  One entry per transition,
-                     after endpoint/best_fit correction.
-            MaxDNL : float, max |DNL| in LSB.
-            MaxINL : float, max |INL| in LSB.
+        dict: Keys are ``DNL`` (np.ndarray, 2^N entries; codes outside the sine
+            amplitude are -1; edge-bin estimates are less reliable near the PDF
+            singularity), ``INL`` (np.ndarray, 2^N-1 entries after reference-line
+            correction), ``MaxDNL`` (float, LSB), and ``MaxINL`` (float, LSB).
 
     Warns:
         UserWarning: If amplitude < 90 % of full-scale (v_ref/2).  Codes

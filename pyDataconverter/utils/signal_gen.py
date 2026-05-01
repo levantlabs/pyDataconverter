@@ -1,6 +1,6 @@
 """
 Signal Generation Utilities
-==========================
+===========================
 
 Provides functions to generate various test signals for ADC testing.
 """

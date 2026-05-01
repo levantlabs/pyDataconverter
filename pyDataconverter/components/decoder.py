@@ -283,10 +283,10 @@ class SegmentedDecoder(DecoderBase):
             code: Integer in [0, 2^n_bits − 1].
 
         Returns:
-            Tuple[int, np.ndarray]:
-                therm_index  — upper n_therm_bits as an integer.
-                binary_bits  — lower n_binary_bits as a float bit array, MSB
-                               first.  Empty when n_binary_bits == 0.
+            Tuple[int, np.ndarray]: ``(therm_index, binary_bits)`` where
+            *therm_index* is the upper n_therm_bits as an integer, and
+            *binary_bits* is the lower n_binary_bits as a float array (MSB
+            first; empty when n_binary_bits == 0).
         """
         self._validate_code(code)
         n_bin = self.n_binary_bits

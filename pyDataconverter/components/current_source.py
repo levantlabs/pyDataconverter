@@ -15,8 +15,7 @@ the DAC.
 Classes:
     UnitCurrentSourceBase:  Abstract base defining the current source interface.
     IdealCurrentSource:     Fixed current with static Gaussian mismatch.
-    CurrentSourceArray:     Thermometer + binary element arrays; evaluates
-                            the total DAC output current given decoder outputs.
+    CurrentSourceArray:     Thermometer + binary arrays; evaluates total DAC output current.
 
 First written 2026-03-25; see ``git log`` for the change history.
 """
@@ -67,9 +66,8 @@ class IdealCurrentSource(UnitCurrentSourceBase):
     """
     Ideal current source with static Gaussian mismatch drawn once at construction.
 
-    The actual current is:
-        current = i_nominal * (1 + ε)
-    where ε ~ N(0, mismatch) is drawn once and held fixed, modelling
+    The actual current is ``current = i_nominal * (1 + ε)``
+    where ``ε ~ N(0, mismatch)`` is drawn once and held fixed, modelling
     process-induced static spread (threshold voltage variation, etc.).
 
     Attributes:
@@ -83,8 +81,8 @@ class IdealCurrentSource(UnitCurrentSourceBase):
         Args:
             i_nominal: Designed current in amperes (> 0).
             mismatch:  Standard deviation of multiplicative mismatch (≥ 0).
-                       A draw ε ~ N(0, mismatch) is applied once at init:
-                           actual = i_nominal * (1 + ε)
+                       A draw ``ε ~ N(0, mismatch)`` scales i_nominal once at
+                       construction to give the actual current.
 
         Raises:
             ValueError: If i_nominal ≤ 0 or mismatch < 0.
@@ -144,8 +142,8 @@ class CurrentSourceArray:
         sources are switched to the positive output rail.
 
     Binary segment
-        n_binary_bits sources with binary-weighted nominals:
-            source[j].i_nominal = 2^j * i_unit   (j = 0 is LSB)
+        n_binary_bits sources with binary-weighted nominals.
+        ``source[j].i_nominal = 2^j * i_unit`` (j=0 is LSB).
         MSB is at index n_binary_bits − 1.
 
     All sources are always conducting — they are *steered* between the

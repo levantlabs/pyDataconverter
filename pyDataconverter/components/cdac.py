@@ -8,8 +8,7 @@ in SAR ADC simulations.
 Classes:
     CDACBase:          Abstract base class defining the C-DAC interface.
     SingleEndedCDAC:   Binary-weighted C-DAC for single-ended SAR ADCs.
-    DifferentialCDAC:  Binary-weighted C-DAC with complementary arrays for
-                       differential SAR ADCs.
+    DifferentialCDAC:  Binary-weighted C-DAC with complementary arrays for differential SAR ADCs.
 
 First written 2026-03-25; see ``git log`` for the change history.
 
@@ -18,12 +17,12 @@ Notes:
 The C-DAC is the core of every SAR ADC.  It generates the trial voltages that
 the comparator evaluates during each bit cycle.
 
-get_voltage(code) always returns a (v_refp, v_refn) pair that maps directly
-onto the DifferentialComparator 4-input signature:
+``get_voltage(code)`` always returns a ``(v_refp, v_refn)`` pair that maps
+directly onto the DifferentialComparator 4-input signature::
 
     compare(v_signal, 0.0, v_refp, v_refn)
-    effective_diff = (v_signal − v_refp) − (0 − v_refn)
-                   = v_signal − (v_refp − v_refn)
+    effective_diff = (v_signal - v_refp) - (0 - v_refn)
+                   = v_signal - (v_refp - v_refn)
 
 SingleEndedCDAC returns (v_dac, 0.0) so v_refn = 0 (ground reference).
 DifferentialCDAC returns (v_dacp, v_dacn) with both rails actively driven.
@@ -39,13 +38,11 @@ arrays.  Correlated (identical) mismatch would cancel in the differential
 output, producing no nonlinearity; independent mismatch is required to model
 realistic differential errors.
 
-Termination cap:
-    Both classes include a fixed termination capacitor of 1.0 unit (equal to
-    the ideal LSB cap).  For binary-weighted caps this gives:
-        cap_total = (2^N − 1) + 1 = 2^N
-    and the ideal DAC output is code / 2^N * v_ref (FLOOR quantisation).
-    When custom cap_weights are supplied the user should scale them so that
-    the LSB capacitor is ≈ 1.0 unit to preserve this convention.
+Both classes include a fixed termination capacitor of 1.0 unit (equal to
+the ideal LSB cap).  For binary-weighted caps this gives
+``cap_total = (2^N - 1) + 1 = 2^N`` and the ideal DAC output is
+``code / 2^N * v_ref`` (FLOOR quantisation).  When custom cap_weights are
+supplied the user should scale them so that the LSB capacitor is ~1.0 unit.
 """
 
 from abc import ABC, abstractmethod
@@ -96,9 +93,11 @@ class CDACBase(ABC):
         """
         Return (v_refp, v_refn) for the given code.
 
-        The pair is passed directly to the comparator's reference inputs:
+        The pair is passed directly to the comparator's reference inputs::
+
             compare(v_signal, 0.0, v_refp, v_refn)
-        The effective decision threshold is v_refp − v_refn.
+
+        The effective decision threshold is ``v_refp - v_refn``.
 
         Args:
             code: Integer in [0, 2^n_bits − 1].
@@ -166,9 +165,11 @@ class SingleEndedCDAC(CDACBase):
     capacitors normalised to v_ref.  The negative reference output (v_refn)
     is always 0 V (ground).
 
-    Ideal output (no mismatch):
+    Ideal output (no mismatch)::
+
         v_dac = code / 2^n_bits * v_ref
-    Output range: [0, v_ref − LSB] where LSB = v_ref / 2^n_bits.
+
+    Output range: ``[0, v_ref - LSB]`` where ``LSB = v_ref / 2^n_bits``.
 
     Attributes:
         cap_weights (np.ndarray): Actual capacitor values (with mismatch),
@@ -660,9 +661,10 @@ class DifferentialCDAC(CDACBase):
     SAR ADCs.
 
     Both a positive and a negative capacitor array are modelled.  They switch
-    in a complementary fashion:
-        bit = 1 → positive cap connects to v_ref/2, negative cap to 0 V
-        bit = 0 → positive cap connects to 0 V,     negative cap to v_ref/2
+    in a complementary fashion::
+
+        bit = 1: positive cap connects to v_ref/2, negative cap to 0 V
+        bit = 0: positive cap connects to 0 V,     negative cap to v_ref/2
 
     Ideal outputs:
         v_dacp = code / 2^n_bits * v_ref / 2

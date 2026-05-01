@@ -1,6 +1,6 @@
 """
 FFT Analysis Utilities
-=====================
+======================
 
 Provides functions for FFT computation and visualization.
 """

@@ -30,8 +30,7 @@ class UnitCapacitorBase(ABC):
 
     All subclasses must expose:
         c_nominal   — the designed (target) capacitance.
-        capacitance — the actual capacitance used in simulation
-                      (includes any static or dynamic non-idealities).
+        capacitance — actual capacitance used in simulation (includes non-idealities).
     """
 
     @property
@@ -83,9 +82,8 @@ class IdealCapacitor(UnitCapacitorBase):
     """
     Ideal capacitor with static Gaussian mismatch drawn once at construction.
 
-    The actual capacitance is:
-        capacitance = c_nominal * (1 + ε)
-    where ε ~ N(0, mismatch) is drawn once and held fixed for the lifetime
+    The actual capacitance is ``capacitance = c_nominal * (1 + ε)``
+    where ``ε ~ N(0, mismatch)`` is drawn once and held fixed for the lifetime
     of the object, modelling process-induced static spread.
 
     Attributes:
@@ -101,8 +99,8 @@ class IdealCapacitor(UnitCapacitorBase):
             c_nominal: Designed capacitance (> 0).  May be in any consistent
                        unit (F, fF, or normalised to a unit cap).
             mismatch:  Standard deviation of multiplicative mismatch (≥ 0).
-                       A draw ε ~ N(0, mismatch) is applied once at init:
-                           actual = c_nominal * (1 + ε)
+                       A draw ``ε ~ N(0, mismatch)`` scales c_nominal once at
+                       construction to give the actual capacitance.
 
         Raises:
             ValueError: If c_nominal ≤ 0 or mismatch < 0.

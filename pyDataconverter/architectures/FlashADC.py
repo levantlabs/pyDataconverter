@@ -1,6 +1,6 @@
 """
 Flash ADC Module
-===============
+================
 
 This module provides a Flash ADC implementation with configurable non-idealities
 and encoder types.
@@ -30,9 +30,9 @@ Quantisation:
     ``quant_mode=QuantizationMode.SYMMETRIC`` to the relevant function in
     ``pyDataconverter.utils.metrics``.
 
-TODO:
-    - Bandwidth modeling: Comparator.compare() accepts time_step for bandwidth
-      limiting, but FlashADC does not yet pass it.
+.. note::
+    Bandwidth modeling: ``Comparator.compare()`` accepts ``time_step`` for
+    bandwidth limiting, but FlashADC does not yet pass it.
 """
 
 from enum import Enum
@@ -56,8 +56,8 @@ class EncoderType(Enum):
 
     XOR:
         XORs adjacent thermometer bits to produce a one-hot intermediate X,
-        then maps to binary via OR gates:
-            bit k of output = OR of X[i] for all i where bit k is set in (i+1)
+        then maps to binary via OR gates.
+        ``bit k of output = OR of X[i] for all i where bit k is set in (i+1)``
         Mirrors the standard hardware ROM encoder.
         With a valid thermometer code the result equals COUNT_ONES.
         With bubble errors, multiple XOR bits fire and the OR logic produces
@@ -332,11 +332,11 @@ class FlashADC(ADCBase):
         start of its settling window, for the most recent convert() call.
 
         Returns:
-            +1 if the sub-ADC's nearest threshold is above the last input,
-            -1 if the nearest threshold is below the last input,
-             0 if metastability modelling is disabled (tau_regen=0 on every
-               comparator) — in which case downstream pipelined ADCs treat
-               the stage as operating ideally.
+            +1 if the sub-ADC's nearest threshold is above the last input;
+            -1 if the nearest threshold is below the last input;
+            0 if metastability modelling is disabled (tau_regen=0 on every
+            comparator), in which case downstream pipelined ADCs treat
+            the stage as operating ideally.
 
         Internally uses ``self.reference.voltages`` (not ``get_voltages()``)
         so the sign reflects the static ladder geometry, independent of any

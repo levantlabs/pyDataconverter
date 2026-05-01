@@ -13,10 +13,8 @@ Public API:
     Enums:
         InputType        — SINGLE / DIFFERENTIAL; ADC input convention.
         OutputType       — SINGLE / DIFFERENTIAL; DAC output convention.
-        QuantizationMode — FLOOR / SYMMETRIC; behavioural-ADC quantization
-                           formula choice (see the enum's docstring for
-                           applicability — structural ADCs are
-                           FLOOR-by-construction).
+        QuantizationMode — FLOOR / SYMMETRIC; quantization formula choice
+        (behavioural ADCs only; structural ADCs are FLOOR-by-construction).
 
 First written 2025-01-31; see ``git log`` for the change history.
 """

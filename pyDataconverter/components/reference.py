@@ -7,8 +7,7 @@ for use in Flash ADC simulations.
 
 Classes:
     ReferenceBase:      Abstract base class defining the reference interface.
-    ReferenceLadder:    Uniform resistor-ladder divider with optional mismatch
-                        and dynamic noise.
+    ReferenceLadder:    Uniform resistor-ladder divider with optional mismatch and noise.
     ArbitraryReference: User-supplied threshold array with optional noise.
 
 First written 2026-03-23; see ``git log`` for the change history.

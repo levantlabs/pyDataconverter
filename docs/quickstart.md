@@ -1,6 +1,6 @@
 # pyDataconverter Quick Start Guide
 
-Get up and running in minutes. This guide covers the three converter architectures, signal generation, performance analysis, and visualization.
+Get up and running in minutes. This guide covers all ADC and DAC architectures, signal generation, performance analysis, and visualization.
 
 ---
 
@@ -26,18 +26,23 @@ pip install -e .
 2. [SimpleADC](#simpleadc)
 3. [SimpleDAC](#simpledac)
 4. [FlashADC](#flashadc)
-5. [SARADC](#saradc)
+5. [SARADC](#saradc) — including MultibitSARADC and NoiseshapingSARADC
 6. [CurrentSteeringDAC](#currentsteeringdac)
-7. [Signal Generation](#signal-generation)
-8. [Analysis](#analysis)
-   - [Static Metrics — ADC](#static-metrics--adc)
-   - [Dynamic Metrics — ADC / DAC](#dynamic-metrics--adc--dac)
-9. [Visualization](#visualization)
-   - [ADC Plots](#adc-plots)
-   - [DAC Plots](#dac-plots)
-   - [Flash ADC Visualization](#flash-adc-visualization)
-   - [SAR ADC Visualization](#sar-adc-visualization)
-10. [TimeInterleavedADC](#timeinterleavedadc) — M-channel time-interleaved ADC with per-channel mismatch control
+7. [R2RDAC](#r2rdac)
+8. [ResistorStringDAC](#resistorstringdac)
+9. [SegmentedResistorDAC](#segmentedresistordac)
+10. [PipelinedADC](#pipelinedadc)
+11. [Signal Generation](#signal-generation)
+12. [Analysis](#analysis)
+    - [Static Metrics — ADC](#static-metrics--adc)
+    - [Dynamic Metrics — ADC / DAC](#dynamic-metrics--adc--dac)
+    - [Characterization Sweeps](#characterization-sweeps) — dynamic range and ERBW
+13. [Visualization](#visualization)
+    - [ADC Plots](#adc-plots)
+    - [DAC Plots](#dac-plots)
+    - [Flash ADC Visualization](#flash-adc-visualization)
+    - [SAR ADC Visualization](#sar-adc-visualization)
+14. [TimeInterleavedADC](#timeinterleavedadc) — M-channel time-interleaved ADC with per-channel mismatch control
 
 ---
 
@@ -283,6 +288,50 @@ code = adc_diff.convert((0.75, 0.25))   # v_diff = +0.5 V
 code = adc_diff.convert((0.5,  0.5))    # v_diff =  0.0 V
 ```
 
+### MultibitSARADC
+
+Resolves multiple bits per cycle using a flash sub-ADC, reducing the number of comparison cycles at the cost of a larger comparator bank. With `bits_per_cycle=M`, each conversion takes `ceil(N/M)` cycles instead of N.
+
+```python
+from pyDataconverter.architectures.SARADC import MultibitSARADC
+
+# 12-bit SAR: 2 bits per cycle (6 cycles vs 12)
+adc = MultibitSARADC(n_bits=12, v_ref=1.0, bits_per_cycle=2)
+
+# 3 bits per cycle (4 cycles); all SARADC non-idealities supported
+adc = MultibitSARADC(
+    n_bits=12,
+    v_ref=1.0,
+    bits_per_cycle=3,
+    cap_mismatch=0.001,
+    comparator_params={'noise_rms': 0.5e-3},
+)
+code = adc.convert(0.5)
+```
+
+### NoiseshapingSARADC
+
+First-order noise-shaping SAR: the quantisation residue is accumulated in an integrator and fed forward into the next sample, shaping noise toward higher frequencies. Requires oversampling (OSR >> 1) to realise the ~9 dB per octave in-band SNR improvement.
+
+```python
+from pyDataconverter.architectures.SARADC import NoiseshapingSARADC
+import numpy as np
+
+# 10-bit SAR with first-order noise shaping
+adc = NoiseshapingSARADC(n_bits=10, v_ref=1.0)
+
+# Use at 8× OSR: sample at 8 MHz to cover a 1 MHz signal bandwidth
+fs_osr = 8e6
+N = 4096
+signal = 0.4 * np.sin(2 * np.pi * 100e3 * np.arange(N) / fs_osr) + 0.5
+codes = np.array([adc.convert(v) for v in signal])
+
+# Reset integrator between independent measurement runs
+adc.reset()
+```
+
+The integrator state is clipped to ±0.5 × v_ref each sample to prevent runaway.
+
 ---
 
 ## CurrentSteeringDAC
@@ -366,6 +415,112 @@ dac = CurrentSteeringDAC(
     output_type=OutputType.DIFFERENTIAL,
 )
 ```
+
+---
+
+## R2RDAC
+
+R-2R ladder voltage-mode DAC. Each bit drives a 2R arm on the ladder; tap voltages are pre-computed at construction for O(1) converts. Supports independent Gaussian mismatch on R and 2R arms. Single-ended output only.
+
+```python
+from pyDataconverter.architectures.R2RDAC import R2RDAC
+
+# Ideal 8-bit R-2R DAC
+dac = R2RDAC(n_bits=8, v_ref=1.0, r_unit=1e3)
+print(dac.convert(128))   # ≈ 0.502 V
+
+# With resistor mismatch (separate σ for horizontal R and vertical 2R arms)
+dac = R2RDAC(
+    n_bits=10,
+    v_ref=1.0,
+    r_unit=10e3,
+    r_mismatch=0.002,    # 0.2 % std on R (horizontal) arms
+    r2_mismatch=0.003,   # 0.3 % std on 2R (vertical) arms
+    seed=42,
+)
+```
+
+---
+
+## ResistorStringDAC
+
+Kelvin divider DAC: 2^N resistors in series from GND to V_ref; code k taps at node k. Tap voltages are pre-computed for O(1) converts. Monotone by construction (output is always a non-decreasing Thevenin sum). Single-ended output only.
+
+```python
+from pyDataconverter.architectures.ResistorStringDAC import ResistorStringDAC
+
+# Ideal 8-bit string DAC
+dac = ResistorStringDAC(n_bits=8, v_ref=1.0, r_unit=1e3)
+print(dac.convert(128))   # ≈ 0.502 V
+
+# With resistor mismatch (DNL bounded by mismatch; still monotone)
+dac = ResistorStringDAC(
+    n_bits=8,
+    v_ref=1.0,
+    r_mismatch=0.01,     # 1 % std per resistor
+    seed=7,
+)
+```
+
+---
+
+## SegmentedResistorDAC
+
+Two-stage segmented resistor DAC: thermometer-decoded coarse resistor string (MSBs) + R-2R fine sub-DAC (LSBs) that spans one coarse LSB voltage. Combines the monotonicity of the string with the hardware efficiency of R-2R.
+
+```python
+from pyDataconverter.architectures.SegmentedResistorDAC import SegmentedResistorDAC
+
+# 10-bit segmented: top 4 bits on coarse string, bottom 6 bits on R-2R fine DAC
+dac = SegmentedResistorDAC(
+    n_bits=10,
+    v_ref=1.0,
+    n_therm=4,           # 4 MSBs → 16-segment coarse string
+    r_unit=1e3,
+    r_mismatch=0.002,    # applied independently to coarse and fine stages
+    seed=42,
+)
+print(dac.convert(512))   # ≈ 0.5 V
+```
+
+---
+
+## PipelinedADC
+
+Cascaded pipeline of `PipelineStage` instances followed by a backend ADC. Each stage resolves a few bits, amplifies the residue, and passes it forward. A `PipelineStage` composes a sub-ADC, a sub-DAC, and a `ResidueAmplifier`; the `PipelinedADC` applies a digital combiner across all stages.
+
+```python
+from pyDataconverter.architectures.PipelinedADC import PipelinedADC, PipelineStage
+from pyDataconverter.architectures.SimpleADC import SimpleADC
+from pyDataconverter.architectures.SimpleDAC import SimpleDAC
+from pyDataconverter.components.residue_amplifier import ResidueAmplifier
+from pyDataconverter.dataconverter import InputType, OutputType
+
+fs = 100e6   # 100 MHz sample rate
+
+def make_stage(stage_bits: int, gain: float) -> PipelineStage:
+    sub_adc = SimpleADC(n_bits=stage_bits, v_ref=1.0, input_type=InputType.DIFFERENTIAL)
+    sub_dac = SimpleDAC(n_bits=stage_bits, v_ref=1.0, output_type=OutputType.SINGLE)
+    ramp = ResidueAmplifier(gain=gain)
+    return PipelineStage(sub_adc=sub_adc, sub_dac=sub_dac, residue_amp=ramp, fs=fs)
+
+# 2 stages × 2 bits/stage + 4-bit backend = 8-bit pipeline
+stages  = [make_stage(2, gain=4.0), make_stage(2, gain=4.0)]
+backend = SimpleADC(n_bits=4, v_ref=1.0, input_type=InputType.DIFFERENTIAL)
+
+adc = PipelinedADC(
+    n_bits=8,
+    v_ref=1.0,
+    input_type=InputType.DIFFERENTIAL,
+    stages=stages,
+    backend=backend,
+    fs=fs,
+)
+
+code = adc.convert((0.6, 0.4))   # v_diff = +0.2 V
+```
+
+The digital combiner weight `stage.H` defaults to the residue amplifier gain. Set `backend_H` and `backend_code_offset` when the backend gain differs from 1.0.
 
 ---
 
@@ -469,6 +624,62 @@ print(f"SNDR:  {metrics['SNDR']:.1f} dB")
 print(f"SFDR:  {metrics['SFDR']:.1f} dB")
 print(f"THD:   {metrics['THD']:.1f} dB")
 print(f"ENOB:  {metrics['ENOB']:.2f} bits")
+```
+
+### Characterization Sweeps
+
+High-level helpers that drive an ADC through an amplitude or frequency sweep and return a scalar figure-of-merit. They work with any ADC that implements `.convert(float) -> int`.
+
+#### Dynamic range sweep
+
+```python
+from pyDataconverter.architectures.SimpleADC import SimpleADC
+from pyDataconverter.dataconverter import InputType
+from pyDataconverter.utils.characterization import measure_dynamic_range
+
+adc = SimpleADC(n_bits=12, v_ref=1.0, input_type=InputType.SINGLE,
+                noise_rms=100e-6)
+
+result = measure_dynamic_range(
+    adc,
+    n_bits=12,
+    v_ref=1.0,
+    fs=1e6,
+    n_fft=4096,
+    n_fin=97,
+    n_amplitudes=25,
+    amplitude_range_dBFS=(-80.0, -1.0),
+)
+
+print(f"Dynamic range: {result['DR_dB']:.1f} dB")
+# result also contains 'Amplitudes_dBFS' and 'SNR_values' arrays
+# for plotting the SNR-vs-amplitude curve
+```
+
+#### Effective resolution bandwidth (ERBW)
+
+```python
+from pyDataconverter.architectures.SimpleADC import SimpleADC
+from pyDataconverter.dataconverter import InputType
+from pyDataconverter.utils.characterization import measure_erbw
+
+adc = SimpleADC(n_bits=12, v_ref=1.0, input_type=InputType.SINGLE,
+                noise_rms=100e-6)
+
+result = measure_erbw(
+    adc,
+    n_bits=12,
+    v_ref=1.0,
+    fs=1e6,
+    n_fft=4096,
+    freq_range_hz=(1e3, 5e5),
+    n_frequencies=20,
+    amplitude_dBFS=-3.0,
+)
+
+print(f"ERBW:     {result['ERBW_Hz']/1e3:.1f} kHz")
+print(f"ENOB ref: {result['ENOB_ref']:.2f} bits")
+# result also contains 'Frequencies_Hz' and 'ENOB_values' arrays
 ```
 
 ---

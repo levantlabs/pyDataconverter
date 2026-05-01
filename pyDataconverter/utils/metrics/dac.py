@@ -33,11 +33,10 @@ def calculate_dac_static_metrics(dac: DACBase,
         all ``2**n_bits`` codes are used.  Must be >= 2 if provided.
     inl_method : str, optional
         Method for computing INL (default ``'endpoint'``).
-        ``'endpoint'`` — fit a line through the first and last measured
-            voltages (IEEE 1057).  First and last INL entries are 0 by
-            definition.
-        ``'best_fit'`` — least-squares line through all measured voltages.
-            Minimises RMS INL; first/last entries are not forced to zero.
+        ``'endpoint'`` fits a line through the first and last measured
+        voltages (IEEE 1057; first and last INL entries are 0 by definition).
+        ``'best_fit'`` uses a least-squares line through all measured voltages
+        (minimises RMS INL; first/last entries not forced to zero).
 
     Returns
     -------

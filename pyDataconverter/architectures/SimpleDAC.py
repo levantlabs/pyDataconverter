@@ -1,6 +1,6 @@
 """
 Simple DAC Implementation
-========================
+=========================
 
 This module provides a simple DAC implementation with optional first-order
 non-idealities.

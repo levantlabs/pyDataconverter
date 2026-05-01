@@ -1,6 +1,6 @@
 """
 Simple ADC Implementation
-========================
+=========================
 
 This module provides a simple ADC implementation with optional first-order
 non-idealities.

@@ -36,7 +36,7 @@ class PipelineStage:
     One stage of a pipelined ADC.
 
     Composes a sub-ADC (any ADCBase), a sub-DAC (any DACBase), and a
-    ResidueAmplifier. Performs one stage of the pipelined conversion:
+    ResidueAmplifier. Performs one stage of the pipelined conversion::
 
         raw_code = sub_adc.convert(v_sampled)
         v_dac    = sub_dac.convert(raw_code)
@@ -113,13 +113,10 @@ class PipelineStage:
                 stage 0; the amplified residue from stage i-1 for i > 0).
 
         Returns:
-            (raw_code, shifted_code, v_res):
-                raw_code     — the sub-ADC's output (0..n_codes-1).
-                shifted_code — raw_code + code_offset, for the digital
-                               combiner.
-                v_res        — amplified residue, in the same voltage
-                               coordinate system as v_sampled, to be fed
-                               to the next stage.
+            Tuple ``(raw_code, shifted_code, v_res)`` where *raw_code* is the
+            sub-ADC output (0..n_codes-1), *shifted_code* is raw_code +
+            code_offset for the digital combiner, and *v_res* is the amplified
+            residue (V) to be fed to the next stage.
         """
         raw_code = int(self.sub_adc.convert(float(v_sampled)))
         v_dac    = self.sub_dac.convert(raw_code)
@@ -158,9 +155,15 @@ class PipelinedADC(ADCBase):
     the signal to stage 0. Each stage produces a partial code and a residue
     that feeds the next stage. The backend digitises the final residue.
 
-    Digital combiner: ``DOUT = DOUT + DOUT * stage.H + shifted_code`` per
-    stage and once more with ``backend_H`` for the backend, bit-exactly
-    matching the adc_book reference's accumulation formula.
+    Digital combiner: at each stage, the accumulated code is scaled by
+    ``(1 + stage.H)`` and the stage's shifted code is added::
+
+        DOUT = DOUT * (1 + stage.H) + shifted_code
+
+    After all pipeline stages the backend code is folded in with
+    ``backend_H``.  ``stage.H`` defaults to the stage's residue amplifier
+    gain so that earlier bits are weighted proportionally to the interstage
+    gain chain.
 
     Attributes:
         stages:              List of PipelineStage instances.
@@ -193,6 +196,37 @@ class PipelinedADC(ADCBase):
                  gain_error: float = 0.0,
                  t_jitter: float = 0.0,
                  clip_output: bool = True):
+        """
+        Args:
+            n_bits: Total ADC resolution in bits.
+            v_ref: Reference voltage (V, > 0).
+            input_type: InputType.SINGLE or InputType.DIFFERENTIAL.
+                Differential is the typical mode for pipelined ADCs.
+            stages: Non-empty list of PipelineStage instances forming the
+                pipeline cascade.  At least one stage is required.
+            backend: Backend ADC (any ADCBase subclass) that digitises the
+                final residue.  Required; cannot be None.
+            backend_H: Digital combiner weight for the backend code.
+                Default 1.0. Adjust when the backend gain differs from 1.
+            backend_code_offset: Integer added to the backend's raw code
+                before combining.  Default 0.
+            fs: Sample rate (Hz).  Default 1.0 is a placeholder — any
+                configuration with ``tau_regen > 0`` on a comparator or
+                ``settling_tau > 0`` on a residue amp MUST set this to the
+                real sample rate to get valid timing budgets.
+            noise_rms: First-stage S&H input-referred noise (V RMS, >= 0).
+            offset: First-stage S&H input-referred offset (V).
+            gain_error: First-stage S&H fractional gain error (dimensionless).
+            t_jitter: First-stage S&H aperture jitter (s RMS, >= 0).
+            clip_output: Whether to clip the final DOUT to
+                [0, 2**n_bits - 1].  Default True.
+
+        Raises:
+            ValueError: If stages is empty or fs/noise_rms/t_jitter are
+                out of range.
+            TypeError: If stages contains non-PipelineStage objects, or
+                backend is not an ADCBase instance.
+        """
         super().__init__(n_bits, v_ref, input_type)
 
         if stages is None or not isinstance(stages, list) or len(stages) == 0:
